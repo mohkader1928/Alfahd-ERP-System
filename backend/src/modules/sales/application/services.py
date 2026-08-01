@@ -11,6 +11,8 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
+
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository
 from src.modules.identity.infrastructure.repositories import PartnerRepository, ProductRepository
@@ -259,7 +261,26 @@ class SalesInvoiceService:
             tax_amount=tax_total,
             total_amount=subtotal + tax_total,
         )
-        await self.invoice_repo.add(invoice, invoice_lines)
+        try:
+            await self.invoice_repo.add(invoice, invoice_lines)
+        except IntegrityError as e:
+            # Belt-and-suspenders against the exact race the status check
+            # above can't close on its own (two concurrent requests can both
+            # read status="confirmed" before either commits): the database's
+            # partial unique index on sales_invoice.sales_order_id is the
+            # actual guarantee — this only translates its violation into the
+            # same clean, expected error the sequential-retry case gets from
+            # the status check.
+            raise ValueError("This sales order has already been invoiced") from e
+
+        # Closes the sequential-retry half of the same bug: without this, the
+        # status check above never stops a second call once the order is
+        # already invoiced, since nothing ever advanced it past "confirmed".
+        # (The database constraint above is what actually closes the
+        # concurrent-request half — this alone would not be sufficient for
+        # that case, since two simultaneous requests can both read
+        # "confirmed" before either writes "done".)
+        order.status = "done"
 
         submission = await self._run_zatca_pipeline(
             invoice=invoice,

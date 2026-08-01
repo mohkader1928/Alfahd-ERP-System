@@ -650,3 +650,194 @@ No destructive operation is proposed anywhere in this design.
 This order deliberately fixes the guaranteed, deterministic bug (#1)
 before building any new locking or idempotency infrastructure — the
 highest-value fix requires no new architecture at all.
+
+---
+
+## Implementation — Phase 16B-Implementation-01 (targeted invoice fix)
+
+**Status: implemented, tested, not yet committed.** This section documents
+what was actually built for Critical Race Condition #1 only — steps 4–8
+of the Implementation Order above remain future work, unchanged from the
+original design.
+
+### Exact bug
+
+`SalesInvoiceService.issue_invoice_from_order` (`sales/application/services.py`)
+read `order.status` (`if order.status != "confirmed": raise ValueError(...)`)
+but — confirmed by grepping every occurrence of `order.status` in the
+file — never wrote it. Traced through the full request path (route →
+schema → `AuthContext` → service → repository → model → transaction →
+numbering → constraints) with nothing else in the codebase advancing it
+either. Root cause: **missing state transition**, not a numbering,
+transaction-timing, or constraint gap on its own — those became relevant
+only once the fix needed to guarantee correctness under true concurrency,
+not just sequential retries.
+
+### Root cause classification
+
+Both **retry** and **concurrent requests** were confirmed causes, each
+requiring a different half of the fix:
+- **Sequential retry** (client resubmits after a timeout, or a UI button
+  gets double-clicked): closed by writing `order.status = "done"` — the
+  second call's existing status check now correctly rejects it.
+- **True concurrent requests** (two simultaneous calls, both reading
+  `status = "confirmed"` before either commits): the status check *alone*
+  cannot close this — both requests observe the same pre-write state under
+  READ COMMITTED. This required a database-level guarantee independent of
+  request timing.
+
+### Business invariant identified
+
+`sales_invoice.sales_order_id` is nullable — credit notes and any invoice
+not created from an order leave it `NULL` (confirmed: `issue_credit_note`
+never sets `sales_order_id`). Given this nucleus's scope (whole-order
+invoicing only, no partial invoicing, no standalone Delivery document —
+the entire order's lines are invoiced in one call), the natural invariant
+is: **a given sales order can be linked to at most one invoice.** A plain
+`UNIQUE` constraint would be wrong (it would forbid multiple `NULL`s,
+breaking credit notes and any other order-less invoice); a **partial**
+unique index scoped to non-`NULL` values expresses the real rule exactly.
+
+This does **not** make the source document (`sales_order`) itself globally
+unique in any new way — only the *relationship* "one invoice per order" is
+constrained, which is exactly the described business rule and nothing
+broader.
+
+### Chosen fix (minimal, two complementary layers)
+
+1. **Database constraint (the actual guarantee)** — migration
+   `0e71cd2ec945_prevent_duplicate_invoice_per_order.py`:
+   ```sql
+   CREATE UNIQUE INDEX ux_sales_invoice_sales_order_id
+   ON sales_invoice (sales_order_id)
+   WHERE sales_order_id IS NOT NULL
+   ```
+   This closes the race **regardless of timing** — no explicit lock is
+   needed because Postgres's unique-index enforcement is itself the
+   concurrency-safe mechanism: two concurrent transactions inserting the
+   same `sales_order_id` will have the second `INSERT` fail atomically,
+   full stop, independent of read timing.
+
+2. **Transaction-safe application behavior (not a duplicate check)** —
+   `sales/application/services.py`:
+   - `order.status = "done"` written after the invoice is successfully
+     added, inside the same transaction — gives the common sequential-retry
+     case a fast, expected `422` without redoing the invoice-preparation
+     work, ZATCA prep, etc. This is not itself sufficient for correctness
+     (see above) — it complements the constraint, doesn't replace it.
+   - The `await self.invoice_repo.add(invoice, invoice_lines)` call
+     (confirmed to `flush()` immediately, before ZATCA, before journal
+     posting, before stock deduction) is wrapped in
+     `try/except IntegrityError`, re-raising as the same domain
+     `ValueError` the status check already raises — so a concurrent
+     duplicate surfaces as the existing clean `422` path in the route
+     (`except (ValueError, InsufficientStockError)`), not a raw `500`.
+     **No route code changed** — this was the deciding reason to catch it
+     at the service layer.
+
+No `Idempotency-Key` infrastructure, no `SELECT ... FOR UPDATE`, no Redis,
+and no locking beyond what Postgres's own unique-index check already
+does — the investigation showed none of those were required to close this
+specific race.
+
+### Why the constraint alone is sufficient, and why the status write still matters
+
+Because `SalesInvoiceRepository.add()` flushes immediately after
+`session.add(invoice)` — confirmed by reading the repository directly —
+a losing concurrent request fails at that flush point, **before** any
+ZATCA submission, journal entry, or stock deduction executes for it. The
+whole transaction then rolls back (the existing `async with
+AsyncSessionLocal()` session-dependency pattern already does this
+automatically on an unhandled exception — no new rollback code was
+needed). So the constraint alone guarantees **zero partial side effects**
+for the rejected duplicate, not just a rejected invoice row.
+
+The status write is kept anyway because: (a) it's the literal root cause
+identified in the original audit — fixing it is not optional polish; (b)
+it avoids wasted work (ZATCA prep, line construction) on the common,
+non-malicious retry case; (c) the frontend's sales-order detail page
+(`app/(dashboard)/sales/orders/[id]/page.tsx`) already gates the "Issue
+Invoice" button on `order.status === "confirmed"` — it was written
+assuming the status would eventually change. This fix makes that
+assumption true; **no frontend code changes were needed or made.**
+
+### Transaction behavior
+
+No change to the transaction boundary itself — still one session, one
+commit point in the route, matching the architecture documented earlier
+in this file. The new `try/except` and status write both execute inside
+the existing single transaction; a duplicate attempt's partial work (the
+`SalesInvoice`/`SalesInvoiceLine` objects added to the session) is
+discarded by the same rollback-on-exception behavior every other
+`ValueError` in this codebase already relies on.
+
+### Concurrency strategy
+
+Database-level (partial unique index), not application-level locking —
+chosen over `SELECT ... FOR UPDATE` on the order row because the
+constraint is simpler, requires no lock-hold-duration reasoning, and
+directly encodes the actual business invariant rather than serializing
+access to a row for a reason a future reader would have to infer.
+
+### Migration safety — verified before creating the constraint
+
+```sql
+SELECT sales_order_id, count(*) FROM sales_invoice
+WHERE sales_order_id IS NOT NULL GROUP BY sales_order_id HAVING count(*) > 1;
+-- 0 rows
+```
+173 existing non-`NULL` `sales_order_id` rows checked, **zero violations,
+zero duplicate IDs found**. No cleanup was required; the constraint was
+created directly with no pre-migration data changes. Verified again,
+identically, immediately before writing the migration — see the
+verification report for the exact command and output.
+
+### Test methodology — genuine concurrency, not sequential-dressed-as-concurrent
+
+`tests/test_invoice_duplicate_prevention.py`, 7 tests, all through the
+real HTTP API against the real dockerized Postgres:
+
+1. **Normal invoice creation** — one invoice, order reaches `"done"`.
+2. **Sequential duplicate** — second call gets `422`.
+3. **Concurrent duplicate** — `asyncio.gather()` fires two real, separate
+   HTTP requests simultaneously; each resolves its own `AuthContext` and
+   its own `AsyncSession` via the app's normal `get_db()` dependency,
+   exactly like two real concurrent clients. Asserted on **both** the
+   HTTP response codes (`[201, 422]`, sorted, order-independent since
+   which request wins the race is nondeterministic) **and** the actual
+   database state (exactly one invoice row via the CSV export endpoint) —
+   not just "no exception was raised." Run **5 times in a row** during
+   verification to rule out a timing-dependent false pass; consistent
+   `[201, 422]` every time.
+4. **Independent orders** — two different orders for the same company
+   each get their own invoice, unaffected by the new constraint.
+5. **Multi-company** — two different companies each successfully invoice
+   their own order; Company A's RLS-enforced inability to even see
+   Company B's order (Phase 16A) is reconfirmed as a side effect.
+6. **Accounting** — after a blocked duplicate attempt, the revenue account
+   reflects exactly one invoice's amount (`200.0000`), not double
+   (`400.0000`).
+7. **Regression control** — reconfirms a fresh company's first invoice
+   attempt still succeeds (the constraint doesn't block legitimate use).
+
+### Test results
+
+```
+7 passed in 7.54s          (this file alone)
+67 passed in 79.07s        (full suite, including this file, against a
+                             cold-restarted — not hot-reloaded — stack)
+```
+Concurrent test re-run 5× independently: `[201, 422]` every time, zero
+flakes.
+
+### Remaining Phase 16B work (unchanged from the original design)
+
+Everything from Implementation Order steps 2–8 remains open: the missing
+`goods_receipt` number constraint, `stock_quant`/`purchase_order_line`
+row-locking, the general-purpose `idempotency_key` table and its
+MUST/SHOULD-HAVE endpoint rollout (including the structurally identical
+gap on `POST /invoices/{id}:credit-note`, deliberately **not** touched in
+this targeted fix — flagged, not silently fixed, per the narrow scope of
+this task), the atomic document-number counter, and translating the
+remaining raw `IntegrityError`s (e.g. `Company.vat_number`) into clean
+`409`s.
