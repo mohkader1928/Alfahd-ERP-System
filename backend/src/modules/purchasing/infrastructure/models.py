@@ -44,6 +44,7 @@ class PurchaseOrderLine(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     purchase_order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("purchase_order.id"), nullable=False
     )
@@ -79,6 +80,7 @@ class GoodsReceiptLine(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     goods_receipt_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("goods_receipt.id"), nullable=False
     )
@@ -125,6 +127,7 @@ class VendorBillLine(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     vendor_bill_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("vendor_bill.id"), nullable=False)
     purchase_order_line_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("purchase_order_line.id"), nullable=False

@@ -165,6 +165,7 @@ class JournalEntryLine(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     journal_entry_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("journal_entry.id"), nullable=False, index=True
     )

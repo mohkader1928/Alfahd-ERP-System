@@ -81,6 +81,7 @@ class QuotationService:
         orm_lines = [
             QuotationLine(
                 id=uuid.uuid4(),
+                company_id=company_id,
                 product_id=line["product_id"],
                 qty=Decimal(str(line["qty"])),
                 unit_price=Decimal(str(line["unit_price"])),
@@ -114,6 +115,7 @@ class QuotationService:
         order_lines = [
             SalesOrderLine(
                 id=uuid.uuid4(),
+                company_id=company_id,
                 product_id=line.product_id,
                 description="",
                 qty=line.qty,
@@ -221,6 +223,7 @@ class SalesInvoiceService:
             invoice_lines.append(
                 SalesInvoiceLine(
                     id=uuid.uuid4(),
+                    company_id=company_id,
                     product_id=line.product_id,
                     description=product.name if product else "",
                     qty=line.qty,
@@ -358,6 +361,7 @@ class SalesInvoiceService:
         credit_lines = [
             SalesInvoiceLine(
                 id=uuid.uuid4(),
+                company_id=company_id,
                 product_id=line.product_id,
                 description=line.description,
                 qty=line.qty,
@@ -465,6 +469,7 @@ class SalesInvoiceService:
 
         submission = ZatcaSubmission(
             id=uuid.uuid4(),
+            company_id=invoice.company_id,
             sales_invoice_id=invoice.id,
             uuid_value=result.uuid_value,
             icv=result.icv,

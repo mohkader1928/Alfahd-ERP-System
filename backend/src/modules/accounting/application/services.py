@@ -251,6 +251,7 @@ class JournalEntryService:
         orm_lines = [
             JournalEntryLine(
                 id=uuid.uuid4(),
+                company_id=company_id,
                 journal_entry_id=domain_entry.id,
                 account_id=line.account_id,
                 cost_center_id=line.cost_center_id,
@@ -311,6 +312,7 @@ class JournalEntryService:
         reversal_lines = [
             JournalEntryLine(
                 id=uuid.uuid4(),
+                company_id=company_id,
                 journal_entry_id=reversal.id,
                 account_id=line_.account_id,
                 cost_center_id=line_.cost_center_id,

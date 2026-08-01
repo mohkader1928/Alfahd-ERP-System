@@ -52,7 +52,7 @@ class WarehouseService:
         warehouse = Warehouse(id=uuid.uuid4(), company_id=company_id, branch_id=branch_id, name=name, is_default=is_default)
         await self.warehouse_repo.add(warehouse)
 
-        location = Location(id=uuid.uuid4(), warehouse_id=warehouse.id, name=f"{name} - Stock")
+        location = Location(id=uuid.uuid4(), company_id=company_id, warehouse_id=warehouse.id, name=f"{name} - Stock")
         await self.location_repo.add(location)
         return warehouse, location
 
@@ -211,6 +211,7 @@ class CycleCountService:
             orm_lines.append(
                 CycleCountLine(
                     id=uuid.uuid4(),
+                    company_id=company_id,
                     product_id=line["product_id"],
                     location_id=line["location_id"],
                     system_qty=system_qty,

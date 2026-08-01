@@ -76,6 +76,7 @@ class PurchaseOrderService:
         orm_lines = [
             PurchaseOrderLine(
                 id=uuid.uuid4(),
+                company_id=company_id,
                 product_id=line["product_id"],
                 qty=Decimal(str(line["qty"])),
                 unit_price=Decimal(str(line["unit_price"])),
@@ -185,7 +186,13 @@ class GoodsReceiptService:
 
             po_line.qty_received += qty
             receipt_lines.append(
-                GoodsReceiptLine(id=uuid.uuid4(), purchase_order_line_id=po_line.id, product_id=po_line.product_id, qty=qty)
+                GoodsReceiptLine(
+                    id=uuid.uuid4(),
+                    company_id=company_id,
+                    purchase_order_line_id=po_line.id,
+                    product_id=po_line.product_id,
+                    qty=qty,
+                )
             )
 
         await self.receipt_repo.add(receipt, receipt_lines)
@@ -269,6 +276,7 @@ class VendorBillService:
             bill_lines.append(
                 VendorBillLine(
                     id=uuid.uuid4(),
+                    company_id=company_id,
                     purchase_order_line_id=po_line.id,
                     product_id=po_line.product_id,
                     qty=bill_qty,
