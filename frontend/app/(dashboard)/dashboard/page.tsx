@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DashboardGrid } from "@/components/erp/dashboard/dashboard-grid";
+import { KpiCard } from "@/components/erp/dashboard/kpi-card";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { reportingApi } from "@/features/reporting/api/client";
@@ -36,24 +36,17 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">{t("dashboard.title")}</h1>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <DashboardGrid>
         {cards.map((card) => (
-          <Card key={card.key}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">{t(card.key)}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <Skeleton className="h-8 w-32" />
-              ) : isError ? (
-                <p className="text-sm text-destructive">{t("common.error")}</p>
-              ) : (
-                <p className="text-2xl font-semibold">{formatSar(card.value ?? "0")}</p>
-              )}
-            </CardContent>
-          </Card>
+          <KpiCard
+            key={card.key}
+            label={t(card.key)}
+            value={formatSar(card.value ?? "0")}
+            isLoading={isLoading}
+            isError={isError}
+          />
         ))}
-      </div>
+      </DashboardGrid>
     </div>
   );
 }
