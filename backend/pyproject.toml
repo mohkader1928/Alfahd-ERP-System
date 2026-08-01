@@ -1,0 +1,56 @@
+[project]
+name = "erp-backend"
+version = "0.1.0"
+description = "Saudi ERP System - Backend (Core Nucleus)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlalchemy>=2.0.35",
+    "asyncpg>=0.30.0",
+    "psycopg2-binary>=2.9.9",
+    "alembic>=1.13.3",
+    "pydantic>=2.9.2",
+    "pydantic-settings>=2.5.2",
+    "pyjwt>=2.9.0",
+    "argon2-cffi>=23.1.0",
+    "pyotp>=2.9.0",
+    "redis>=5.1.1",
+    "celery>=5.4.0",
+    "python-multipart>=0.0.12",
+    "email-validator>=2.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.27.2",
+    "ruff>=0.7.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+    "B008",   # FastAPI's Depends()/Header() in argument defaults is the documented pattern
+    "E501",   # line length handled by line-length above; long strings/URLs are fine
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["src", "tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

@@ -1,0 +1,22 @@
+# Secrets — never commit real credentials. .env.example/.env.local.example
+# files are templates and ARE tracked; anything without ".example" is not.
+.env
+.env.production
+.env.local
+!.env.example
+
+# Backend
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Frontend
+node_modules/
+.next/
+next-env.d.ts
+
+# OS/editor
+.DS_Store

@@ -1,0 +1,73 @@
+export interface BootstrapRequest {
+  tenant_legal_name: string;
+  company_legal_name: string;
+  company_legal_name_ar: string;
+  vat_number: string;
+  base_currency_code: string;
+  valuation_method: "fifo" | "average";
+  main_branch_name?: string;
+  main_branch_name_ar?: string;
+  admin_email: string;
+  admin_full_name: string;
+  admin_password: string;
+}
+
+export interface BootstrapResponse {
+  tenant_id: string;
+  company_id: string;
+  branch_id: string;
+  admin_user_id: string;
+  admin_role_id: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+}
+
+export interface TwoFactorRequiredResponse {
+  requires_2fa: true;
+}
+
+export interface Company {
+  id: string;
+  legal_name: string;
+  legal_name_ar: string;
+  vat_number: string;
+  valuation_method: string;
+}
+
+export interface Branch {
+  id: string;
+  company_id: string;
+  name: string;
+  name_ar: string;
+  is_main: boolean;
+}
+
+export interface Partner {
+  id: string;
+  company_id: string;
+  name: string;
+  name_ar: string | null;
+  is_customer: boolean;
+  is_vendor: boolean;
+  vat_number: string | null;
+}
+
+export interface Product {
+  id: string;
+  company_id: string;
+  sku: string;
+  name: string;
+  name_ar: string | null;
+  is_stockable: boolean;
+  sales_price: string;
+  default_tax_rate_id: string | null;
+}
