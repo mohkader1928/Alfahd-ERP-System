@@ -19,9 +19,12 @@ import src.modules.purchasing as purchasing_module
 import src.modules.reporting as reporting_module
 import src.modules.sales as sales_module
 from src.api.middleware.error_handler import register_error_handlers
+from src.shared.config.settings import get_settings
 from src.shared.infrastructure.db.seed import seed_core_data
 from src.shared.infrastructure.db.session import AsyncSessionLocal, engine
 from src.shared.infrastructure.messaging.event_bus import event_bus
+
+settings = get_settings()
 
 ENABLED_MODULES = [
     identity_module,
@@ -48,7 +51,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

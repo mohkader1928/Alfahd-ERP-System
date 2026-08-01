@@ -66,6 +66,7 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
 APP_ENV=production
 LOG_LEVEL=INFO
+CORS_ORIGINS=https://your-public-domain   # comma-separated if more than one; was hardcoded to localhost:3000 pre-Phase-16A
 ```
 
 **`infra/.env`** (compose-level — Postgres init + nginx port + frontend build arg):

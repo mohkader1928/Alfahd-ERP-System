@@ -20,6 +20,16 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
 
+    # Phase 16 audit finding: this was hardcoded to http://localhost:3000 in
+    # api/main.py, which is a real production blocker (nothing off localhost
+    # could ever call the API) — comma-separated so ops can list multiple
+    # origins (e.g. a staging + production frontend) without a code change.
+    cors_origins: str = "http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:
