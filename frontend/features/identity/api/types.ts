@@ -51,6 +51,14 @@ export interface Branch {
   is_main: boolean;
 }
 
+export interface Address {
+  street?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postal_code?: string | null;
+  country_code?: string | null;
+}
+
 export interface Partner {
   id: string;
   company_id: string;
@@ -59,6 +67,19 @@ export interface Partner {
   is_customer: boolean;
   is_vendor: boolean;
   vat_number: string | null;
+  cr_number: string | null;
+  address: Address | null;
+  is_active: boolean;
+}
+
+export interface PartnerWriteInput {
+  name: string;
+  name_ar?: string | null;
+  is_customer?: boolean;
+  is_vendor?: boolean;
+  vat_number?: string | null;
+  cr_number?: string | null;
+  address?: Address | null;
 }
 
 export interface Product {
@@ -67,7 +88,42 @@ export interface Product {
   sku: string;
   name: string;
   name_ar: string | null;
+  category_id: string | null;
+  uom_id: string | null;
   is_stockable: boolean;
   sales_price: string;
+  cost_price: string;
   default_tax_rate_id: string | null;
+}
+
+export interface ProductWriteInput {
+  sku: string;
+  name: string;
+  name_ar?: string | null;
+  category_id?: string | null;
+  uom_id?: string | null;
+  is_stockable?: boolean;
+  sales_price?: string;
+  cost_price?: string;
+  default_tax_rate_id?: string | null;
+}
+
+export interface ProductCategory {
+  id: string;
+  company_id: string;
+  name: string;
+  parent_id: string | null;
+}
+
+export interface UnitOfMeasure {
+  id: string;
+  company_id: string;
+  name: string;
+  name_ar: string | null;
+  code: string;
+  active: boolean;
+}
+
+export interface MyPermissions {
+  permission_codes: string[];
 }

@@ -50,6 +50,17 @@ class TwoFactorRequiredResponse(BaseModel):
     requires_2fa: bool = True
 
 
+class MyPermissionsOut(BaseModel):
+    """FR-CORE-015: lets the frontend gate UI affordances (show/hide Create,
+    Edit, Export...) on the caller's own granted permissions for the active
+    company, without duplicating RBAC logic client-side. This is UX only —
+    `require_permission()` on each endpoint remains the actual security
+    boundary; a client that never calls this still can't do anything it
+    isn't authorized for."""
+
+    permission_codes: list[str]
+
+
 class CompanyOut(BaseModel):
     id: UUID
     legal_name: str
@@ -98,6 +109,19 @@ class RoleAssignRequest(BaseModel):
     role_id: UUID
 
 
+class AddressIn(BaseModel):
+    """Phase 17B: the `partner.address`/`branch.address` JSONB columns had
+    no established shape anywhere in the codebase before this phase (never
+    populated, never read) — this is a new, minimal shape, not a
+    pre-existing contract being preserved."""
+
+    street: str | None = None
+    city: str | None = None
+    region: str | None = None
+    postal_code: str | None = None
+    country_code: str | None = None
+
+
 class PartnerCreateRequest(BaseModel):
     name: str
     name_ar: str | None = None
@@ -105,6 +129,17 @@ class PartnerCreateRequest(BaseModel):
     is_vendor: bool = False
     vat_number: str | None = None
     cr_number: str | None = None
+    address: AddressIn | None = None
+
+
+class PartnerUpdateRequest(BaseModel):
+    name: str
+    name_ar: str | None = None
+    is_customer: bool = False
+    is_vendor: bool = False
+    vat_number: str | None = None
+    cr_number: str | None = None
+    address: AddressIn | None = None
 
 
 class PartnerOut(BaseModel):
@@ -115,6 +150,52 @@ class PartnerOut(BaseModel):
     is_customer: bool
     is_vendor: bool
     vat_number: str | None
+    cr_number: str | None
+    address: dict | None
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class ProductCategoryCreateRequest(BaseModel):
+    name: str
+    parent_id: UUID | None = None
+
+
+class ProductCategoryUpdateRequest(BaseModel):
+    name: str
+    parent_id: UUID | None = None
+
+
+class ProductCategoryOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    name: str
+    parent_id: UUID | None
+
+    model_config = {"from_attributes": True}
+
+
+class UnitOfMeasureCreateRequest(BaseModel):
+    name: str
+    name_ar: str | None = None
+    code: str
+
+
+class UnitOfMeasureUpdateRequest(BaseModel):
+    name: str
+    name_ar: str | None = None
+    code: str
+    active: bool = True
+
+
+class UnitOfMeasureOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    name: str
+    name_ar: str | None
+    code: str
+    active: bool
 
     model_config = {"from_attributes": True}
 
@@ -123,6 +204,20 @@ class ProductCreateRequest(BaseModel):
     sku: str
     name: str
     name_ar: str | None = None
+    category_id: UUID | None = None
+    uom_id: UUID | None = None
+    is_stockable: bool = True
+    sales_price: Decimal = Decimal("0")
+    cost_price: Decimal = Decimal("0")
+    default_tax_rate_id: UUID | None = None
+
+
+class ProductUpdateRequest(BaseModel):
+    sku: str
+    name: str
+    name_ar: str | None = None
+    category_id: UUID | None = None
+    uom_id: UUID | None = None
     is_stockable: bool = True
     sales_price: Decimal = Decimal("0")
     cost_price: Decimal = Decimal("0")
@@ -135,8 +230,11 @@ class ProductOut(BaseModel):
     sku: str
     name: str
     name_ar: str | None
+    category_id: UUID | None
+    uom_id: UUID | None
     is_stockable: bool
     sales_price: Decimal
+    cost_price: Decimal
     default_tax_rate_id: UUID | None
 
     model_config = {"from_attributes": True}

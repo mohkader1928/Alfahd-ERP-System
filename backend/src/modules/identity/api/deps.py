@@ -10,8 +10,10 @@ from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
     CurrencyRepository,
     PartnerRepository,
+    ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
+    UnitOfMeasureRepository,
     UserRepository,
 )
 from src.shared.infrastructure.db.session import get_db
@@ -48,6 +50,14 @@ def get_product_repo(db: AsyncSession = Depends(get_db)) -> ProductRepository:
 
 def get_audit_log_repo(db: AsyncSession = Depends(get_db)) -> AuditLogRepository:
     return AuditLogRepository(db)
+
+
+def get_product_category_repo(db: AsyncSession = Depends(get_db)) -> ProductCategoryRepository:
+    return ProductCategoryRepository(db)
+
+
+def get_uom_repo(db: AsyncSession = Depends(get_db)) -> UnitOfMeasureRepository:
+    return UnitOfMeasureRepository(db)
 
 
 def require_permission(permission_code: str, *, require_branch: bool = False):

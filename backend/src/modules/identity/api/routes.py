@@ -11,8 +11,10 @@ from src.modules.identity.api.deps import (
     get_company_repo,
     get_currency_repo,
     get_partner_repo,
+    get_product_category_repo,
     get_product_repo,
     get_role_repo,
+    get_uom_repo,
     get_user_repo,
     require_permission,
 )
@@ -24,14 +26,23 @@ from src.modules.identity.api.schemas import (
     BranchOut,
     CompanyOut,
     LoginRequest,
+    MyPermissionsOut,
     PartnerCreateRequest,
     PartnerOut,
+    PartnerUpdateRequest,
+    ProductCategoryCreateRequest,
+    ProductCategoryOut,
+    ProductCategoryUpdateRequest,
     ProductCreateRequest,
     ProductOut,
+    ProductUpdateRequest,
     RoleAssignRequest,
     TokenResponse,
     TwoFactorLoginRequest,
     TwoFactorRequiredResponse,
+    UnitOfMeasureCreateRequest,
+    UnitOfMeasureOut,
+    UnitOfMeasureUpdateRequest,
     UserCreateRequest,
     UserOut,
 )
@@ -40,9 +51,11 @@ from src.modules.identity.application.services import (
     AuthenticationService,
     CompanyRegistrationService,
     PartnerService,
+    ProductCategoryService,
     ProductService,
     TenantProvisioningService,
     TwoFactorRequiredError,
+    UnitOfMeasureService,
     UserManagementService,
 )
 from src.modules.identity.domain.events import CompanyRegistered
@@ -52,13 +65,15 @@ from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
     CurrencyRepository,
     PartnerRepository,
+    ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
+    UnitOfMeasureRepository,
     UserRepository,
 )
 from src.shared.infrastructure.db.session import get_db, set_tenant_context
 from src.shared.infrastructure.messaging.event_bus import event_bus
-from src.shared.security.auth_context import AuthContext
+from src.shared.security.auth_context import AuthContext, get_auth_context
 
 router = APIRouter()
 
@@ -176,6 +191,19 @@ async def verify_2fa(
     return TokenResponse(**tokens)
 
 
+@router.get("/me/permissions", response_model=MyPermissionsOut)
+async def get_my_permissions(
+    ctx: AuthContext = Depends(get_auth_context),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """Phase 17A: read-only, self-scoped — any authenticated caller may
+    always see their own granted permissions for the active company. No
+    `require_permission()` guard is applicable here since there is no
+    action being gated other than reading one's own grants."""
+    codes = await role_repo.get_user_permission_codes(ctx.user_id, ctx.company_id)
+    return MyPermissionsOut(permission_codes=sorted(codes))
+
+
 @router.get("/companies/{company_id}", response_model=CompanyOut)
 async def get_company(
     company_id: UUID,
@@ -273,10 +301,30 @@ async def assign_role(
 async def list_partners(
     customers_only: bool = False,
     vendors_only: bool = False,
+    search: str | None = None,
     ctx: AuthContext = Depends(require_permission("partner.view")),
     partner_repo: PartnerRepository = Depends(get_partner_repo),
 ):
-    return await partner_repo.list_by_company(ctx.company_id, customers_only=customers_only, vendors_only=vendors_only)
+    return await partner_repo.list_by_company(
+        ctx.company_id, customers_only=customers_only, vendors_only=vendors_only, search=search
+    )
+
+
+@router.get("/partners/{partner_id}", response_model=PartnerOut)
+async def get_partner(
+    partner_id: UUID,
+    ctx: AuthContext = Depends(require_permission("partner.view")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+):
+    # partner_repo.get_by_id() is shared with Sales/Purchasing/the ZATCA
+    # worker and isn't itself company-scoped (changing its signature would
+    # ripple across those call sites, out of scope here) — RLS is *meant*
+    # to close that gap at the DB layer, but do not rely on RLS alone: an
+    # explicit company_id check is the actual boundary for this new route.
+    partner = await partner_repo.get_by_id(partner_id)
+    if partner is None or partner.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Partner not found")
+    return partner
 
 
 @router.post("/partners", response_model=PartnerOut, status_code=status.HTTP_201_CREATED)
@@ -297,7 +345,38 @@ async def create_partner(
             is_vendor=payload.is_vendor,
             vat_number=payload.vat_number,
             cr_number=payload.cr_number,
+            address=payload.address.model_dump() if payload.address else None,
         )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return partner
+
+
+@router.patch("/partners/{partner_id}", response_model=PartnerOut)
+async def update_partner(
+    partner_id: UUID,
+    payload: PartnerUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("partner.update")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+):
+    service = PartnerService(partner_repo)
+    try:
+        partner = await service.update_partner(
+            company_id=ctx.company_id,
+            partner_id=partner_id,
+            name=payload.name,
+            name_ar=payload.name_ar,
+            is_customer=payload.is_customer,
+            is_vendor=payload.is_vendor,
+            vat_number=payload.vat_number,
+            cr_number=payload.cr_number,
+            address=payload.address.model_dump() if payload.address else None,
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
@@ -307,10 +386,25 @@ async def create_partner(
 
 @router.get("/products", response_model=list[ProductOut])
 async def list_products(
+    category_id: UUID | None = None,
+    search: str | None = None,
     ctx: AuthContext = Depends(require_permission("product.view")),
     product_repo: ProductRepository = Depends(get_product_repo),
 ):
-    return await product_repo.list_by_company(ctx.company_id)
+    return await product_repo.list_by_company(ctx.company_id, category_id=category_id, search=search)
+
+
+@router.get("/products/{product_id}", response_model=ProductOut)
+async def get_product(
+    product_id: UUID,
+    ctx: AuthContext = Depends(require_permission("product.view")),
+    product_repo: ProductRepository = Depends(get_product_repo),
+):
+    # See the same note on get_partner() above — explicit check, not RLS alone.
+    product = await product_repo.get_by_id(product_id)
+    if product is None or product.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+    return product
 
 
 @router.post("/products", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
@@ -319,8 +413,10 @@ async def create_product(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_permission("product.create")),
     product_repo: ProductRepository = Depends(get_product_repo),
+    category_repo: ProductCategoryRepository = Depends(get_product_category_repo),
+    uom_repo: UnitOfMeasureRepository = Depends(get_uom_repo),
 ):
-    service = ProductService(product_repo)
+    service = ProductService(product_repo, category_repo, uom_repo)
     try:
         product = await service.create_product(
             tenant_id=ctx.tenant_id,
@@ -328,6 +424,8 @@ async def create_product(
             sku=payload.sku,
             name=payload.name,
             name_ar=payload.name_ar,
+            category_id=payload.category_id,
+            uom_id=payload.uom_id,
             is_stockable=payload.is_stockable,
             sales_price=payload.sales_price,
             cost_price=payload.cost_price,
@@ -338,6 +436,196 @@ async def create_product(
 
     await db.commit()
     return product
+
+
+@router.patch("/products/{product_id}", response_model=ProductOut)
+async def update_product(
+    product_id: UUID,
+    payload: ProductUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("product.update")),
+    product_repo: ProductRepository = Depends(get_product_repo),
+    category_repo: ProductCategoryRepository = Depends(get_product_category_repo),
+    uom_repo: UnitOfMeasureRepository = Depends(get_uom_repo),
+):
+    service = ProductService(product_repo, category_repo, uom_repo)
+    try:
+        product = await service.update_product(
+            company_id=ctx.company_id,
+            product_id=product_id,
+            sku=payload.sku,
+            name=payload.name,
+            name_ar=payload.name_ar,
+            category_id=payload.category_id,
+            uom_id=payload.uom_id,
+            is_stockable=payload.is_stockable,
+            sales_price=payload.sales_price,
+            cost_price=payload.cost_price,
+            default_tax_rate_id=payload.default_tax_rate_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return product
+
+
+@router.get("/product-categories", response_model=list[ProductCategoryOut])
+async def list_product_categories(
+    ctx: AuthContext = Depends(require_permission("product_category.view")),
+    category_repo: ProductCategoryRepository = Depends(get_product_category_repo),
+):
+    """Returns the flat list for the company; the frontend assembles the
+    tree client-side (Phase 17B design decision — one query, no N+1, and
+    trivially fast at realistic category counts)."""
+    return await category_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/product-categories/{category_id}", response_model=ProductCategoryOut)
+async def get_product_category(
+    category_id: UUID,
+    ctx: AuthContext = Depends(require_permission("product_category.view")),
+    category_repo: ProductCategoryRepository = Depends(get_product_category_repo),
+):
+    category = await category_repo.get_by_id(ctx.company_id, category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product category not found")
+    return category
+
+
+@router.post("/product-categories", response_model=ProductCategoryOut, status_code=status.HTTP_201_CREATED)
+async def create_product_category(
+    payload: ProductCategoryCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("product_category.manage")),
+    category_repo: ProductCategoryRepository = Depends(get_product_category_repo),
+    product_repo: ProductRepository = Depends(get_product_repo),
+):
+    service = ProductCategoryService(category_repo, product_repo)
+    try:
+        category = await service.create_category(
+            company_id=ctx.company_id, name=payload.name, parent_id=payload.parent_id
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return category
+
+
+@router.patch("/product-categories/{category_id}", response_model=ProductCategoryOut)
+async def update_product_category(
+    category_id: UUID,
+    payload: ProductCategoryUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("product_category.manage")),
+    category_repo: ProductCategoryRepository = Depends(get_product_category_repo),
+    product_repo: ProductRepository = Depends(get_product_repo),
+):
+    service = ProductCategoryService(category_repo, product_repo)
+    try:
+        category = await service.update_category(
+            company_id=ctx.company_id, category_id=category_id, name=payload.name, parent_id=payload.parent_id
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return category
+
+
+@router.delete("/product-categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_product_category(
+    category_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("product_category.manage")),
+    category_repo: ProductCategoryRepository = Depends(get_product_category_repo),
+    product_repo: ProductRepository = Depends(get_product_repo),
+):
+    service = ProductCategoryService(category_repo, product_repo)
+    try:
+        await service.delete_category(company_id=ctx.company_id, category_id=category_id)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+
+
+@router.get("/uom", response_model=list[UnitOfMeasureOut])
+async def list_uom(
+    active: bool | None = None,
+    search: str | None = None,
+    ctx: AuthContext = Depends(require_permission("uom.view")),
+    uom_repo: UnitOfMeasureRepository = Depends(get_uom_repo),
+):
+    return await uom_repo.list_by_company(ctx.company_id, active=active, search=search)
+
+
+@router.get("/uom/{uom_id}", response_model=UnitOfMeasureOut)
+async def get_uom(
+    uom_id: UUID,
+    ctx: AuthContext = Depends(require_permission("uom.view")),
+    uom_repo: UnitOfMeasureRepository = Depends(get_uom_repo),
+):
+    uom = await uom_repo.get_by_id(ctx.company_id, uom_id)
+    if uom is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unit of measure not found")
+    return uom
+
+
+@router.post("/uom", response_model=UnitOfMeasureOut, status_code=status.HTTP_201_CREATED)
+async def create_uom(
+    payload: UnitOfMeasureCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("uom.manage")),
+    uom_repo: UnitOfMeasureRepository = Depends(get_uom_repo),
+):
+    service = UnitOfMeasureService(uom_repo)
+    try:
+        uom = await service.create_uom(
+            company_id=ctx.company_id, name=payload.name, code=payload.code, name_ar=payload.name_ar
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return uom
+
+
+@router.patch("/uom/{uom_id}", response_model=UnitOfMeasureOut)
+async def update_uom(
+    uom_id: UUID,
+    payload: UnitOfMeasureUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("uom.manage")),
+    uom_repo: UnitOfMeasureRepository = Depends(get_uom_repo),
+):
+    """Also the deactivate operation — PATCH with `active: false`. No hard
+    DELETE endpoint exists for UOM (Phase 17B decision): existing
+    `product.uom_id` foreign keys must never be able to dangle."""
+    service = UnitOfMeasureService(uom_repo)
+    try:
+        uom = await service.update_uom(
+            company_id=ctx.company_id,
+            uom_id=uom_id,
+            name=payload.name,
+            code=payload.code,
+            name_ar=payload.name_ar,
+            active=payload.active,
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return uom
 
 
 @router.get("/audit-log", response_model=list[AuditLogOut])

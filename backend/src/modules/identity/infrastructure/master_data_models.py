@@ -49,6 +49,12 @@ class Partner(Base):
         ),
     )
 
+    @property
+    def is_active(self) -> bool:
+        """Derived from the existing soft-delete column — no new column
+        needed since no delete/deactivate endpoint exists for Partner yet."""
+        return self.deleted_at is None
+
 
 class ProductCategory(Base):
     __tablename__ = "product_category"
@@ -60,6 +66,27 @@ class ProductCategory(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("product_category.id"), nullable=True
+    )
+
+
+class UnitOfMeasure(Base):
+    __tablename__ = "unit_of_measure"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=text("now()"), onupdate=text("now()"), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ux_uom_company_code", "company_id", "code", unique=True),
     )
 
 
@@ -76,6 +103,9 @@ class Product(Base):
     name_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
     category_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("product_category.id"), nullable=True
+    )
+    uom_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("unit_of_measure.id"), nullable=True, index=True
     )
     is_stockable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sales_price: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))

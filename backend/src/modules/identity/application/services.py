@@ -10,7 +10,12 @@ from decimal import Decimal
 from uuid import UUID
 
 from src.modules.identity.domain.entities import InactiveUserError
-from src.modules.identity.infrastructure.master_data_models import Partner, Product
+from src.modules.identity.infrastructure.master_data_models import (
+    Partner,
+    Product,
+    ProductCategory,
+    UnitOfMeasure,
+)
 from src.modules.identity.infrastructure.models import (
     AppUser,
     Branch,
@@ -23,8 +28,10 @@ from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
     CurrencyRepository,
     PartnerRepository,
+    ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
+    UnitOfMeasureRepository,
     UserRepository,
 )
 from src.shared.security.jwt import create_access_token, create_refresh_token
@@ -214,6 +221,7 @@ class PartnerService:
         is_vendor: bool = False,
         vat_number: str | None = None,
         cr_number: str | None = None,
+        address: dict | None = None,
     ) -> Partner:
         if not is_customer and not is_vendor:
             raise ValueError("A partner must be a customer, a vendor, or both")
@@ -227,15 +235,62 @@ class PartnerService:
             is_vendor=is_vendor,
             vat_number=vat_number,
             cr_number=cr_number,
+            address=address,
         )
         return await self.partner_repo.add(partner)
+
+    async def update_partner(
+        self,
+        *,
+        company_id: UUID,
+        partner_id: UUID,
+        name: str,
+        name_ar: str | None,
+        is_customer: bool,
+        is_vendor: bool,
+        vat_number: str | None,
+        cr_number: str | None,
+        address: dict | None,
+    ) -> Partner:
+        partner = await self.partner_repo.get_by_id(partner_id)
+        if partner is None or partner.company_id != company_id:
+            raise LookupError("Partner not found")
+        if not is_customer and not is_vendor:
+            raise ValueError("A partner must be a customer, a vendor, or both")
+        partner.name = name
+        partner.name_ar = name_ar
+        partner.is_customer = is_customer
+        partner.is_vendor = is_vendor
+        partner.vat_number = vat_number
+        partner.cr_number = cr_number
+        partner.address = address
+        return partner
 
 
 class ProductService:
     """FR-CORE-045 — item/service master, consumed by Sales/Purchasing/Inventory."""
 
-    def __init__(self, product_repo: ProductRepository):
+    def __init__(
+        self,
+        product_repo: ProductRepository,
+        category_repo: ProductCategoryRepository,
+        uom_repo: UnitOfMeasureRepository,
+    ):
         self.product_repo = product_repo
+        self.category_repo = category_repo
+        self.uom_repo = uom_repo
+
+    async def _validate_category_and_uom(
+        self, *, company_id: UUID, category_id: UUID | None, uom_id: UUID | None
+    ) -> None:
+        if category_id is not None:
+            category = await self.category_repo.get_by_id(company_id, category_id)
+            if category is None:
+                raise ValueError("Invalid product category")
+        if uom_id is not None:
+            uom = await self.uom_repo.get_by_id(company_id, uom_id)
+            if uom is None:
+                raise ValueError("Invalid unit of measure")
 
     async def create_product(
         self,
@@ -245,6 +300,8 @@ class ProductService:
         sku: str,
         name: str,
         name_ar: str | None = None,
+        category_id: UUID | None = None,
+        uom_id: UUID | None = None,
         is_stockable: bool = True,
         sales_price: Decimal = Decimal("0"),
         cost_price: Decimal = Decimal("0"),
@@ -253,6 +310,7 @@ class ProductService:
         existing = await self.product_repo.get_by_sku(company_id, sku)
         if existing is not None:
             raise ValueError(f"Product SKU already exists: {sku}")
+        await self._validate_category_and_uom(company_id=company_id, category_id=category_id, uom_id=uom_id)
         product = Product(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
@@ -260,9 +318,180 @@ class ProductService:
             sku=sku,
             name=name,
             name_ar=name_ar,
+            category_id=category_id,
+            uom_id=uom_id,
             is_stockable=is_stockable,
             sales_price=sales_price,
             cost_price=cost_price,
             default_tax_rate_id=default_tax_rate_id,
         )
         return await self.product_repo.add(product)
+
+    async def update_product(
+        self,
+        *,
+        company_id: UUID,
+        product_id: UUID,
+        sku: str,
+        name: str,
+        name_ar: str | None,
+        category_id: UUID | None,
+        uom_id: UUID | None,
+        is_stockable: bool,
+        sales_price: Decimal,
+        cost_price: Decimal,
+        default_tax_rate_id: UUID | None,
+    ) -> Product:
+        product = await self.product_repo.get_by_id(product_id)
+        if product is None or product.company_id != company_id:
+            raise LookupError("Product not found")
+        if sku != product.sku:
+            existing = await self.product_repo.get_by_sku(company_id, sku)
+            if existing is not None:
+                raise ValueError(f"Product SKU already exists: {sku}")
+        await self._validate_category_and_uom(company_id=company_id, category_id=category_id, uom_id=uom_id)
+        product.sku = sku
+        product.name = name
+        product.name_ar = name_ar
+        product.category_id = category_id
+        product.uom_id = uom_id
+        product.is_stockable = is_stockable
+        product.sales_price = sales_price
+        product.cost_price = cost_price
+        product.default_tax_rate_id = default_tax_rate_id
+        return product
+
+
+class ProductCategoryService:
+    """Phase 17B — hierarchical product classification (Part 6 of the
+    Phase 17 blueprint). Cycle/duplicate/dependency validation lives here,
+    not in the route handler, matching this module's Route → Service →
+    Repository convention."""
+
+    def __init__(self, category_repo: ProductCategoryRepository, product_repo: ProductRepository):
+        self.category_repo = category_repo
+        self.product_repo = product_repo
+
+    async def _validate_parent(
+        self, *, company_id: UUID, parent_id: UUID | None, editing_id: UUID | None = None
+    ) -> None:
+        if parent_id is None:
+            return
+        if editing_id is not None and parent_id == editing_id:
+            raise ValueError("A category cannot be its own parent")
+        parent = await self.category_repo.get_by_id(company_id, parent_id)
+        if parent is None:
+            raise ValueError("Invalid parent category")
+        if editing_id is None:
+            return
+        # Walk the proposed parent's ancestor chain — if it ever reaches
+        # `editing_id`, assigning `parent_id` would create a cycle. Bounded
+        # by `visited` so any pre-existing bad data can't loop forever.
+        visited: set[UUID] = {editing_id}
+        current = parent
+        while current.parent_id is not None:
+            if current.parent_id in visited:
+                raise ValueError("Circular category hierarchy is not allowed")
+            visited.add(current.id)
+            current = await self.category_repo.get_by_id(company_id, current.parent_id)
+            if current is None:
+                break
+
+    async def create_category(
+        self, *, company_id: UUID, name: str, parent_id: UUID | None = None
+    ) -> ProductCategory:
+        name = name.strip()
+        if not name:
+            raise ValueError("Category name is required")
+        await self._validate_parent(company_id=company_id, parent_id=parent_id)
+        duplicate = await self.category_repo.find_sibling_by_name(company_id, parent_id, name)
+        if duplicate is not None:
+            raise ValueError(f"A category named '{name}' already exists at this level")
+        category = ProductCategory(id=uuid.uuid4(), company_id=company_id, name=name, parent_id=parent_id)
+        return await self.category_repo.add(category)
+
+    async def update_category(
+        self, *, company_id: UUID, category_id: UUID, name: str, parent_id: UUID | None
+    ) -> ProductCategory:
+        category = await self.category_repo.get_by_id(company_id, category_id)
+        if category is None:
+            raise LookupError("Category not found")
+        name = name.strip()
+        if not name:
+            raise ValueError("Category name is required")
+        await self._validate_parent(company_id=company_id, parent_id=parent_id, editing_id=category_id)
+        duplicate = await self.category_repo.find_sibling_by_name(
+            company_id, parent_id, name, exclude_id=category_id
+        )
+        if duplicate is not None:
+            raise ValueError(f"A category named '{name}' already exists at this level")
+        category.name = name
+        category.parent_id = parent_id
+        return category
+
+    async def delete_category(self, *, company_id: UUID, category_id: UUID) -> None:
+        category = await self.category_repo.get_by_id(company_id, category_id)
+        if category is None:
+            raise LookupError("Category not found")
+        child_count = await self.category_repo.count_children(company_id, category_id)
+        if child_count > 0:
+            raise ValueError("Cannot delete a category that has child categories")
+        product_count = await self.product_repo.count_by_category(company_id, category_id)
+        if product_count > 0:
+            raise ValueError("Cannot delete a category that is assigned to one or more products")
+        await self.category_repo.delete(category)
+
+
+class UnitOfMeasureService:
+    """Phase 17B — company-scoped UOM lookup. No conversion engine (Phase
+    17 blueprint explicitly defers that); the model/API shape below leaves
+    room for one without a breaking change (a future `base_uom_id` +
+    `ratio` pair could be added without touching these fields)."""
+
+    def __init__(self, uom_repo: UnitOfMeasureRepository):
+        self.uom_repo = uom_repo
+
+    async def create_uom(
+        self, *, company_id: UUID, name: str, code: str, name_ar: str | None = None
+    ) -> UnitOfMeasure:
+        name = name.strip()
+        code = code.strip()
+        if not name:
+            raise ValueError("Unit of measure name is required")
+        if not code:
+            raise ValueError("Unit of measure code is required")
+        existing = await self.uom_repo.get_by_code(company_id, code)
+        if existing is not None:
+            raise ValueError(f"Unit of measure code already exists: {code}")
+        uom = UnitOfMeasure(id=uuid.uuid4(), company_id=company_id, name=name, name_ar=name_ar, code=code)
+        return await self.uom_repo.add(uom)
+
+    async def update_uom(
+        self,
+        *,
+        company_id: UUID,
+        uom_id: UUID,
+        name: str,
+        code: str,
+        name_ar: str | None,
+        active: bool,
+    ) -> UnitOfMeasure:
+        uom = await self.uom_repo.get_by_id(company_id, uom_id)
+        if uom is None:
+            raise LookupError("Unit of measure not found")
+        name = name.strip()
+        code = code.strip()
+        if not name:
+            raise ValueError("Unit of measure name is required")
+        if not code:
+            raise ValueError("Unit of measure code is required")
+        existing = await self.uom_repo.get_by_code(company_id, code)
+        if existing is not None and existing.id != uom_id:
+            raise ValueError(f"Unit of measure code already exists: {code}")
+        # Deactivating only flips `active` — existing product.uom_id FKs are
+        # untouched, so no product ever silently loses its UOM reference.
+        uom.name = name
+        uom.name_ar = name_ar
+        uom.code = code
+        uom.active = active
+        return uom

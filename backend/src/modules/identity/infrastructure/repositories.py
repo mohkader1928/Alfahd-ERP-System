@@ -2,10 +2,15 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.modules.identity.infrastructure.master_data_models import Partner, Product
+from src.modules.identity.infrastructure.master_data_models import (
+    Partner,
+    Product,
+    ProductCategory,
+    UnitOfMeasure,
+)
 from src.modules.identity.infrastructure.models import (
     AppUser,
     AuditLog,
@@ -200,13 +205,28 @@ class PartnerRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_by_company(self, company_id: UUID, *, customers_only: bool = False, vendors_only: bool = False) -> list[Partner]:
+    async def list_by_company(
+        self,
+        company_id: UUID,
+        *,
+        customers_only: bool = False,
+        vendors_only: bool = False,
+        search: str | None = None,
+    ) -> list[Partner]:
         stmt = select(Partner).where(Partner.company_id == company_id, Partner.deleted_at.is_(None))
         if customers_only:
             stmt = stmt.where(Partner.is_customer.is_(True))
         if vendors_only:
             stmt = stmt.where(Partner.is_vendor.is_(True))
-        result = await self.session.execute(stmt)
+        if search:
+            needle = f"%{search}%"
+            stmt = stmt.where(
+                Partner.name.ilike(needle)
+                | Partner.name_ar.ilike(needle)
+                | Partner.vat_number.ilike(needle)
+                | Partner.cr_number.ilike(needle)
+            )
+        result = await self.session.execute(stmt.order_by(Partner.name))
         return list(result.scalars().all())
 
 
@@ -233,8 +253,125 @@ class ProductRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_by_company(self, company_id: UUID) -> list[Product]:
+    async def list_by_company(
+        self, company_id: UUID, *, category_id: UUID | None = None, search: str | None = None
+    ) -> list[Product]:
+        stmt = select(Product).where(Product.company_id == company_id, Product.deleted_at.is_(None))
+        if category_id is not None:
+            stmt = stmt.where(Product.category_id == category_id)
+        if search:
+            needle = f"%{search}%"
+            stmt = stmt.where(
+                Product.sku.ilike(needle) | Product.name.ilike(needle) | Product.name_ar.ilike(needle)
+            )
+        result = await self.session.execute(stmt.order_by(Product.name))
+        return list(result.scalars().all())
+
+    async def count_by_category(self, company_id: UUID, category_id: UUID) -> int:
         result = await self.session.execute(
-            select(Product).where(Product.company_id == company_id, Product.deleted_at.is_(None))
+            select(func.count())
+            .select_from(Product)
+            .where(Product.company_id == company_id, Product.category_id == category_id, Product.deleted_at.is_(None))
         )
+        return result.scalar_one()
+
+    async def count_by_uom(self, company_id: UUID, uom_id: UUID) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(Product)
+            .where(Product.company_id == company_id, Product.uom_id == uom_id, Product.deleted_at.is_(None))
+        )
+        return result.scalar_one()
+
+
+class ProductCategoryRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, category: ProductCategory) -> ProductCategory:
+        self.session.add(category)
+        await self.session.flush()
+        return category
+
+    async def get_by_id(self, company_id: UUID, category_id: UUID) -> ProductCategory | None:
+        result = await self.session.execute(
+            select(ProductCategory).where(
+                ProductCategory.id == category_id, ProductCategory.company_id == company_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_company(self, company_id: UUID) -> list[ProductCategory]:
+        result = await self.session.execute(
+            select(ProductCategory).where(ProductCategory.company_id == company_id).order_by(ProductCategory.name)
+        )
+        return list(result.scalars().all())
+
+    async def find_sibling_by_name(
+        self, company_id: UUID, parent_id: UUID | None, name: str, *, exclude_id: UUID | None = None
+    ) -> ProductCategory | None:
+        """Case-insensitive duplicate-name check among categories sharing the
+        same parent (root categories share parent_id=NULL as their group)."""
+        stmt = select(ProductCategory).where(
+            ProductCategory.company_id == company_id,
+            func.lower(ProductCategory.name) == name.lower(),
+        )
+        stmt = stmt.where(ProductCategory.parent_id == parent_id) if parent_id is not None else stmt.where(
+            ProductCategory.parent_id.is_(None)
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(ProductCategory.id != exclude_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def count_children(self, company_id: UUID, category_id: UUID) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(ProductCategory)
+            .where(ProductCategory.company_id == company_id, ProductCategory.parent_id == category_id)
+        )
+        return result.scalar_one()
+
+    async def delete(self, category: ProductCategory) -> None:
+        await self.session.delete(category)
+        await self.session.flush()
+
+
+class UnitOfMeasureRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, uom: UnitOfMeasure) -> UnitOfMeasure:
+        self.session.add(uom)
+        await self.session.flush()
+        return uom
+
+    async def get_by_id(self, company_id: UUID, uom_id: UUID) -> UnitOfMeasure | None:
+        result = await self.session.execute(
+            select(UnitOfMeasure).where(UnitOfMeasure.id == uom_id, UnitOfMeasure.company_id == company_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_code(self, company_id: UUID, code: str) -> UnitOfMeasure | None:
+        result = await self.session.execute(
+            select(UnitOfMeasure).where(
+                UnitOfMeasure.company_id == company_id, func.lower(UnitOfMeasure.code) == code.lower()
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_company(
+        self, company_id: UUID, *, active: bool | None = None, search: str | None = None
+    ) -> list[UnitOfMeasure]:
+        stmt = select(UnitOfMeasure).where(UnitOfMeasure.company_id == company_id)
+        if active is not None:
+            stmt = stmt.where(UnitOfMeasure.active.is_(active))
+        if search:
+            needle = f"%{search}%"
+            stmt = stmt.where(
+                UnitOfMeasure.name.ilike(needle)
+                | UnitOfMeasure.name_ar.ilike(needle)
+                | UnitOfMeasure.code.ilike(needle)
+            )
+        result = await self.session.execute(stmt.order_by(UnitOfMeasure.name))
         return list(result.scalars().all())
