@@ -51,6 +51,10 @@ PERMISSION_CATALOG = [
     ("accounting.journal_entry.reverse", "action"),
     ("accounting.reports.trial_balance.view", "screen"),
     ("accounting.fiscal_period.manage", "action"),
+    # Phase 17E — Accounting Standardization (Milestone 1a)
+    ("accounting.reports.general_ledger.view", "screen"),
+    ("accounting.reports.income_statement.view", "screen"),
+    ("accounting.reports.balance_sheet.view", "screen"),
     # M2 — Sales + ZATCA
     ("sales.quotation.create", "action"),
     ("sales.quotation.confirm", "action"),
@@ -85,7 +89,9 @@ async def seed_core_data(session: AsyncSession) -> None:
     for code, symbol, decimals in DEFAULT_CURRENCIES:
         existing = await session.execute(select(Currency).where(Currency.code == code))
         if existing.scalar_one_or_none() is None:
-            session.add(Currency(id=uuid.uuid4(), code=code, symbol=symbol, decimal_places=decimals))
+            session.add(
+                Currency(id=uuid.uuid4(), code=code, symbol=symbol, decimal_places=decimals)
+            )
 
     for code in ACCOUNT_TYPE_CODES:
         existing = await session.execute(select(AccountType).where(AccountType.code == code))

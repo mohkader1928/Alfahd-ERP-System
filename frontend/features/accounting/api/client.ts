@@ -1,5 +1,14 @@
 import { apiClient } from "@/lib/api-client";
-import type { Account, JournalEntry, JournalEntryDetail, JournalEntryLineIn, TrialBalanceRow } from "./types";
+import type {
+  Account,
+  BalanceSheetResponse,
+  GeneralLedgerResponse,
+  IncomeStatementResponse,
+  JournalEntry,
+  JournalEntryDetail,
+  JournalEntryLineIn,
+  TrialBalanceRow,
+} from "./types";
 
 const BASE = "/api/v1/accounting";
 
@@ -32,4 +41,19 @@ export const accountingApi = {
     apiClient.get<TrialBalanceRow[]>(`${BASE}/reports/trial-balance?date_from=${dateFrom}&date_to=${dateTo}`, {
       companyId,
     }),
+
+  generalLedger: (companyId: string, accountId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<GeneralLedgerResponse>(
+      `${BASE}/reports/general-ledger?account_id=${accountId}&date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  incomeStatement: (companyId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<IncomeStatementResponse>(
+      `${BASE}/reports/income-statement?date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  balanceSheet: (companyId: string, asOfDate: string) =>
+    apiClient.get<BalanceSheetResponse>(`${BASE}/reports/balance-sheet?as_of_date=${asOfDate}`, { companyId }),
 };

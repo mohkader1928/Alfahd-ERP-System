@@ -113,7 +113,9 @@ class FiscalPeriodRepository:
         return period
 
     async def get_by_id(self, period_id: UUID) -> FiscalPeriod | None:
-        result = await self.session.execute(select(FiscalPeriod).where(FiscalPeriod.id == period_id))
+        result = await self.session.execute(
+            select(FiscalPeriod).where(FiscalPeriod.id == period_id)
+        )
         return result.scalar_one_or_none()
 
     async def find_covering(self, company_id: UUID, entry_date: date) -> FiscalPeriod | None:
@@ -203,7 +205,140 @@ class JournalEntryRepository:
             for row in result.all()
         ]
 
-    async def account_balance(self, company_id: UUID, account_code: str, as_of_date: date) -> Decimal:
+    async def balances_by_type(
+        self,
+        company_id: UUID,
+        date_from: date,
+        date_to: date,
+        account_type_codes: list[str],
+        branch_id: UUID | None = None,
+    ) -> list[dict]:
+        """Milestone 1 — Accounting Standardization: per-account debit/credit
+        totals restricted to one or more account types (e.g. only
+        'revenue'+'expense' for the Income Statement, or only
+        'asset'+'liability'+'equity' for the Balance Sheet), including the
+        account's own type code and parent id so the caller can group
+        further (e.g. splitting Cost of Goods Sold out of Expenses by
+        walking the parent chain) without a second round trip."""
+        stmt = (
+            select(
+                Account.id,
+                Account.code,
+                Account.name,
+                Account.parent_id,
+                AccountType.code.label("type_code"),
+                func.coalesce(func.sum(JournalEntryLine.debit), 0).label("total_debit"),
+                func.coalesce(func.sum(JournalEntryLine.credit), 0).label("total_credit"),
+            )
+            .join(JournalEntryLine, JournalEntryLine.account_id == Account.id)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(AccountType, AccountType.id == Account.account_type_id)
+            .where(
+                JournalEntry.company_id == company_id,
+                JournalEntry.status.in_(["posted", "reversed"]),
+                JournalEntry.entry_date >= date_from,
+                JournalEntry.entry_date <= date_to,
+                AccountType.code.in_(account_type_codes),
+            )
+            .group_by(Account.id, Account.code, Account.name, Account.parent_id, AccountType.code)
+            .order_by(Account.code)
+        )
+        if branch_id is not None:
+            stmt = stmt.where(JournalEntry.branch_id == branch_id)
+
+        result = await self.session.execute(stmt)
+        return [
+            {
+                "account_id": row.id,
+                "account_code": row.code,
+                "account_name": row.name,
+                "parent_id": row.parent_id,
+                "type_code": row.type_code,
+                "total_debit": Decimal(row.total_debit),
+                "total_credit": Decimal(row.total_credit),
+            }
+            for row in result.all()
+        ]
+
+    async def general_ledger_lines(
+        self,
+        company_id: UUID,
+        account_id: UUID,
+        date_from: date,
+        date_to: date,
+        branch_id: UUID | None = None,
+    ) -> list[dict]:
+        """Milestone 1 — one account's posted movements within a date range,
+        oldest first, each carrying its journal entry id so the frontend can
+        drill down to the source Journal Entry (and from there to whatever
+        business document created it, via its `reference`)."""
+        stmt = (
+            select(
+                JournalEntry.id.label("journal_entry_id"),
+                JournalEntry.entry_date,
+                JournalEntry.reference,
+                JournalEntry.status,
+                JournalEntryLine.debit,
+                JournalEntryLine.credit,
+                JournalEntryLine.description,
+            )
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .where(
+                JournalEntry.company_id == company_id,
+                JournalEntryLine.account_id == account_id,
+                JournalEntry.status.in_(["posted", "reversed"]),
+                JournalEntry.entry_date >= date_from,
+                JournalEntry.entry_date <= date_to,
+            )
+            .order_by(JournalEntry.entry_date, JournalEntry.created_at)
+        )
+        if branch_id is not None:
+            stmt = stmt.where(JournalEntry.branch_id == branch_id)
+
+        result = await self.session.execute(stmt)
+        return [
+            {
+                "journal_entry_id": row.journal_entry_id,
+                "entry_date": row.entry_date,
+                "reference": row.reference,
+                "status": row.status,
+                "debit": Decimal(row.debit),
+                "credit": Decimal(row.credit),
+                "description": row.description,
+            }
+            for row in result.all()
+        ]
+
+    async def account_balance_by_id(
+        self, company_id: UUID, account_id: UUID, as_of_date: date, branch_id: UUID | None = None
+    ) -> Decimal:
+        """Same shape as `account_balance` (debit-credit, caller flips sign
+        for a credit-normal account) but keyed by id rather than a hardcoded
+        code — used for General Ledger's opening balance and the Balance
+        Sheet, neither of which is limited to the two hardcoded AR/AP codes
+        the original FR-RPT-003 method was written for."""
+        stmt = (
+            select(
+                func.coalesce(func.sum(JournalEntryLine.debit), 0),
+                func.coalesce(func.sum(JournalEntryLine.credit), 0),
+            )
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .where(
+                JournalEntry.company_id == company_id,
+                JournalEntryLine.account_id == account_id,
+                JournalEntry.status.in_(["posted", "reversed"]),
+                JournalEntry.entry_date < as_of_date,
+            )
+        )
+        if branch_id is not None:
+            stmt = stmt.where(JournalEntry.branch_id == branch_id)
+        result = await self.session.execute(stmt)
+        total_debit, total_credit = result.one()
+        return (Decimal(total_debit) - Decimal(total_credit)).quantize(Decimal("0.0001"))
+
+    async def account_balance(
+        self, company_id: UUID, account_code: str, as_of_date: date
+    ) -> Decimal:
         """FR-RPT-003 — point-in-time balance for a single balance-sheet
         account (e.g. AR/AP), unlike `trial_balance` which is period-bound
         and meant for a full report. Returns debit-credit (positive for a

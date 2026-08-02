@@ -30,7 +30,8 @@ class AccountType(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "code IN ('asset','liability','equity','revenue','expense')", name="ck_account_type_code"
+            "code IN ('asset','liability','equity','revenue','expense')",
+            name="ck_account_type_code",
         ),
     )
 
@@ -48,13 +49,21 @@ class Account(Base):
     account_type_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("account_type.id"), nullable=False
     )
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("account.id"), nullable=True)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("account.id"), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     __table_args__ = (
-        Index("ux_account_code", "company_id", "code", unique=True, postgresql_where=text("deleted_at IS NULL")),
+        Index(
+            "ux_account_code",
+            "company_id",
+            "code",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
     )
 
 
@@ -104,10 +113,14 @@ class TaxRate(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    tax_group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tax_group.id"), nullable=True)
+    tax_group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tax_group.id"), nullable=True
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     kind: Mapped[str] = mapped_column(Text, nullable=False)
-    rate_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, server_default=text("0"))
+    rate_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, server_default=text("0")
+    )
     is_withholding: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
 
     __table_args__ = (
@@ -128,7 +141,9 @@ class FiscalPeriod(Base):
     period_end: Mapped[date] = mapped_column(nullable=False)
     is_closed: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
 
-    __table_args__ = (UniqueConstraint("company_id", "period_start", "period_end", name="ux_fiscal_period"),)
+    __table_args__ = (
+        UniqueConstraint("company_id", "period_start", "period_end", name="ux_fiscal_period"),
+    )
 
 
 class JournalEntry(Base):
@@ -139,7 +154,9 @@ class JournalEntry(Base):
     )
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     branch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    journal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("journal.id"), nullable=False)
+    journal_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("journal.id"), nullable=False
+    )
     entry_date: Mapped[date] = mapped_column(nullable=False)
     reference: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_table: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -169,12 +186,16 @@ class JournalEntryLine(Base):
     journal_entry_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("journal_entry.id"), nullable=False, index=True
     )
-    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("account.id"), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("account.id"), nullable=False, index=True
+    )
     cost_center_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("cost_center.id"), nullable=True
     )
     debit: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
-    credit: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
+    credit: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default=text("0")
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (

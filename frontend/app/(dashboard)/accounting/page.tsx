@@ -369,6 +369,296 @@ function TrialBalanceTab() {
   );
 }
 
+function GeneralLedgerTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [accountId, setAccountId] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ account: string; from: string; to: string } | null>(null);
+
+  const accountsQuery = useQuery({
+    queryKey: ["accounts", companyId],
+    queryFn: () => accountingApi.listAccounts(companyId),
+  });
+  const reportQuery = useQuery({
+    queryKey: ["general-ledger", companyId, ranAt?.account, ranAt?.from, ranAt?.to],
+    queryFn: () => accountingApi.generalLedger(companyId, ranAt!.account, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("accounting.tabs.general_ledger")}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-64 space-y-1">
+            <Label className="text-xs">{t("accounting.gl.select_account")}</Label>
+            <Select value={accountId} onValueChange={(v) => setAccountId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("accounting.gl.select_account")}>
+                  {(value: string) => {
+                    const acc = accountsQuery.data?.find((a) => a.id === value);
+                    return acc ? `${acc.code} — ${acc.name}` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {accountsQuery.data?.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.code} — {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.tb.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+          <Button
+            size="sm"
+            disabled={!accountId}
+            onClick={() => setRanAt({ account: accountId, from: dateFrom, to: dateTo })}
+          >
+            {t("accounting.gl.run")}
+          </Button>
+        </div>
+
+        {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
+
+        {ranAt && reportQuery.data && (
+          <>
+            <div className="flex gap-6 text-sm">
+              <span>
+                {t("accounting.gl.opening_balance")}:{" "}
+                <span className="font-mono">{reportQuery.data.opening_balance}</span>
+              </span>
+              <span>
+                {t("accounting.gl.closing_balance")}:{" "}
+                <span className="font-mono">{reportQuery.data.closing_balance}</span>
+              </span>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("accounting.gl.date")}</TableHead>
+                  <TableHead>{t("accounting.gl.reference")}</TableHead>
+                  <TableHead className="text-end">{t("accounting.je.debit")}</TableHead>
+                  <TableHead className="text-end">{t("accounting.je.credit")}</TableHead>
+                  <TableHead className="text-end">{t("accounting.gl.running_balance")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reportQuery.data.lines.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      {t("common.empty")}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {reportQuery.data.lines.map((line, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{line.entry_date}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/accounting/journal-entries/${line.journal_entry_id}`}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {line.reference ?? line.journal_entry_id.slice(0, 8)}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-end font-mono">{line.debit}</TableCell>
+                    <TableCell className="text-end font-mono">{line.credit}</TableCell>
+                    <TableCell className="text-end font-mono">{line.running_balance}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function IncomeStatementTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["income-statement", companyId, ranAt?.from, ranAt?.to],
+    queryFn: () => accountingApi.incomeStatement(companyId, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+  const r = reportQuery.data;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("accounting.tabs.income_statement")}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.is.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.is.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+          <Button size="sm" onClick={() => setRanAt({ from: dateFrom, to: dateTo })}>
+            {t("accounting.is.run")}
+          </Button>
+        </div>
+
+        {r && (
+          <div className="max-w-md space-y-1 font-mono text-sm">
+            <div className="flex justify-between">
+              <span className="font-sans">{t("accounting.is.revenue")}</span>
+              <span>{r.revenue_total}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span className="font-sans">{t("accounting.is.cogs")}</span>
+              <span>({r.cogs_total})</span>
+            </div>
+            <div className="flex justify-between border-t pt-1 font-semibold">
+              <span className="font-sans">{t("accounting.is.gross_profit")}</span>
+              <span>{r.gross_profit}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span className="font-sans">{t("accounting.is.opex")}</span>
+              <span>({r.opex_total})</span>
+            </div>
+            <div className="flex justify-between border-t pt-1 font-semibold">
+              <span className="font-sans">{t("accounting.is.operating_income")}</span>
+              <span>{r.operating_income}</span>
+            </div>
+            <div className="flex justify-between border-t-2 pt-1 text-base font-bold">
+              <span className="font-sans">{t("accounting.is.net_income")}</span>
+              <span>{r.net_income}</span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BalanceSheetSection({
+  title,
+  totalLabel,
+  rows,
+  total,
+}: {
+  title: string;
+  totalLabel: string;
+  rows: { account_name: string; amount: string }[];
+  total: string;
+}) {
+  return (
+    <div className="space-y-1 font-mono text-sm">
+      <p className="font-sans font-semibold">{title}</p>
+      {rows.map((row, i) => (
+        <div key={i} className="flex justify-between ps-4">
+          <span className="font-sans text-muted-foreground">{row.account_name}</span>
+          <span>{row.amount}</span>
+        </div>
+      ))}
+      <div className="flex justify-between border-t pt-1 font-semibold">
+        <span className="font-sans">{totalLabel}</span>
+        <span>{total}</span>
+      </div>
+    </div>
+  );
+}
+
+function BalanceSheetTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<string | null>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["balance-sheet", companyId, ranAt],
+    queryFn: () => accountingApi.balanceSheet(companyId, ranAt!),
+    enabled: !!ranAt,
+  });
+  const r = reportQuery.data;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("accounting.tabs.balance_sheet")}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.bs.as_of_date")}</Label>
+            <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
+          </div>
+          <Button size="sm" onClick={() => setRanAt(asOfDate)}>
+            {t("accounting.bs.run")}
+          </Button>
+        </div>
+
+        {r && (
+          <div className="grid max-w-2xl grid-cols-1 gap-6 sm:grid-cols-2">
+            <BalanceSheetSection
+              title={t("accounting.bs.assets")}
+              totalLabel={t("accounting.bs.total_assets")}
+              rows={r.assets}
+              total={r.assets_total}
+            />
+            <div className="space-y-4">
+              <BalanceSheetSection
+                title={t("accounting.bs.liabilities")}
+                totalLabel={t("accounting.bs.total_liabilities")}
+                rows={r.liabilities}
+                total={r.liabilities_total}
+              />
+              <div className="space-y-1 font-mono text-sm">
+                <p className="font-sans font-semibold">{t("accounting.bs.equity")}</p>
+                {r.equity.map((row, i) => (
+                  <div key={i} className="flex justify-between ps-4">
+                    <span className="font-sans text-muted-foreground">{row.account_name}</span>
+                    <span>{row.amount}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between ps-4">
+                  <span className="font-sans text-muted-foreground">{t("accounting.bs.current_earnings")}</span>
+                  <span>{r.current_earnings}</span>
+                </div>
+                <div className="flex justify-between border-t pt-1 font-semibold">
+                  <span className="font-sans">{t("accounting.bs.total_equity")}</span>
+                  <span>{r.equity_total}</span>
+                </div>
+              </div>
+              <div className="flex justify-between border-t-2 pt-1 font-mono text-sm font-bold">
+                <span className="font-sans">{t("accounting.bs.total_liabilities_and_equity")}</span>
+                <span>{r.total_liabilities_and_equity}</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AccountingPage() {
   const { t } = useI18n();
   // Base UI's Tabs.Panel fails to hide inactive panels once a second panel
@@ -386,10 +676,16 @@ export default function AccountingPage() {
           <TabsTrigger value="accounts">{t("accounting.tabs.accounts")}</TabsTrigger>
           <TabsTrigger value="journal-entries">{t("accounting.tabs.journal_entries")}</TabsTrigger>
           <TabsTrigger value="trial-balance">{t("accounting.tabs.trial_balance")}</TabsTrigger>
+          <TabsTrigger value="general-ledger">{t("accounting.tabs.general_ledger")}</TabsTrigger>
+          <TabsTrigger value="income-statement">{t("accounting.tabs.income_statement")}</TabsTrigger>
+          <TabsTrigger value="balance-sheet">{t("accounting.tabs.balance_sheet")}</TabsTrigger>
         </TabsList>
         <TabsContent value="accounts">{tab === "accounts" && <ChartOfAccountsTab />}</TabsContent>
         <TabsContent value="journal-entries">{tab === "journal-entries" && <JournalEntriesTab />}</TabsContent>
         <TabsContent value="trial-balance">{tab === "trial-balance" && <TrialBalanceTab />}</TabsContent>
+        <TabsContent value="general-ledger">{tab === "general-ledger" && <GeneralLedgerTab />}</TabsContent>
+        <TabsContent value="income-statement">{tab === "income-statement" && <IncomeStatementTab />}</TabsContent>
+        <TabsContent value="balance-sheet">{tab === "balance-sheet" && <BalanceSheetTab />}</TabsContent>
       </Tabs>
     </div>
   );

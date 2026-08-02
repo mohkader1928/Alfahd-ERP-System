@@ -54,6 +54,7 @@ DEFAULT_SAUDI_COA: list[tuple[str, str, str, str, str | None]] = [
     ("5200", "Operating Expenses", "Operating Expenses AR", "expense", "5000"),
 ]
 
+
 def _utcnow_naive() -> datetime:
     """`posted_at` (and every other timestamp column in the current schema)
     is `TIMESTAMP WITHOUT TIME ZONE` — always UTC by convention, but the
@@ -120,7 +121,9 @@ class ChartOfAccountsService:
             accounts_by_code[code] = account
         return accounts_by_code
 
-    async def seed_default_journals(self, company_id: UUID, accounts_by_code: dict[str, Account]) -> None:
+    async def seed_default_journals(
+        self, company_id: UUID, accounts_by_code: dict[str, Account]
+    ) -> None:
         journal_defaults = {
             "SALES": ("1200", "4100"),  # debit AR, credit Sales Revenue
             "PURCH": ("5100", "2100"),  # debit COGS, credit AP
@@ -276,7 +279,9 @@ class JournalEntryService:
 
         lines = await self.entry_repo.get_lines(entry_id)
         domain_lines = [
-            DomainJournalEntryLine(account_id=line_.account_id, debit=line_.debit, credit=line_.credit)
+            DomainJournalEntryLine(
+                account_id=line_.account_id, debit=line_.debit, credit=line_.credit
+            )
             for line_ in lines
         ]
         domain_entry = DomainJournalEntry(
@@ -289,7 +294,9 @@ class JournalEntryService:
         entry.version += 1
         return entry
 
-    async def reverse_entry(self, *, entry_id: UUID, company_id: UUID, created_by: UUID) -> JournalEntry:
+    async def reverse_entry(
+        self, *, entry_id: UUID, company_id: UUID, created_by: UUID
+    ) -> JournalEntry:
         original = await self.entry_repo.get_by_id(entry_id)
         if original is None or original.company_id != company_id:
             raise ValueError("Journal entry not found")
@@ -332,15 +339,174 @@ class JournalEntryService:
 
 
 class ReportingService:
-    """FR-ACC-009 — Trial Balance."""
+    """FR-ACC-009 — Trial Balance, plus Milestone 1 (Accounting
+    Standardization): General Ledger, Income Statement, Balance Sheet. Every
+    figure below is derived from real posted Journal Entries — nothing here
+    is a separate reporting table or precomputed snapshot, so a report is
+    always traceable back to Journal Entry -> Journal Entry Lines -> the
+    Account it hit, per the Owner's "Evidence > Claims" / traceability rule."""
 
-    def __init__(self, entry_repo: JournalEntryRepository):
+    # Cost of Goods Sold's own root account code in the seeded Chart of
+    # Accounts (`5000 Expenses` -> `5100 Cost of Goods Sold` -> ...). Any
+    # expense account that is 5100 itself, or nests under it, is COGS;
+    # every other expense account is an Operating Expense. This mirrors the
+    # grouping the Chart of Accounts was already seeded with in Phase 11 —
+    # it is not a new convention invented for this report.
+    _COGS_ROOT_CODE = "5100"
+
+    def __init__(
+        self, entry_repo: JournalEntryRepository, account_repo: AccountRepository | None = None
+    ):
         self.entry_repo = entry_repo
+        self.account_repo = account_repo
 
     async def trial_balance(
         self, *, company_id: UUID, date_from: date, date_to: date, branch_id: UUID | None = None
     ) -> list[dict]:
         return await self.entry_repo.trial_balance(company_id, date_from, date_to, branch_id)
+
+    async def general_ledger(
+        self,
+        *,
+        company_id: UUID,
+        account_id: UUID,
+        date_from: date,
+        date_to: date,
+        branch_id: UUID | None = None,
+    ) -> dict:
+        """Milestone 1 — one account's ledger: opening balance (everything
+        posted before `date_from`), every movement in range with a running
+        balance, and a closing balance — with each line traceable to the
+        Journal Entry that produced it (FR: drill-down to source)."""
+        opening = await self.entry_repo.account_balance_by_id(
+            company_id, account_id, date_from, branch_id
+        )
+        lines = await self.entry_repo.general_ledger_lines(
+            company_id, account_id, date_from, date_to, branch_id
+        )
+
+        running = opening
+        out_lines = []
+        for line in lines:
+            running = running + line["debit"] - line["credit"]
+            out_lines.append({**line, "running_balance": running})
+
+        return {"opening_balance": opening, "lines": out_lines, "closing_balance": running}
+
+    async def income_statement(
+        self, *, company_id: UUID, date_from: date, date_to: date, branch_id: UUID | None = None
+    ) -> dict:
+        """Milestone 1 — Revenue / COGS / Gross Profit / Operating Expenses
+        / Net Income for the period, built entirely from posted Journal
+        Entry activity within [date_from, date_to] — a period report, not a
+        cumulative one, matching standard P&L semantics."""
+        rows = await self.entry_repo.balances_by_type(
+            company_id, date_from, date_to, ["revenue", "expense"], branch_id
+        )
+        cogs_subtree = await self._cogs_account_ids(company_id) if self.account_repo else set()
+
+        revenue_accounts, cogs_accounts, opex_accounts = [], [], []
+        revenue_total = cogs_total = opex_total = Decimal("0.0000")
+        for row in rows:
+            if row["type_code"] == "revenue":
+                # Revenue is credit-normal: a positive figure means more was
+                # earned than debited back out (e.g. via a credit note).
+                amount = row["total_credit"] - row["total_debit"]
+                revenue_accounts.append({**row, "amount": amount})
+                revenue_total += amount
+            else:  # expense — debit-normal
+                amount = row["total_debit"] - row["total_credit"]
+                bucket = cogs_accounts if row["account_id"] in cogs_subtree else opex_accounts
+                bucket.append({**row, "amount": amount})
+                if row["account_id"] in cogs_subtree:
+                    cogs_total += amount
+                else:
+                    opex_total += amount
+
+        gross_profit = revenue_total - cogs_total
+        operating_income = gross_profit - opex_total
+        return {
+            "revenue_accounts": revenue_accounts,
+            "revenue_total": revenue_total,
+            "cogs_accounts": cogs_accounts,
+            "cogs_total": cogs_total,
+            "gross_profit": gross_profit,
+            "opex_accounts": opex_accounts,
+            "opex_total": opex_total,
+            "operating_income": operating_income,
+            # No accounts exist yet for a distinct "other income/expense"
+            # bucket in the current Chart of Accounts — reported as 0 rather
+            # than invented, so Net Income is Operating Income for now. If a
+            # company adds such accounts later, this is the one place that
+            # would need a real "other" classification rule, not a silent gap.
+            "net_income": operating_income,
+        }
+
+    async def balance_sheet(
+        self, *, company_id: UUID, as_of_date: date, branch_id: UUID | None = None
+    ) -> dict:
+        """Milestone 1 — Assets / Liabilities / Equity as of a date. There is
+        no period-close step yet that moves prior periods' net income into
+        Retained Earnings (FiscalPeriodService.close_period only locks the
+        period against new postings — see docs), so this computes net
+        income since inception as an explicit "Current Earnings (unclosed)"
+        equity line. That keeps the fundamental identity Assets = Liabilities
+        + Equity true using only real, derived Journal Entry data — no
+        closing entries are posted, nothing is mutated, nothing is faked."""
+        from datetime import date as _date
+
+        inception = _date(1900, 1, 1)
+        rows = await self.entry_repo.balances_by_type(
+            company_id, inception, as_of_date, ["asset", "liability", "equity"], branch_id
+        )
+        assets, liabilities, equity = [], [], []
+        assets_total = liabilities_total = equity_total = Decimal("0.0000")
+        for row in rows:
+            if row["type_code"] == "asset":
+                amount = row["total_debit"] - row["total_credit"]
+                assets.append({**row, "amount": amount})
+                assets_total += amount
+            elif row["type_code"] == "liability":
+                amount = row["total_credit"] - row["total_debit"]
+                liabilities.append({**row, "amount": amount})
+                liabilities_total += amount
+            else:
+                amount = row["total_credit"] - row["total_debit"]
+                equity.append({**row, "amount": amount})
+                equity_total += amount
+
+        income = await self.income_statement(
+            company_id=company_id, date_from=inception, date_to=as_of_date, branch_id=branch_id
+        )
+        current_earnings = income["net_income"]
+        equity_total += current_earnings
+
+        return {
+            "assets": assets,
+            "assets_total": assets_total,
+            "liabilities": liabilities,
+            "liabilities_total": liabilities_total,
+            "equity": equity,
+            "equity_total": equity_total,
+            "current_earnings": current_earnings,
+            "total_liabilities_and_equity": liabilities_total + equity_total,
+        }
+
+    async def _cogs_account_ids(self, company_id: UUID) -> set[UUID]:
+        accounts = await self.account_repo.list_by_company(company_id)
+        cogs_root = next((a for a in accounts if a.code == self._COGS_ROOT_CODE), None)
+        if cogs_root is None:
+            return set()
+
+        result: set[UUID] = {cogs_root.id}
+        changed = True
+        while changed:
+            changed = False
+            for a in accounts:
+                if a.parent_id in result and a.id not in result:
+                    result.add(a.id)
+                    changed = True
+        return result
 
 
 class FiscalPeriodService:
@@ -349,8 +515,12 @@ class FiscalPeriodService:
     def __init__(self, period_repo: FiscalPeriodRepository):
         self.period_repo = period_repo
 
-    async def create_period(self, *, company_id: UUID, period_start: date, period_end: date) -> FiscalPeriod:
-        period = FiscalPeriod(id=uuid.uuid4(), company_id=company_id, period_start=period_start, period_end=period_end)
+    async def create_period(
+        self, *, company_id: UUID, period_start: date, period_end: date
+    ) -> FiscalPeriod:
+        period = FiscalPeriod(
+            id=uuid.uuid4(), company_id=company_id, period_start=period_start, period_end=period_end
+        )
         return await self.period_repo.add(period)
 
     async def close_period(self, *, period_id: UUID, company_id: UUID) -> FiscalPeriod:

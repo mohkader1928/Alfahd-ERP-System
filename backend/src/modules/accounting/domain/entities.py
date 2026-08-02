@@ -71,7 +71,9 @@ class JournalEntry:
 
     def assert_mutable(self) -> None:
         if self.status == "posted":
-            raise PostedEntryImmutableError("a posted journal entry cannot be modified; reverse it instead")
+            raise PostedEntryImmutableError(
+                "a posted journal entry cannot be modified; reverse it instead"
+            )
 
 
 @dataclass
@@ -81,7 +83,9 @@ class TaxCalculationResult:
     total_amount: Decimal
 
 
-def calculate_tax(*, line_amount: Decimal, tax_kind: str, rate_percent: Decimal) -> TaxCalculationResult:
+def calculate_tax(
+    *, line_amount: Decimal, tax_kind: str, rate_percent: Decimal
+) -> TaxCalculationResult:
     """Domain service — FR-ACC-007 tax engine core (Strategy-free since KSA
     VAT is a flat-percentage model; a compound Tax Group sums this per rate).
     """

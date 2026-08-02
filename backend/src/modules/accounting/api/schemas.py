@@ -84,6 +84,66 @@ class TrialBalanceRow(BaseModel):
     total_credit: Decimal
 
 
+class GeneralLedgerLine(BaseModel):
+    journal_entry_id: UUID
+    entry_date: date
+    reference: str | None
+    status: str
+    debit: Decimal
+    credit: Decimal
+    description: str | None
+    running_balance: Decimal
+
+
+class GeneralLedgerResponse(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    opening_balance: Decimal
+    lines: list[GeneralLedgerLine]
+    closing_balance: Decimal
+
+
+class IncomeStatementAccountRow(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    amount: Decimal
+
+
+class IncomeStatementResponse(BaseModel):
+    date_from: date
+    date_to: date
+    revenue_accounts: list[IncomeStatementAccountRow]
+    revenue_total: Decimal
+    cogs_accounts: list[IncomeStatementAccountRow]
+    cogs_total: Decimal
+    gross_profit: Decimal
+    opex_accounts: list[IncomeStatementAccountRow]
+    opex_total: Decimal
+    operating_income: Decimal
+    net_income: Decimal
+
+
+class BalanceSheetAccountRow(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    amount: Decimal
+
+
+class BalanceSheetResponse(BaseModel):
+    as_of_date: date
+    assets: list[BalanceSheetAccountRow]
+    assets_total: Decimal
+    liabilities: list[BalanceSheetAccountRow]
+    liabilities_total: Decimal
+    equity: list[BalanceSheetAccountRow]
+    equity_total: Decimal
+    current_earnings: Decimal
+    total_liabilities_and_equity: Decimal
+
+
 class FiscalPeriodCreateRequest(BaseModel):
     period_start: date
     period_end: date

@@ -16,8 +16,11 @@ from src.modules.accounting.api.deps import (
 from src.modules.accounting.api.schemas import (
     AccountCreateRequest,
     AccountOut,
+    BalanceSheetResponse,
     FiscalPeriodCreateRequest,
     FiscalPeriodOut,
+    GeneralLedgerResponse,
+    IncomeStatementResponse,
     JournalEntryCreateRequest,
     JournalEntryDetailResponse,
     JournalEntryOut,
@@ -68,7 +71,9 @@ async def create_account(
 ):
     from src.modules.accounting.infrastructure.repositories import TaxRepository
 
-    service = ChartOfAccountsService(account_repo, account_type_repo, journal_repo, TaxRepository(db))
+    service = ChartOfAccountsService(
+        account_repo, account_type_repo, journal_repo, TaxRepository(db)
+    )
     try:
         account = await service.create_account(
             company_id=ctx.company_id,
@@ -108,7 +113,9 @@ async def get_journal_entry(
     return JournalEntryDetailResponse(entry=entry, lines=lines)
 
 
-@router.post("/journal-entries", response_model=JournalEntryOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/journal-entries", response_model=JournalEntryOut, status_code=status.HTTP_201_CREATED
+)
 async def create_journal_entry(
     payload: JournalEntryCreateRequest,
     db: AsyncSession = Depends(get_db),
@@ -221,6 +228,63 @@ async def trial_balance(
     )
 
 
+@router.get("/reports/general-ledger", response_model=GeneralLedgerResponse)
+async def general_ledger(
+    account_id: str,
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("accounting.reports.general_ledger.view")),
+    entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    account_repo: AccountRepository = Depends(get_account_repo),
+):
+    import uuid as _uuid
+
+    account = await account_repo.get_by_id(_uuid.UUID(account_id))
+    if account is None or account.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+
+    service = ReportingService(entry_repo)
+    result = await service.general_ledger(
+        company_id=ctx.company_id,
+        account_id=account.id,
+        date_from=date_from,
+        date_to=date_to,
+        branch_id=ctx.branch_id,
+    )
+    return GeneralLedgerResponse(
+        account_id=account.id, account_code=account.code, account_name=account.name, **result
+    )
+
+
+@router.get("/reports/income-statement", response_model=IncomeStatementResponse)
+async def income_statement(
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("accounting.reports.income_statement.view")),
+    entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    account_repo: AccountRepository = Depends(get_account_repo),
+):
+    service = ReportingService(entry_repo, account_repo)
+    result = await service.income_statement(
+        company_id=ctx.company_id, date_from=date_from, date_to=date_to, branch_id=ctx.branch_id
+    )
+    return IncomeStatementResponse(date_from=date_from, date_to=date_to, **result)
+
+
+@router.get("/reports/balance-sheet", response_model=BalanceSheetResponse)
+async def balance_sheet(
+    as_of_date: date,
+    ctx: AuthContext = Depends(require_permission("accounting.reports.balance_sheet.view")),
+    entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    account_repo: AccountRepository = Depends(get_account_repo),
+):
+    service = ReportingService(entry_repo, account_repo)
+    result = await service.balance_sheet(
+        company_id=ctx.company_id, as_of_date=as_of_date, branch_id=ctx.branch_id
+    )
+    return BalanceSheetResponse(as_of_date=as_of_date, **result)
+
+
 @router.post("/fiscal-periods", response_model=FiscalPeriodOut, status_code=status.HTTP_201_CREATED)
 async def create_fiscal_period(
     payload: FiscalPeriodCreateRequest,
@@ -247,7 +311,9 @@ async def close_fiscal_period(
 
     service = FiscalPeriodService(period_repo)
     try:
-        period = await service.close_period(period_id=_uuid.UUID(period_id), company_id=ctx.company_id)
+        period = await service.close_period(
+            period_id=_uuid.UUID(period_id), company_id=ctx.company_id
+        )
     except ValueError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
 
