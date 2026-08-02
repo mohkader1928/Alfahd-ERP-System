@@ -24,16 +24,23 @@ from src.modules.zatca.application.zatca_service import PreparedInvoice, ZatcaIn
 from src.modules.zatca.domain.entities import InvoiceData
 from src.modules.zatca.infrastructure.gateways.sandbox_gateway import SandboxZatcaGateway
 from src.modules.zatca.infrastructure.signing import DevSigningService
-from src.shared.infrastructure.db.session import AsyncSessionLocal, engine, set_company_context
+from src.shared.infrastructure.db.session import (
+    AsyncSessionLocal,
+    engine,
+    set_company_context,
+    set_tenant_context,
+)
 from src.workers.celery_app import celery_app
 
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), max_retries=5, retry_backoff=True, retry_backoff_max=600)
-def report_invoice_task(self, invoice_id: str) -> None:
-    asyncio.run(_run_with_fresh_pool(invoice_id))
+def report_invoice_task(
+    self, invoice_id: str, company_id: str | None = None, tenant_id: str | None = None
+) -> None:
+    asyncio.run(_run_with_fresh_pool(invoice_id, company_id, tenant_id))
 
 
-async def _run_with_fresh_pool(invoice_id: str) -> None:
+async def _run_with_fresh_pool(invoice_id: str, company_id: str | None, tenant_id: str | None = None) -> None:
     # The shared async engine's connection pool is a module-level singleton
     # (fine for the FastAPI app, which keeps one event loop for its whole
     # lifetime). Celery's prefork worker calls `asyncio.run()` per task,
@@ -43,21 +50,48 @@ async def _run_with_fresh_pool(invoice_id: str) -> None:
     # forces fresh connections bound to *this* task's loop.
     await engine.dispose()
     try:
-        await _report_invoice_async(invoice_id)
+        await _report_invoice_async(invoice_id, company_id, tenant_id)
     finally:
         await engine.dispose()
 
 
-async def _report_invoice_async(invoice_id: str) -> None:
+async def _report_invoice_async(invoice_id: str, company_id: str | None, tenant_id: str | None = None) -> None:
     async with AsyncSessionLocal() as session:
         invoice_repo = SalesInvoiceRepository(session)
         submission_repo = ZatcaSubmissionRepository(session)
+
+        if company_id is not None:
+            # Phase 17C-RLS: company context MUST be set before the first
+            # RLS-protected query. The runtime role (erp_app) no longer
+            # bypasses RLS, so querying before context is set returns no
+            # rows under the company_isolation policy's default-deny —
+            # querying afterward, as this used to do, silently produced
+            # `invoice is None` on every call once RLS became enforced.
+            await set_company_context(session, uuid.UUID(company_id))
+        if tenant_id is not None:
+            # `company` (queried below) carries tenant_isolation, not
+            # company_isolation (Phase 7 §3: identity's root tables use
+            # tenant_id, everything downstream uses company_id) — this was
+            # a pre-existing gap in this task even before the ordering fix,
+            # newly surfaced now that RLS is genuinely enforced.
+            await set_tenant_context(session, uuid.UUID(tenant_id))
 
         invoice = await invoice_repo.get_by_id(uuid.UUID(invoice_id))
         if invoice is None:
             return
 
-        await set_company_context(session, invoice.company_id)
+        if company_id is None:
+            # Backward-compat path for tasks already enqueued (in Redis)
+            # under the old two/three-argument signature before this
+            # deploy — no company_id was serialized into the task message,
+            # so context can't be set before the lookup above. Under RLS
+            # enforcement that lookup already failed closed and returned
+            # above; this branch only runs when the runtime role still
+            # bypasses RLS (an in-place upgrade caught mid-transition),
+            # preserving the previous ordering as a safety net rather than
+            # crashing. Remove this branch and the optional parameters
+            # once the queue is confirmed drained of pre-deploy tasks.
+            await set_company_context(session, invoice.company_id)
 
         submission = await submission_repo.get_by_invoice_id(invoice.id)
         if submission is None or submission.status != "pending_submission":
@@ -65,6 +99,12 @@ async def _report_invoice_async(invoice_id: str) -> None:
 
         company_repo = CompanyRepository(session)
         partner_repo = PartnerRepository(session)
+        # No backward-compat recovery for a missing tenant_id: unlike
+        # company_id, `sales_invoice` carries no tenant_id column to fall
+        # back to, so an old-shape task with tenant_id=None simply can't
+        # look up the company below (tenant_isolation, not
+        # company_isolation) — it fails loudly via the RuntimeError below,
+        # which autoretry_for surfaces rather than silently swallowing.
         company = await company_repo.get_by_id(invoice.company_id)
         partner = await partner_repo.get_by_id(invoice.partner_id)
         if company is None or partner is None:

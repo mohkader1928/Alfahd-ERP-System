@@ -71,7 +71,12 @@ from src.modules.identity.infrastructure.repositories import (
     UnitOfMeasureRepository,
     UserRepository,
 )
-from src.shared.infrastructure.db.session import get_db, set_tenant_context
+from src.shared.infrastructure.db.session import (
+    get_db,
+    set_company_context,
+    set_login_lookup,
+    set_tenant_context,
+)
 from src.shared.infrastructure.messaging.event_bus import event_bus
 from src.shared.security.auth_context import AuthContext, get_auth_context
 
@@ -119,6 +124,13 @@ async def bootstrap(
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
+    # Phase 17C-RLS: `role` and `user_company_access` (below) are
+    # company_isolation-policy tables, not tenant_isolation — the tenant
+    # context set above isn't enough for their WITH CHECK clause. This was
+    # invisible while the API connected as the erp superuser (bypasses RLS
+    # unconditionally); erp_app does not bypass it.
+    await set_company_context(db, company.id)
+
     user_service = UserManagementService(user_repo, role_repo)
     try:
         admin_user = await user_service.create_user(
@@ -163,6 +175,10 @@ async def bootstrap(
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db), user_repo: UserRepository = Depends(get_user_repo)):
     auth_service = AuthenticationService(user_repo)
     try:
+        # Phase 17C-RLS Step 3A: the tenant isn't known until after this
+        # by-email lookup finds the user — see app_user_login_lookup policy
+        # (migration f7004fe055a4) and set_login_lookup()'s docstring.
+        await set_login_lookup(db)
         user = await auth_service.authenticate_step1(email=payload.email, plain_password=payload.password)
     except TwoFactorRequiredError:
         return TwoFactorRequiredResponse()
@@ -181,6 +197,8 @@ async def verify_2fa(
 ):
     auth_service = AuthenticationService(user_repo)
     try:
+        # Phase 17C-RLS Step 3A: same rationale as the login endpoint above.
+        await set_login_lookup(db)
         user = await auth_service.authenticate_step2_totp(
             email=payload.email, plain_password=payload.password, totp_code=payload.totp_code
         )

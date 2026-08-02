@@ -27,6 +27,26 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-off: `docker compose --profile tools run --rm migrate`. Phase
+  # 17C-RLS: bootstraps erp_migrate/erp_app (idempotent) then runs Alembic
+  # as erp_migrate. Not part of the default `up` — mirrors
+  # docker-compose.prod.yml's existing migrate service. Run this (and wait
+  # for it to finish) before starting api/worker on a fresh checkout or
+  # after pulling new migrations.
+  migrate:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    env_file:
+      - ../backend/.env.migrate
+    command: sh -c "python -m src.scripts.bootstrap_db_roles && alembic upgrade head"
+    volumes:
+      - ../backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["tools"]
+
   api:
     build:
       context: ../backend

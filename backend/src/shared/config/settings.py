@@ -10,6 +10,13 @@ class Settings(BaseSettings):
 
     database_url: str
     database_url_sync: str
+    # Phase 17C-RLS: Alembic connects as erp_migrate (owns schema objects),
+    # never as the runtime role the rest of Settings' database_url_sync now
+    # points at. Optional with a fallback to database_url_sync ONLY so a
+    # developer's plain `.env` (no separate migrate role configured yet)
+    # keeps working — production's `.env.migrate` must always set this
+    # explicitly; see migrations/env.py and docs/17c-rls-runtime-role-hardening.md.
+    database_url_migrate_sync: str | None = None
     redis_url: str
 
     jwt_secret_key: str

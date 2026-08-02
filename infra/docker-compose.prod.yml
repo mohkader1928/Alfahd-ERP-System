@@ -28,13 +28,17 @@ services:
   # One-off: `docker compose -f docker-compose.prod.yml run --rm migrate`.
   # Not part of the default `up` — migrations are a deliberate, reviewed
   # step, not something that should silently fire on every restart.
+  # Phase 17C-RLS: bootstraps erp_migrate/erp_app (idempotent) then runs
+  # Alembic as erp_migrate — the only place the bootstrap superuser
+  # credential (.env.migrate.production's DATABASE_URL_BOOTSTRAP_SYNC) is
+  # ever used. api/worker never see it.
   migrate:
     build:
       context: ../backend
       target: production
     env_file:
-      - ../backend/.env.production
-    command: ["alembic", "upgrade", "head"]
+      - ../backend/.env.migrate.production
+    command: ["sh", "-c", "python -m src.scripts.bootstrap_db_roles && alembic upgrade head"]
     depends_on:
       postgres:
         condition: service_healthy

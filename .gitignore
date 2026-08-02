@@ -3,7 +3,10 @@
 .env
 .env.production
 .env.local
+.env.migrate
+.env.migrate.production
 !.env.example
+!.env.migrate.example
 
 # Backend
 __pycache__/

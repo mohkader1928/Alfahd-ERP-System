@@ -35,11 +35,14 @@ docker compose -f ../infra/docker-compose.yml exec api pytest -q --cov=src/modul
 # Lint
 docker compose -f ../infra/docker-compose.yml exec api ruff check src tests
 
-# New migration after changing models
+# New migration after changing models (read-only schema introspection +
+# a local file write — fine via the already-running api container)
 docker compose -f ../infra/docker-compose.yml exec api alembic revision --autogenerate -m "description"
 
-# Apply migrations
-docker compose -f ../infra/docker-compose.yml exec api alembic upgrade head
+# Apply migrations — a dedicated one-off service, NOT `exec api`: the API
+# container's runtime role (erp_app) is deliberately restricted and can't
+# run DDL. See ../docs/17c-rls-runtime-role-hardening.md.
+docker compose -f ../infra/docker-compose.yml --profile tools run --rm migrate
 ```
 
 Interactive API docs (Swagger UI): http://localhost:8000/docs — this is the

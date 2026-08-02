@@ -21,7 +21,13 @@ import src.modules.sales.infrastructure.models  # noqa: F401,E402
 
 config = context.config
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url_sync)
+# Phase 17C-RLS: prefer the migration-role connection string; only fall
+# back to database_url_sync (the runtime role, in the new architecture)
+# for local developer convenience when DATABASE_URL_MIGRATE_SYNC isn't
+# set. Production must always set DATABASE_URL_MIGRATE_SYNC explicitly —
+# this fallback existing is not a substitute for that.
+migration_url = settings.database_url_migrate_sync or settings.database_url_sync
+config.set_main_option("sqlalchemy.url", migration_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

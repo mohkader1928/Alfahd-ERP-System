@@ -56,7 +56,7 @@ from src.modules.inventory.infrastructure.repositories import (
     StockQuantRepository,
     WarehouseRepository,
 )
-from src.shared.infrastructure.db.session import get_db
+from src.shared.infrastructure.db.session import get_db, set_company_context
 from src.shared.security.auth_context import AuthContext
 
 router = APIRouter()
@@ -206,6 +206,10 @@ async def create_cycle_count(
         lines=[line.model_dump() for line in payload.lines],
     )
     await db.commit()
+    # Phase 17C-RLS: db.commit() ends the transaction set_company_context()
+    # scoped its SET LOCAL to — the follow-up read needs it re-established,
+    # or it runs with no valid RLS context on this pooled connection.
+    await set_company_context(db, ctx.company_id)
     lines = await cycle_count_repo.get_lines(cycle_count.id)
     return CycleCountDetailResponse(cycle_count=cycle_count, lines=lines)
 
@@ -293,6 +297,8 @@ async def approve_cycle_count(
 
     cycle_count.status = "approved"
     await db.commit()
+    # Phase 17C-RLS: same rationale as create_cycle_count above.
+    await set_company_context(db, ctx.company_id)
 
     updated_lines = await cycle_count_repo.get_lines(cycle_count_id)
     return CycleCountDetailResponse(cycle_count=cycle_count, lines=updated_lines)

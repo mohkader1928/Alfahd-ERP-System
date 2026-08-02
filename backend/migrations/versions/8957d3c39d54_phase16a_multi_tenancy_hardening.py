@@ -77,13 +77,40 @@ def upgrade() -> None:
         #    and is reset to DEFAULT immediately after this one statement —
         #    the trigger itself is never altered or weakened for the
         #    application.
+        #
+        #    Phase 17C-RLS: SET session_replication_role requires actual
+        #    Postgres superuser (PGC_SUSET), which the migration role no
+        #    longer is post-hardening. Guarded rather than removed: when
+        #    running as a non-superuser, skip straight to the UPDATE. This
+        #    is safe on a fresh install specifically — empirically verified
+        #    (Phase 17C-RLS Step 2) by running this exact migration end to
+        #    end under a genuine NOSUPERUSER role against a disposable,
+        #    from-scratch database: journal_entry_line has zero rows at
+        #    this point in migration history (no migration seeds
+        #    transactional data), so the backfill UPDATE below matches zero
+        #    rows and the immutability trigger never fires regardless of
+        #    session_replication_role — the suppression has nothing to
+        #    suppress. This does NOT hold for every conceivable upgrade
+        #    path: restoring a pre-Phase-16A backup that already contains
+        #    posted journal entries, then replaying this migration forward,
+        #    would hit the trigger for real once it can no longer be
+        #    suppressed, and would need a one-time superuser-assisted
+        #    migration for that specific restore scenario — a deliberately
+        #    accepted, narrow limitation (see docs/17c-rls-runtime-role-hardening.md)
+        #    rather than a reason to keep a standing superuser migration
+        #    credential.
         if child == "journal_entry_line":
-            op.execute("SET session_replication_role = replica")
+            bind = op.get_bind()
+            is_superuser = bind.execute(
+                sa.text("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+            ).scalar()
+            if is_superuser:
+                op.execute("SET session_replication_role = replica")
         op.execute(
             f"UPDATE {child} SET company_id = {parent}.company_id "
             f"FROM {parent} WHERE {child}.{fk_col} = {parent}.id"
         )
-        if child == "journal_entry_line":
+        if child == "journal_entry_line" and is_superuser:
             op.execute("SET session_replication_role = DEFAULT")
 
         # 3. Verify zero NULLs before trusting the column — fail loudly

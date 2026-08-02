@@ -115,7 +115,7 @@ async def issue_invoice(
         # worker never picks up a row from an uncommitted transaction.
         from src.workers.tasks.zatca_tasks import report_invoice_task
 
-        report_invoice_task.delay(str(invoice.id))
+        report_invoice_task.delay(str(invoice.id), company_id=str(ctx.company_id), tenant_id=str(ctx.tenant_id))
 
     return InvoiceIssueResponse(invoice=invoice, zatca_submission=submission)
 
@@ -146,7 +146,7 @@ async def issue_credit_note(
     if submission.status == "pending_submission":
         from src.workers.tasks.zatca_tasks import report_invoice_task
 
-        report_invoice_task.delay(str(credit_note.id))
+        report_invoice_task.delay(str(credit_note.id), company_id=str(ctx.company_id), tenant_id=str(ctx.tenant_id))
 
     return InvoiceIssueResponse(invoice=credit_note, zatca_submission=submission)
 

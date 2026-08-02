@@ -55,10 +55,11 @@ server memory, so any replica can serve any request).
 Nothing in this repo ships real production credentials. Two files are
 gitignored and must exist before `docker compose -f docker-compose.prod.yml up` works:
 
-**`backend/.env.production`** (copy `backend/.env.example` and fill in):
+**`backend/.env.production`** (copy `backend/.env.example` and fill in) —
+the **runtime** credential (`erp_app`), used only by `api`/`worker`:
 ```
-DATABASE_URL=postgresql+asyncpg://<user>:<password>@postgres:5432/<db>
-DATABASE_URL_SYNC=postgresql+psycopg2://<user>:<password>@postgres:5432/<db>
+DATABASE_URL=postgresql+asyncpg://erp_app:<erp_app_password>@postgres:5432/<db>
+DATABASE_URL_SYNC=postgresql+psycopg2://erp_app:<erp_app_password>@postgres:5432/<db>
 REDIS_URL=redis://redis:6379/0
 JWT_SECRET_KEY=<random, e.g. `python -c "import secrets; print(secrets.token_hex(32))"`>
 JWT_ALGORITHM=HS256
@@ -69,10 +70,23 @@ LOG_LEVEL=INFO
 CORS_ORIGINS=https://your-public-domain   # comma-separated if more than one; was hardcoded to localhost:3000 pre-Phase-16A
 ```
 
+**`backend/.env.migrate.production`** (copy `backend/.env.migrate.example`
+and fill in) — the **bootstrap** and **migration** credentials, used only
+by the one-off `migrate` service; see
+[17c-rls-runtime-role-hardening.md](17c-rls-runtime-role-hardening.md) for
+why this is a separate file from the one above:
+```
+DATABASE_URL_BOOTSTRAP_SYNC=postgresql://<postgres_user>:<postgres_password>@postgres:5432/<db>
+POSTGRES_DB=<db>
+ERP_MIGRATE_PASSWORD=<erp_migrate_password>
+ERP_APP_PASSWORD=<erp_app_password>          # must match backend/.env.production above
+DATABASE_URL_MIGRATE_SYNC=postgresql+psycopg2://erp_migrate:<erp_migrate_password>@postgres:5432/<db>
+```
+
 **`infra/.env`** (compose-level — Postgres init + nginx port + frontend build arg):
 ```
-POSTGRES_USER=<user>          # must match backend/.env.production's DATABASE_URL
-POSTGRES_PASSWORD=<password>  # must match backend/.env.production's DATABASE_URL
+POSTGRES_USER=<postgres_user>          # must match backend/.env.migrate.production's DATABASE_URL_BOOTSTRAP_SYNC
+POSTGRES_PASSWORD=<postgres_password>  # must match backend/.env.migrate.production's DATABASE_URL_BOOTSTRAP_SYNC
 POSTGRES_DB=<db>
 NEXT_PUBLIC_API_URL=https://your-public-domain   # NO /api suffix — see §5 pitfall
 HTTP_PORT=80
@@ -80,6 +94,12 @@ HTTP_PORT=80
 
 `docker compose` fails fast with a clear error (`POSTGRES_USER is required`)
 if these aren't set, rather than silently booting with a blank password.
+
+`POSTGRES_USER`/`POSTGRES_PASSWORD` are the Postgres image's bootstrap
+superuser — required by the official image, but never used by `api` or
+`worker` after the one-off `migrate` step below creates and grants the two
+restricted roles those services actually connect as (`erp_migrate`,
+`erp_app`). No standing superuser credential is used at runtime.
 
 ## 4. Deploy steps
 
@@ -92,7 +112,9 @@ docker compose -f docker-compose.prod.yml build
 # 2. Bring up the database and cache first, wait for health
 docker compose -f docker-compose.prod.yml up -d postgres redis
 
-# 3. Run migrations — a deliberate, reviewed one-off step, not part of `up`
+# 3. Bootstrap the erp_migrate/erp_app roles (idempotent) and run
+#    migrations — a deliberate, reviewed one-off step, not part of `up`.
+#    See 17c-rls-runtime-role-hardening.md for what this actually does.
 docker compose -f docker-compose.prod.yml run --rm migrate
 
 # 4. Bring up everything else

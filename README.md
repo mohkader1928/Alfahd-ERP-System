@@ -21,14 +21,22 @@ real financial/tax data.
 ## Quickstart (local dev)
 
 ```bash
-# 1. Start Postgres + Redis + API + worker
 cd infra
-docker compose up -d
 
-# 2. Run migrations (first time / after pulling new ones)
-docker compose exec api alembic upgrade head
+# 1. Start Postgres + Redis first
+docker compose up -d postgres redis
 
-# 3. Start the frontend
+# 2. Bootstrap DB roles + run migrations (first time / after pulling new
+#    ones) — a dedicated one-off service, not part of `up`. See
+#    docs/17c-rls-runtime-role-hardening.md for why this is a separate
+#    step from #3: the API/worker connect with a restricted runtime role
+#    that can't run migrations itself.
+docker compose --profile tools run --rm migrate
+
+# 3. Start the API + worker
+docker compose up -d api worker
+
+# 4. Start the frontend
 cd ../frontend
 npm install
 npm run dev
