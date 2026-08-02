@@ -2,6 +2,8 @@
 
 **Purpose:** one shared rulebook for how every screen in this ERP looks and behaves, so no module invents its own Form/Table/Dialog style. This document is descriptive where a pattern already exists and is proven (Phase 17A/17B/17D), and prescriptive where a pattern is still missing and needs to be built before the next UX pass (Master Execution Plan §E / Milestone 6).
 
+**North star (Owner governance update, 2026-08-02): Minimum clicks + Minimum typing + Maximum clarity.** Every pattern below, and every future addition to this document, is judged against that — not against how many features it adds.
+
 > **Reading this as a non-developer:** each section names an existing shared **component** (a reusable building block, like a Lego brick, used across many screens) so that fixing or improving it in one place fixes it everywhere it's used, instead of having to change every screen one by one.
 
 **Evidence basis:** direct inspection of `frontend/components/erp/`, `frontend/components/ui/`, `frontend/components/layout/`, and every shipped screen (Master Data, Sales, Purchasing, Inventory, Accounting, Payments) as of 2026-08-02.
@@ -111,6 +113,22 @@ Base UI's `Select` supports keyboard navigation natively; during live verificati
 Primary action = filled `Button` top-right of a list/form header ("New Payment", "Save payment"). Secondary/cancel = outline/ghost variant. This is consistent today; the only rule being added is: **a workflow action that changes document state (Confirm, Post, Approve) must be wrapped in `<Can>`** (§11) going forward.
 
 ---
+
+## 17. Company identity — always visible (Owner governance update, 2026-08-02)
+
+The user must never have to wonder "which company am I working in right now?" The active company's name must appear in: the header/topbar (already partially true via the company switcher — needs a gap-check, not a redesign), the Dashboard, every document screen (invoices, bills, payments, journal entries...), every report screen, and — critically — **print/export output and any generated PDF**, where the company name belongs in the document header the same way a real paper letterhead would show it. This is a gap-check against existing screens, using existing components, not a new pattern — tracked as UX Roadmap item 5 (Master Execution Plan §E).
+
+A related, larger question — a single desktop entry point (Login → Owner user → company picker → into that company) — is **not** a UX-pattern decision; it is an open architecture question (browser shortcut vs. installable PWA vs. a packaged native wrapper) recorded for an explicit Owner/Consultant decision in `docs/master-execution-plan.md` §D3.4, not assumed or started here.
+
+## 18. Traceability / drill-down — a required property, not a nice-to-have (Owner governance update, 2026-08-02)
+
+**Every number or document reference on screen must be traceable to its source when that's logically possible.** This was already an informal pattern (§10 above, and Payments' invoice picker) — it is now a required, checked property of every future Milestone's Definition of Done, per `docs/master-execution-plan.md` §D3.1.
+
+**Proven today**: Payments' document picker resolves real names, not IDs (Phase 17D). General Ledger's Reference column opens the real Journal Entry it came from (Milestone 1a, live-verified in a real browser session).
+
+**Not yet built** (tracked, not hidden): Sales Order ↔ Invoice, Purchase Order ↔ Vendor Bill, and Inventory movements back to the document that created them. Each future Milestone that touches these documents must close its own piece of this rather than leaving it for a separate "traceability project" — e.g. Milestone 1b's Customer/Vendor Subledgers must link every line to its real source document as a condition of being considered done, not an enhancement added later.
+
+**Full chain this is building toward**: `Transaction → Source Document → Accounting → Subledger → Report`, navigable in both directions (e.g. a Sales Invoice → its Payment → the Customer Statement it appears on → that customer's Subledger → the General Ledger → the Journal Entry — and back the other way, General Ledger → Journal Entry → the original Invoice).
 
 ## How this document is used
 

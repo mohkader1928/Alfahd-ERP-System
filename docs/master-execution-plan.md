@@ -1,9 +1,9 @@
 # MASTER EXECUTION PLAN
 
 **Prepared by:** Contractor (Claude Code) — for Owner review, with Consultant (ChatGPT) available for a second opinion on any architectural point below.
-**Date:** 2026-08-02 (updated same day under the "MASTER EXECUTION DIRECTIVE — Milestone 0" governance instruction)
-**Trigger:** Owner directive "PROJECT EXECUTION DIRECTIVE — OWNER / CONSULTANT / CONTRACTOR MODE," followed by "MASTER EXECUTION DIRECTIVE — Milestone 0: Baseline, Governance & Business-Core Readiness."
-**Status:** Milestone 0 deliverable. No application code was written to produce this — only documentation and a fresh, real verification pass (Section A). Waiting for Owner approval before Milestone 1 (or any code) begins.
+**Date:** 2026-08-02 (updated across several same-day governance instructions; latest update: methodology/UX/reporting/traceability governance rules, no code changed)
+**Trigger:** Owner directives, in order: "PROJECT EXECUTION DIRECTIVE — OWNER / CONSULTANT / CONTRACTOR MODE" → "MASTER EXECUTION DIRECTIVE — Milestone 0" → "MASTER EXECUTION DIRECTIVE — Owner / Consultant Controlled Execution" (Milestone 1a delivery + commit) → "Owner Acceptance Checkpoint — Milestone 1a" (hands-on test environment) → the current governance update (Section D3, Rule 0 in Section G, UX north-star, Standard Report Catalog).
+**Status:** Living plan, updated at every checkpoint. Milestone 0 and Milestone 1a are done and committed. Milestone 1a's Owner Acceptance environment is ready and awaiting the Owner's own test. No Milestone beyond 1a has started. Section D3 and Rule 0 (Section G) are new, planning-only additions from this update — no application code was touched to produce them.
 
 > A few terms recur through this document. **RLS (Row-Level Security)** = a database feature that automatically hides other companies' data from every query, enforced by Postgres itself, not by application code (so even a bug in the code can't leak data across companies). **Migration** = a versioned, scripted change to the database structure (e.g., "add a column"), applied in order, always reversible in principle. **Idempotent** = running the same script twice produces the same result as running it once — nothing doubles up. **Endpoint** = one URL the backend exposes, e.g. `GET /payments`. Other terms are explained inline the first time they appear.
 
@@ -71,11 +71,11 @@
 |---|---|---|---|---|---|
 | **M0 — Baseline & Governance** (this document) | None | This plan, UX standard doc, updated progress doc | Owner approval | Same session | None — pure audit/planning |
 | **M1a — General Ledger, Income Statement, Balance Sheet** | Payments (M0) committed; Journal Entry posting already correct | GL per-account drill-down, Income Statement (Revenue/COGS/OpEx/Net Income via existing CoA hierarchy), Balance Sheet (provably `Assets = Liabilities + Equity`) | Scenario #7 in Section D2 passes live | **Done** — 6 new tests, 147/147 suite, live-verified; see `docs/17e-accounting-standardization.md` | Reconciled cleanly against real posted JEs; no discrepancy found |
-| **M1b — AR/AP Aging, Customer/Vendor Statements** | M1a; Payments' existing balance logic; Sales/Purchasing due dates (Phase 17D) | Aging buckets, partner running-balance statements | Statement figures match Accounting's own AR/AP balances exactly | 3–5 days | Not yet started — kept as its own checkpoint per the Owner's "don't batch weeks of work" rule |
+| **M1b — Customer/Vendor Subledgers + AR/AP Aging** *(scope clarified 2026-08-02, §D3.2 — was "Aging + Statements", now explicitly full subledgers)* | M1a; Payments' existing balance logic; Sales/Purchasing due dates (Phase 17D) | Real Customer Subledger and Vendor Subledger (opening balance → invoices/credit notes/payments/adjustments → running balance → closing balance, each line drillable to source, §D3.1), plus AR/AP Aging buckets | Subledger closing balance matches Accounting's own AR/AP balances exactly; every subledger line opens its real source document | 4–6 days *(was 3–5; increased for the subledger drill-down requirement)* | Not yet started — kept as its own checkpoint per the Owner's "don't batch weeks of work" rule |
 | **M2 — Reporting Polish** | M1 (reports need real Accounting views to link to) | Filterable Sales/Purchasing/Inventory report screens wired to real data | Owner can filter by date/customer/status and get correct results | 3–5 days | Risk of becoming a second, disconnected reporting path if not built against M1's views (see Section J) |
 | **M3 — Demo Data Mechanism** | M2 (so reports have data worth seeding) | Idempotent seed script, ~100 records/type, transactional spread (Section F) | Script reruns cleanly; Owner sees a populated system end to end | 2–3 days | Must go through service layer under RLS — slower than raw SQL, non-negotiable per Owner directive |
 | **M4 — Sales/Purchasing Standardization** | M1 (statements need Accounting views) | Customer/Vendor statement screens, history views, cancel-workflow decision | Statements match Accounting's own AR/AP figures exactly | 3–5 days | Cancel/void is a real scope decision, not just UI — must be explicitly scoped at this Milestone's checkpoint, not assumed |
-| **M5 — Inventory Standardization** | M1 (valuation ties to Accounting) | Stock valuation report, low-stock view, movement history | Valuation report reconciles with Accounting's Inventory account balance | 2–4 days | Valuation method consistency (the system already supports a configured method — must not introduce a second one) |
+| **M5 — Inventory Standardization** *(scope expanded 2026-08-02, §D3.2)* | M1 (valuation ties to Accounting) | Stock valuation report, low-stock view, movement history, **Inventory Item Subledger** (item+warehouse, opening/closing qty, all movement types, drillable to source) | Valuation report reconciles with Accounting's Inventory account balance; every subledger line opens its real source document | 3–5 days *(was 2–4; increased for the subledger)* | Valuation method consistency (the system already supports a configured method — must not introduce a second one) |
 | **M6 — UX Consistency Pass + RBAC Role Management UI** | M4/M5 (needs stable screens to make consistent); UX standard doc (this Milestone) | Formatting utility, notification/toast system, permission-gating audit, Role Management screen | Matches `docs/erp-ux-standard.md` §2 gap list, item by item | 2–3 days | Must not turn into an open-ended redesign — scoped strictly to the gap list already identified |
 
 ---
@@ -145,7 +145,53 @@ Scenarios 1–6 and 8 can be run **today** once Phase 17D is committed (Mileston
 
 ---
 
+## D3. Cross-Cutting Requirements (Governance Update, 2026-08-02)
+
+The Owner formalized four standing requirements that apply across every future Milestone, not to any single one. They don't change anything already shipped and don't conflict with the current architecture — they are additive constraints future work must satisfy. Recorded here so they are never silently forgotten while a specific Milestone is being planned.
+
+### D3.1 System-wide traceability ("every number has a source")
+
+**Principle**: `Transaction → Source Document → Accounting → Subledger → Report`, traceable in both directions, everywhere a document reference or number appears. If a screen shows an invoice number, a Journal Entry reference, or a stock movement, it must be clickable through to that real record — never a bare UUID or a dead label.
+
+**Where this already exists** (proven, not aspirational): Payments' invoice/bill picker resolves to real names, not IDs (Phase 17D); General Ledger's Reference column links to the real Journal Entry (Milestone 1a, live-verified). **Where it does not exist yet**: Sales Order ↔ Invoice, Purchase Order ↔ Vendor Bill, and any Inventory movement back to the document that created it. This gap is not new — it was already listed in `docs/erp-ux-standard.md` §12 ("Document lifecycle & related documents") — the Owner has now elevated it from a nice-to-have to a **required property of every future Milestone's Definition of Done**, per §H below.
+
+### D3.2 Subledgers — this reshapes Milestone 1b and Milestone 5
+
+The Owner's requirement is for real Customer/Vendor/Inventory-Item **subledgers** (opening balance, every movement type, running balance, closing balance, drill-down to source) — not just an aging bucket table. This is a genuine scope clarification, recorded transparently rather than silently absorbed:
+
+- **Milestone 1b** (previously scoped in §C2 as "AR/AP Aging, Customer/Vendor Statements") now explicitly includes full **Customer Subledger** and **Vendor Subledger** reports (opening balance → invoices/credit notes/payments/adjustments → running balance → closing balance, each line drillable to its source document) — Aging remains part of 1b, but the subledger view is the richer, primary deliverable it was always meant to feed.
+- **Milestone 5** (Inventory Standardization) now explicitly includes an **Inventory Item Subledger** (item + warehouse, opening qty → receipts/issues/transfers/adjustments/returns → closing qty, with unit cost/value where available, each line drillable to its source: Purchase Receipt, Sales Delivery, Transfer, Adjustment, Return).
+
+Both were already directionally implied by the original blueprint's "Customer/Vendor cards + statements" and "Stock card" items (§C's DEFERRED bucket in `docs/project-progress.md`) — this update makes the acceptance bar for both explicit rather than leaving "statement" ambiguous between a summary and a real subledger.
+
+### D3.3 Standard ERP Report Catalog (reference, not a build list)
+
+The Owner supplied a full catalog of reports a professional ERP user expects per module (Accounting, Sales, Purchasing, Inventory — full list below). **This is an architectural/functional checklist to consult when scoping each future Milestone, not a mandate to build all of it now.** Recorded in full so it isn't lost between checkpoints:
+
+| Module | Standard reports to check against when scoping that module's Milestone |
+|---|---|
+| **Accounting** | Trial Balance ✅, General Ledger ✅, Customer Subledger (M1b), Vendor Subledger (M1b), Customer Statement (M1b), Vendor Statement (M1b), AR Aging (M1b), AP Aging (M1b), Income Statement ✅, Balance Sheet ✅, Cash Flow, Journal Register, Account Activity, Tax/VAT Reports, Payment Register, Receipts/Disbursements, Bank/Cash reports, Period comparison |
+| **Sales** | Sales Register, Sales by Customer, Sales by Item, Sales by Salesperson, Sales by Date, Sales by Branch, Customer Statement (M1b), Customer Balance, Sales Invoice Register, Credit Note Register, Sales Returns, Sales Order Status, Outstanding Sales Orders, Sales profitability (data-dependent) |
+| **Purchasing** | Purchase Register, Purchases by Vendor, Purchases by Item, Vendor Statement (M1b), Vendor Balance, Vendor Bill Register, Purchase Returns, Purchase Order Status, Outstanding Purchase Orders, Vendor performance (data-dependent) |
+| **Inventory** | Stock On Hand, Inventory Valuation, Inventory Item Subledger (M5), Stock Movement, Stock Ledger, Warehouse Stock, Item Movement, Inventory Adjustments, Transfers, Stock Aging (data-dependent), Slow/Fast Moving Items (data-dependent), Negative Stock Exceptions, Lot/Serial reports (not yet in scope — no lot/serial tracking exists) |
+
+(✅ = already shipped and live-verified as of Milestone 1a.) This table will be revisited at the start of every Reporting-adjacent Milestone (1b, 2, 4, 5) to check nothing standard was missed — it is not itself a task list to execute sequentially.
+
+### D3.4 Company identity & system entry — flagged for an Owner/Consultant decision, not decided here
+
+Two related asks: (1) the active company's name must be visible everywhere it matters (header, dashboard, documents, reports, print/export, PDF) — this is a straightforward UX gap-check to fold into the Milestone 6 UX consistency pass; (2) a **single desktop icon** that opens the system straight to Login → Owner user → company picker → into that company's context.
+
+Item (2) is **not decided here** because it is a genuine architecture question, not a UX tweak: this is currently a browser-based web app with no native shell. "One desktop icon" could mean (a) a plain browser shortcut/bookmark to the login URL (zero new engineering), (b) a installable Progressive Web App (a browser feature, small manifest/service-worker addition, gives a real desktop/taskbar icon), or (c) a packaged native desktop wrapper (e.g. Electron) — a materially bigger addition of a new build target and packaging pipeline. Per the Owner's own rule (§10/§16 of the governance update: no new frameworks without justification, no big architectural decision made unilaterally), **this needs an explicit Owner/Consultant choice between (a)/(b)/(c) before any of it is scoped into a Milestone.** Recorded here as an open question, not an assumption.
+
+### D3.5 Engineering decision priority (governance update, 2026-08-02)
+
+When more than one implementation approach exists for a future requirement, the choice is made in this order, not by which option uses more of the original blueprint's technology list: **(1) Business correctness, (2) Data integrity, (3) Security, (4) Maintainability, (5) Scalability, (6) Least complexity that satisfies 1–5.** No new framework, service, or pattern is added just because it was named in the original blueprint — it must be justified against this list. This generalizes the rule already in effect since Milestone 0 ("no microservices, Kafka, full CQRS, Kubernetes... the current architecture is a Modular Monolith and that is the foundation").
+
+---
+
 ## E. UX Roadmap (parallel workstream, not blocking Business Core work)
+
+**North star (Owner directive, 2026-08-02): Minimum clicks + Minimum typing + Maximum clarity.** Every UX pass below is judged against this, not against how many features it adds.
 
 Runs alongside the Business Core work, one small pass per checkpoint rather than a big separate phase:
 
@@ -153,6 +199,8 @@ Runs alongside the Business Core work, one small pass per checkpoint rather than
 2. **Speed-of-entry pass** on the highest-traffic forms first: Customer/Vendor create, Sales Order, Purchase Order, Invoice, Payment — smart defaults (today's date, last-used warehouse/account), searchable selects everywhere an ID is picked, fewer required clicks.
 3. **Consistency pass** on status badges, empty states, loading states, and error messages — currently inconsistent module-to-module.
 4. **Reusable components** promoted from what Payments already built (the balance-aware dependent picker) into the shared component library so future modules don't reinvent it.
+5. **Company identity visibility pass** (new, §D3.4) — audit header/dashboard/document/report/print/export screens for where the active company's name is missing or unclear, and fix it using the existing shared components (no new pattern needed for this part — only the desktop-entry/company-picker question in §D3.4 is an open architecture decision, not this item).
+6. **Traceability/drill-down pass** (new, §D3.1) — as each module's own Milestone ships, its documents get real, clickable links to related documents (Order↔Invoice, PO↔Bill, movement↔source), following the exact pattern already proven in Payments and General Ledger, not a new one.
 
 This workstream is explicitly secondary to Business Core completion and will ride along with each Milestone below rather than consume its own dedicated phase.
 
@@ -189,9 +237,15 @@ Customers, Suppliers, Products (across several Categories), Units of Measure, Wa
 
 This is now a formal, standing rule for every Milestone from here forward, not a one-off practice.
 
+### Rule 0 (Governance update, 2026-08-02): the Contractor never self-selects the next Milestone
+
+A checkpoint report never ends with "Next Milestone is X, so I will start X." It ends with a factual status statement and an explicit stop: *"Milestone X is finished; here is its state; here is what remains open; I am stopped, waiting for Owner direction."* Section K below ("Next Execution Milestone") is kept as a **candidate/dependency note for the Owner's own decision**, not as a self-issued go-ahead — the Contractor may name what is technically unblocked next, but must not begin it without an explicit instruction.
+
 ### The cycle
 
-**EXECUTE → VERIFY → STOP → REPORT → OWNER ACCEPTANCE → CONTINUE**
+**EXECUTE → VERIFY → STOP → REPORT → OWNER DIRECTION**
+
+(Previously written as "...→ OWNER ACCEPTANCE → CONTINUE" — the cycle itself is unchanged, this just makes explicit that "continue" is never assumed from silence or from the report's own recommendation; it requires the Owner's next instruction.)
 
 - **EXECUTE**: build the Milestone's scope, and only that scope.
 - **VERIFY**: run the QA/Acceptance Strategy (Section H) — tests, lint, type checks, build, a live browser walkthrough of the real business scenario, Docker health, migration head.
@@ -202,21 +256,24 @@ This is now a formal, standing rule for every Milestone from here forward, not a
 
 There is no path from EXECUTE directly to CONTINUE. A Milestone that "looks done" is not a Milestone that has been accepted.
 
-### Checkpoint report template (required structure, every time)
+### Checkpoint report template (required structure, every time — updated 2026-08-02)
 
-**A. What was completed** — concretely, not "Payments module done" but the specific capabilities delivered.
-**B. What remains** — for this Milestone specifically, if anything was descoped or deferred within it.
-**C. Evidence** — test counts and results, specific endpoints, specific files, migration IDs; screenshots/live-verification narrative where the Milestone touched the UI.
-**D. Business scenarios** — the specific things the Owner can now do that they could not do before this Milestone.
-**E. UI walkthrough** — literal click-by-click steps to try B and D from a browser, no SQL required.
-**F. Regression status** — explicit confirmation that Phase 17A/17B/17C-RLS/17D and prior Milestones still pass their own tests; anything that changed in shared code gets called out by name.
-**G. Roadmap status** — where this leaves the Global Roadmap Status table and the Timeline (Section I) — did anything get faster or slower than planned, and why.
-**H. Risks / limitations** — everything known and not yet resolved, honestly, even if minor.
-**I. Next step** — the specific next Milestone, and the one-sentence reason it's next rather than something else.
+**A. What was done** — concretely, not "Payments module done" but the specific capabilities delivered.
+**B. What was tested** — automated test counts and results, by name.
+**C. What was verified live** — re-checked independently this checkpoint (re-querying an endpoint after a UI action, a real browser walkthrough) — not assumed from a prior checkpoint's evidence.
+**D. What the Owner can try right now** — a real login, real company, real test data, click-by-click steps, the expected result, and what specifically to check to confirm it's genuine (per Section B below).
+**E. What remains** — for this Milestone specifically, anything descoped or deferred within it.
+**F. Risks** — everything known and not yet resolved, honestly, even if minor.
+**G. Full roadmap status** — where this leaves the Global Roadmap Status table and the Timeline (Section I); any reordering or scope change to a future Milestone must be shown here with its reason, never silently.
+**H. Files and commits changed** — exact list, exact hashes.
+**I. Tests and results** — what was actually run, not just "tests passed."
+**J. What needs Owner Acceptance** — named explicitly; nothing on this list is to be treated as accepted until the Owner has tried it and said so.
+
+Then: **STOP.** Per Rule 0 above, the report ends with the project's current state and open items — never with an announcement that the next Milestone is starting.
 
 ### A rule about language in these reports
 
-"Verified" is only used when verification actually happened this checkpoint. Every report distinguishes, explicitly, between: **Implemented** (code exists) → **Tested** (automated tests pass) → **Verified** (manually/independently re-checked, e.g. re-querying an endpoint after a UI action) → **Live demonstrated** (walked through in a real browser session) → **Owner accepted** (the Owner has actually said yes). These are not interchangeable, and a report will say which of these applies to each claim rather than using "done" as a catch-all.
+Every report distinguishes explicitly between: **Implemented** (code exists) → **Tested** (automated tests pass) → **Verified** (manually/independently re-checked this checkpoint) → **Live demonstrated** (walked through in a real browser session) → **Owner accepted** (the Owner has actually tried it and said yes) — and, for anything not being pursued right now: **Deferred** (in scope eventually, not now, with a reason) vs. **Known Limitation** (a real, standing gap that isn't blocking, documented so it isn't rediscovered) vs. **Out of Scope** (not planned for this project phase at all). "Completed" is never used as a catch-all when a feature hasn't actually been tested or accepted.
 
 The next checkpoint after this plan is approved will be **Milestone 0 itself** (this document plus the governance artifacts it produced) — see Section K and the final report delivered alongside this plan.
 
@@ -248,11 +305,12 @@ Ranges reflect real uncertainty, not false precision, and assume the working pac
 | Milestone | Development | Verification (adds) | Owner Acceptance (adds) | Depends on |
 |---|---|---|---|---|
 | **M0 — Baseline & Governance** | done (this document) | done (fresh 141/141 tests, lint, health — same session) | pending — this checkpoint | none |
-| **M1 — Accounting Standardization** | 4–7 days | +0.5–1 day | +1–2 days (Owner runs Scenario #7) | M0 |
+| **M1a — General Ledger, Income Statement, Balance Sheet** | done | done (147/147 suite, live-verified) | pending — Owner Acceptance environment ready, awaiting Owner's own test | M0 |
+| **M1b — Customer/Vendor Subledgers, AR/AP Aging** *(scope expanded, §D3.2)* | 4–6 days | +0.5–1 day | +1–2 days (Owner runs Scenario #7) | M1a |
 | **M2 — Reporting Polish** | 3–5 days | +0.5–1 day | +1–2 days | M1 |
 | **M3 — Demo Data Mechanism** | 2–3 days | +0.5 day | +1 day (Owner test-drives populated system) | M2 |
 | **M4 — Sales/Purchasing Standardization** | 3–5 days | +0.5–1 day | +1–2 days | M1 |
-| **M5 — Inventory Standardization** | 2–4 days | +0.5 day | +1 day | M1 |
+| **M5 — Inventory Standardization** *(incl. Item Subledger)* | 3–5 days | +0.5 day | +1 day | M1 |
 | **M6 — UX Consistency + Role Management UI** | 2–3 days | +0.5 day | +1 day | M4, M5 |
 
 ### A. Business Core Acceptance (M0–M6 above)
@@ -295,9 +353,11 @@ No Critical or architectural-red-flag risks were found in this audit — nothing
 
 **Milestone 0 — Baseline, Governance & Business-Core Readiness** is this document plus its companions (`docs/erp-ux-standard.md`, the updated `docs/project-progress.md`, and the fresh baseline verification in Section A). Per the Owner directive's own git discipline (Section 20: commit only after a Milestone is completed **and accepted**), nothing has been committed yet — including Phase 17D (Payments), which remains implemented, tested, and re-verified but intentionally uncommitted until this checkpoint is approved. Once approved, two separate, clean commits are planned (not one mixed commit): (1) Phase 17D — Payments, unchanged from what was already reviewed and approved at the last checkpoint, and (2) Milestone 0's governance documentation. Keeping them separate matches Section 20's "don't mix unrelated changes" rule — Payments is a business feature, Milestone 0 is process documentation.
 
-**Milestone 1 — Accounting Standardization** (the recommended next body of work): Income Statement, Balance Sheet, AR/AP Aging, General Ledger account drill-down, and Customer/Vendor statement screens — built on top of the Journal Entry data that Sales, Purchasing, and Payments already post correctly today. This is recommended over any other candidate because it (a) requires no new module dependency — the data already exists and is already correct, (b) closes the single largest gap identified in Section D, and (c) directly unblocks Milestone 2 (Reporting Polish) and Milestone 4 (Sales/Purchasing statements), which both need these Accounting views to build on rather than inventing their own.
+**Milestone 1a — General Ledger, Income Statement, Balance Sheet**: done, committed, Owner Acceptance environment prepared — awaiting the Owner's own test and explicit approval (not assumed from this document).
 
-Both milestones follow the QA/Acceptance Strategy in Section H and the full Owner Checkpoint Protocol in Section G — Milestone 1 does not begin until this Milestone 0 report is explicitly approved.
+**Candidate for what's technically unblocked next** (per Rule 0 in Section G, this is a dependency note for the Owner's decision, not a self-issued go-ahead): **Milestone 1b — Customer/Vendor Subledgers + AR/AP Aging** (§D3.2) is the only Milestone that is fully unblocked by what's already shipped (Payments' balance logic, Sales/Purchasing due dates) and closes the largest remaining gap in Section D. It is **not started**, and will not start without an explicit Owner instruction to proceed.
+
+Both Milestones follow the QA/Acceptance Strategy in Section H and the full Owner Checkpoint Protocol in Section G.
 
 ---
 

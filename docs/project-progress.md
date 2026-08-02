@@ -40,8 +40,30 @@ Accounting Standardization (General Ledger, Income Statement, Balance
 Sheet)** was implemented on top of the existing, already-correct Journal
 Entry data (no new tables), tested (6 new tests, 147/147 full suite), and
 live-verified in a real browser session against real posted transactions —
-see `docs/17e-accounting-standardization.md`. Not committed yet; awaiting
-this checkpoint's approval.
+see `docs/17e-accounting-standardization.md`. **Committed** as `4b9ae08`.
+An Owner Acceptance environment (two demo companies, a small idempotent
+seed script, click-by-click test instructions) was then prepared and
+committed as `43ced32` — see `docs/owner-acceptance-m1a.md`. Milestone 1a
+is not yet Owner Accepted (implemented/tested/verified/live-demonstrated
+by the Contractor, per §"Status buckets" language below — but the Owner
+has not yet personally tried it and approved it).
+
+**Governance update (2026-08-02, same day)**: the Owner formalized the
+project-management methodology going forward — the Contractor never
+self-selects or announces the next Milestone; every checkpoint report
+must distinguish Implemented / Tested / Verified / Live demonstrated /
+Owner accepted / Deferred / Known Limitation / Out of Scope explicitly;
+Owner Acceptance environments (real login, real data, browser-only) are
+now mandatory at every checkpoint, not just this one. Four new
+cross-cutting product requirements were also recorded for future
+Milestones: system-wide document traceability/drill-down, real Customer/
+Vendor/Inventory-Item Subledgers (this **reshapes Milestone 1b and
+Milestone 5** — see below), a Standard ERP Report Catalog to check future
+Milestones against, and a Company-Identity/system-entry requirement (part
+UX gap-check, part open architecture question for the Owner/Consultant).
+Full detail in `docs/master-execution-plan.md` §D3 and the updated Owner
+Checkpoint Protocol in §G. **No application code was changed to produce
+this update — planning documents only.**
 
 ---
 
@@ -98,7 +120,7 @@ Legend: 🟢 Production-ready · 🟡 Partial/working-but-incomplete · 🔴 Not
 | **Multi-tenancy / RLS** | Phase 7 §1.4, 16A, 17C-RLS | Both policy families enforced by the real runtime role (`erp_app`), `FORCE ROW LEVEL SECURITY` everywhere, default-deny proven | 🟢 100% | 24/24 direct RLS tests | none open |
 | **Security / Roles** | Phase 17C-RLS | `erp_migrate`/`erp_app` split, least-privilege grants, login/2FA escape hatch, 3 separate context-ordering bugs found and fixed (ZATCA worker, cycle-count, bootstrap) | 🟢 100% | `docs/17c-rls-runtime-role-hardening.md` | historical pre-16A dump-restore limitation (accepted); `role_permission`/`user_role` RLS gap (§4) |
 | **Identity/Auth/RBAC** | Phase 2, 7 | Bootstrap, JWT+refresh, TOTP 2FA, 47-permission RBAC, VAT/email/SKU uniqueness, category-cycle detection | 🟡 75% | `identity/api/routes.py`; `AuditLogRepository.record()` only called for `assign_role` in this whole module | no user deactivate/lock, no password-reset flow, no TOTP-enrollment endpoint (verify-2fa exists, nothing sets `totp_secret` except this session's manual SQL test setup), no `Company` update endpoint, no Partner deactivate, no role-management UI |
-| **Accounting** | Phase 2, blueprint §8 | CoA, journals, JE draft/post/reverse with real immutability + balance guards, fiscal-period open/close, Trial Balance, **General Ledger, Income Statement, Balance Sheet (Phase 17E / Milestone 1a — new)** | 🟢 75% | `accounting/api/routes.py` (12 endpoints); `docs/17e-accounting-standardization.md`; 6 new tests incl. a direct `assets_total == liabilities_total + equity_total` assertion; live-verified in browser against real posted entries | AR/AP aging and Customer/Vendor Statements deferred to Milestone 1b (not started); no period-closing/closing-entry mechanism (Balance Sheet shows unclosed current earnings instead — documented, not a bug); `CostCenter` is schema-only (zero CRUD/reporting); no multi-currency JEs, no bank reconciliation; not committed yet |
+| **Accounting** | Phase 2, blueprint §8 | CoA, journals, JE draft/post/reverse with real immutability + balance guards, fiscal-period open/close, Trial Balance, **General Ledger, Income Statement, Balance Sheet (Phase 17E / Milestone 1a — committed `4b9ae08`)** | 🟢 75% (Implemented/Tested/Verified/Live-demonstrated; **not yet Owner Accepted** — environment ready, see `docs/owner-acceptance-m1a.md`) | `accounting/api/routes.py` (12 endpoints); `docs/17e-accounting-standardization.md`; 6 new tests incl. a direct `assets_total == liabilities_total + equity_total` assertion; live-verified in browser against real posted entries | Customer/Vendor Subledgers + AR/AP Aging deferred to Milestone 1b (scope now includes full subledgers, not just aging — `docs/master-execution-plan.md` §D3.2; not started); no period-closing/closing-entry mechanism (Balance Sheet shows unclosed current earnings instead — documented, not a bug); `CostCenter` is schema-only (zero CRUD/reporting); no multi-currency JEs, no bank reconciliation |
 | **Sales** | Phase 2, blueprint §9 | Quotation→confirm→Order→Invoice(clearance/reporting)→Credit-Note, real B2B/B2C routing, real double-invoice race prevention (app check + DB partial unique index) | 🟡 50% | `sales/api/routes.py`; **zero `AuditLogRepository` calls in this module** | no payment (0% — no table), no customer statement, hardcoded flat 15% VAT per line ("follow-up" per code comment), no price lists/discounts, no `:cancel` despite `cancelled` being a valid status, `SalesOrderLine.qty_invoiced` field exists but is dead code (never incremented), Delivery is not a distinct document (deliberate) |
 | **Purchasing** | Phase 2, blueprint §10 | PO→confirm→Goods-Receipt→Vendor-Bill, real 3-way match (qty/price, human-readable mismatch reasons persisted) blocking approval | 🟡 50% | `purchasing/api/routes.py`; **zero `AuditLogRepository` calls**; module's own service docstring admits *"Approval routing... deferred — the nucleus auto-confirms every PO"* | no vendor payment (0%), no vendor statement, no PO approval-threshold workflow (self-admitted gap), no RFQ (deliberate), no `:cancel`, no bill without a PO (unplanned expenses unsupported) |
 | **Inventory** | Phase 2, blueprint §7 | Warehouses/locations, FIFO/average valuation (verified oldest-first / recompute formula), transfers, cycle-count with real adjustment + journal posting | 🟡 55% | `inventory/api/routes.py`; **zero `AuditLogRepository` calls** despite moving financial value | no stock card, no reorder rules (no min/max fields exist), `/stock/receive` is an ungated manual-adjustment backdoor (no reason code), no valuation report, no serial/lot tracking, **cycle-count has a backend workflow with zero frontend UI at all** |
@@ -173,13 +195,14 @@ Payments (implemented, verified, not committed — see §6), Frontend design
 system (built but under-adopted), Frontend module UIs, Testing,
 Documentation.
 
-**NEXT**: Milestone 0 (baseline/governance) and Phase 17D (Payments) are
-both **committed** (`e402571`, `2135486`). Milestone 1a (Accounting
-Standardization — General Ledger, Income Statement, Balance Sheet) is
-implemented, tested (147/147 full suite), and live-verified, awaiting this
-checkpoint's Owner approval before its own commit. **Milestone 1b — AR/AP
-Aging + Customer/Vendor Statements** is scoped (`docs/17e-accounting-
-standardization.md` §6) and is the next candidate after 1a is accepted.
+**NEXT**: Milestone 0 (`e402571`, `2135486`), Phase 17D (Payments,
+`e402571`), and Milestone 1a (`4b9ae08`, `43ced32`) are all **committed**.
+Milestone 1a awaits the Owner's own hands-on test (`docs/owner-
+acceptance-m1a.md`) before it can be called Owner Accepted. Per the
+governance update recorded above, the Contractor does not self-select or
+begin the next Milestone — **Milestone 1b — Customer/Vendor Subledgers +
+AR/AP Aging** (scope expanded per §D3.2) is recorded as the only
+technically-unblocked candidate, not a started or announced next step.
 
 **DEFERRED**: Customer/Vendor/Product cards + statements, Stock card +
 reorder rules, remaining analysis reports, RBAC role management UI, real
