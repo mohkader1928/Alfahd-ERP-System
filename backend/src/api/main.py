@@ -15,6 +15,7 @@ from sqlalchemy import text
 import src.modules.accounting as accounting_module
 import src.modules.identity as identity_module
 import src.modules.inventory as inventory_module
+import src.modules.payments as payments_module
 import src.modules.purchasing as purchasing_module
 import src.modules.reporting as reporting_module
 import src.modules.sales as sales_module
@@ -32,6 +33,7 @@ ENABLED_MODULES = [
     inventory_module,
     sales_module,
     purchasing_module,
+    payments_module,
     reporting_module,
 ]
 

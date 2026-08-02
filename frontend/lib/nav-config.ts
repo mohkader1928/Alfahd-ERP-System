@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Banknote,
   Boxes,
   Building2,
   Calculator,
@@ -56,6 +57,7 @@ export const NAV_CONFIG: NavEntry[] = [
   { type: "link", href: "/accounting", labelKey: "nav.accounting", icon: Calculator },
   { type: "link", href: "/inventory", labelKey: "nav.inventory", icon: Boxes },
   { type: "link", href: "/purchasing", labelKey: "nav.purchasing", icon: Truck },
+  { type: "link", href: "/payments", labelKey: "nav.payments", icon: Banknote },
   {
     type: "group",
     labelKey: "nav.master_data",

@@ -1,5 +1,5 @@
 import { apiClient } from "@/lib/api-client";
-import type { InvoiceIssueResponse, Quotation, QuotationLineIn, SalesOrder } from "./types";
+import type { InvoiceIssueResponse, Quotation, QuotationLineIn, SalesInvoice, SalesOrder } from "./types";
 
 const BASE = "/api/v1/sales";
 
@@ -25,6 +25,9 @@ export const salesApi = {
 
   getInvoice: (companyId: string, id: string) =>
     apiClient.get<InvoiceIssueResponse>(`${BASE}/invoices/${id}`, { companyId }),
+
+  listInvoices: (companyId: string, partnerId?: string) =>
+    apiClient.get<SalesInvoice[]>(`${BASE}/invoices${partnerId ? `?partner_id=${partnerId}` : ""}`, { companyId }),
 
   issueCreditNote: (companyId: string, branchId: string, invoiceId: string, reason: string) =>
     apiClient.post<InvoiceIssueResponse>(

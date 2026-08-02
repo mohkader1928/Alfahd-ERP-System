@@ -20,6 +20,7 @@ from src.modules.sales.api.schemas import (
     InvoiceIssueResponse,
     QuotationCreateRequest,
     QuotationOut,
+    SalesInvoiceOut,
     SalesOrderOut,
 )
 from src.modules.sales.application.services import QuotationService, SalesInvoiceService
@@ -149,6 +150,15 @@ async def issue_credit_note(
         report_invoice_task.delay(str(credit_note.id), company_id=str(ctx.company_id), tenant_id=str(ctx.tenant_id))
 
     return InvoiceIssueResponse(invoice=credit_note, zatca_submission=submission)
+
+
+@router.get("/invoices", response_model=list[SalesInvoiceOut])
+async def list_invoices(
+    partner_id: UUID | None = None,
+    ctx: AuthContext = Depends(require_permission("sales.invoice.create")),
+    invoice_repo: SalesInvoiceRepository = Depends(get_sales_invoice_repo),
+):
+    return await invoice_repo.list_by_company(ctx.company_id, partner_id=partner_id)
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceIssueResponse)

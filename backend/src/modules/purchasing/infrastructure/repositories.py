@@ -112,6 +112,13 @@ class VendorBillRepository:
         result = await self.session.execute(select(VendorBill).where(VendorBill.id == bill_id))
         return result.scalar_one_or_none()
 
+    async def get_by_id_for_update(self, bill_id: UUID) -> VendorBill | None:
+        """Phase 17D: row-locked read, used only by PaymentService's
+        allocation check — see SalesInvoiceRepository.get_by_id_for_update
+        for the concurrency rationale."""
+        result = await self.session.execute(select(VendorBill).where(VendorBill.id == bill_id).with_for_update())
+        return result.scalar_one_or_none()
+
     async def get_lines(self, bill_id: UUID) -> list[VendorBillLine]:
         result = await self.session.execute(select(VendorBillLine).where(VendorBillLine.vendor_bill_id == bill_id))
         return list(result.scalars().all())
@@ -121,10 +128,11 @@ class VendorBillRepository:
         count = result.scalar_one()
         return f"BILL-{count + 1:06d}"
 
-    async def list_by_company(self, company_id: UUID) -> list[VendorBill]:
-        result = await self.session.execute(
-            select(VendorBill).where(VendorBill.company_id == company_id).order_by(VendorBill.bill_date.desc())
-        )
+    async def list_by_company(self, company_id: UUID, *, partner_id: UUID | None = None) -> list[VendorBill]:
+        query = select(VendorBill).where(VendorBill.company_id == company_id)
+        if partner_id is not None:
+            query = query.where(VendorBill.partner_id == partner_id)
+        result = await self.session.execute(query.order_by(VendorBill.bill_date.desc()))
         return list(result.scalars().all())
 
     async def sum_total_in_range(self, company_id: UUID, date_from: date, date_to: date) -> Decimal:

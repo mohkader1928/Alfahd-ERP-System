@@ -116,6 +116,7 @@ class SalesInvoice(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
     currency_code: Mapped[str] = mapped_column(Text, nullable=False, server_default="SAR")
     invoice_date: Mapped[date] = mapped_column(nullable=False)
+    due_date: Mapped[date | None] = mapped_column(nullable=True)
     subtotal_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))

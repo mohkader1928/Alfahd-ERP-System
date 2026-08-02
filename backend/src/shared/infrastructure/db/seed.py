@@ -75,6 +75,9 @@ PERMISSION_CATALOG = [
     # M5 — Reporting
     ("reporting.dashboard.view", "screen"),
     ("reporting.export", "action"),
+    # Phase 17D — Payments
+    ("payment.view", "screen"),
+    ("payment.create", "action"),
 ]
 
 

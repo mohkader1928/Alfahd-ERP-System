@@ -38,7 +38,8 @@ export const purchasingApi = {
     payload: { vendor_reference?: string; lines: { purchase_order_line_id: string; qty: string; unit_price: string }[] }
   ) => apiClient.post<VendorBill>(`${BASE}/orders/${orderId}/vendor-bills`, payload, { companyId, branchId }),
 
-  listVendorBills: (companyId: string) => apiClient.get<VendorBill[]>(`${BASE}/vendor-bills`, { companyId }),
+  listVendorBills: (companyId: string, partnerId?: string) =>
+    apiClient.get<VendorBill[]>(`${BASE}/vendor-bills${partnerId ? `?partner_id=${partnerId}` : ""}`, { companyId }),
 
   approveVendorBill: (companyId: string, id: string) =>
     apiClient.post<VendorBill>(`${BASE}/vendor-bills/${id}:approve`, undefined, { companyId }),

@@ -49,10 +49,11 @@ async def list_purchase_orders(
 
 @router.get("/vendor-bills", response_model=list[VendorBillOut])
 async def list_vendor_bills(
+    partner_id: UUID | None = None,
     ctx: AuthContext = Depends(require_permission("purchasing.vendor_bill.view")),
     bill_repo: VendorBillRepository = Depends(get_vendor_bill_repo),
 ):
-    return await bill_repo.list_by_company(ctx.company_id)
+    return await bill_repo.list_by_company(ctx.company_id, partner_id=partner_id)
 
 
 @router.post("/orders", response_model=PurchaseOrderOut, status_code=status.HTTP_201_CREATED)

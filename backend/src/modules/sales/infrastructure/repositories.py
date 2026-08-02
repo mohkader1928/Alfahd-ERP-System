@@ -99,6 +99,17 @@ class SalesInvoiceRepository:
         result = await self.session.execute(select(SalesInvoice).where(SalesInvoice.id == invoice_id))
         return result.scalar_one_or_none()
 
+    async def get_by_id_for_update(self, invoice_id: UUID) -> SalesInvoice | None:
+        """Phase 17D: row-locked read, used only by PaymentService's
+        allocation check — closes the same class of concurrent-write race
+        Phase 16B fixed for invoice issuance (two simultaneous payments
+        against the same invoice must not both pass the outstanding-balance
+        check before either commits)."""
+        result = await self.session.execute(
+            select(SalesInvoice).where(SalesInvoice.id == invoice_id).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def get_lines(self, invoice_id: UUID) -> list[SalesInvoiceLine]:
         result = await self.session.execute(
             select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice_id)
@@ -142,10 +153,13 @@ class SalesInvoiceRepository:
         # consistent regardless of whether any rows matched.
         return Decimal(result.scalar_one()).quantize(Decimal("0.0001"))
 
-    async def list_by_company(self, company_id: UUID, *, limit: int = 500) -> list[SalesInvoice]:
-        result = await self.session.execute(
-            select(SalesInvoice).where(SalesInvoice.company_id == company_id).order_by(SalesInvoice.invoice_date.desc()).limit(limit)
-        )
+    async def list_by_company(
+        self, company_id: UUID, *, partner_id: UUID | None = None, limit: int = 500
+    ) -> list[SalesInvoice]:
+        query = select(SalesInvoice).where(SalesInvoice.company_id == company_id)
+        if partner_id is not None:
+            query = query.where(SalesInvoice.partner_id == partner_id)
+        result = await self.session.execute(query.order_by(SalesInvoice.invoice_date.desc()).limit(limit))
         return list(result.scalars().all())
 
 
