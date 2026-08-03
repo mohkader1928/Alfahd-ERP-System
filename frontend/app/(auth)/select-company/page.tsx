@@ -49,6 +49,7 @@ export default function SelectCompanyPage() {
   const { t } = useI18n();
   const router = useRouter();
   const accessToken = useAuthStore((s) => s.accessToken);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
   const setActiveCompany = useAuthStore((s) => s.setActiveCompany);
 
   const entries: CompanyEntry[] = accessToken
@@ -59,6 +60,15 @@ export default function SelectCompanyPage() {
     : [];
 
   useEffect(() => {
+    // Same race the dashboard layout guards against: zustand's persist
+    // middleware rehydrates from localStorage *asynchronously*, so on a
+    // fresh full page load (a bookmark, a refresh, a new tab — not a
+    // client-side navigation from login/Topbar, which already has a
+    // hydrated store) accessToken reads as null for one render before the
+    // real value loads. Acting on that null before hydration finishes
+    // bounces an already-logged-in user to /login — found live while
+    // re-verifying this exact page for the Company Context closeout.
+    if (!hasHydrated) return;
     if (!accessToken) {
       router.replace("/login");
       return;
@@ -73,9 +83,9 @@ export default function SelectCompanyPage() {
       router.replace("/login");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, entries.length]);
+  }, [hasHydrated, accessToken, entries.length]);
 
-  if (!accessToken || entries.length <= 1) return null;
+  if (!hasHydrated || !accessToken || entries.length <= 1) return null;
 
   function handleSelect(entry: CompanyEntry) {
     setActiveCompany(entry.companyId, entry.branchId);

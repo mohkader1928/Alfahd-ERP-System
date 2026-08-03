@@ -8,8 +8,16 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-02, against commit `3684edd` (`main`) plus
-uncommitted Phase 17D (Payments) work — implemented, then re-audited
+**Last verified**: 2026-08-03, against commit `1efdd7f` (`main`) plus the
+UI/UX Foundation closure fixes (hydration race in `/select-company`) —
+165/165 backend tests, `ruff`/`tsc`/`eslint`/build clean, live two-company
+browser walkthrough. See the dated entry below for full detail. The
+paragraphs immediately below (2026-08-02 and earlier) are kept verbatim
+as the historical record and were not re-verified as part of this pass.
+
+**Historical — last verified 2026-08-02**, against commit `3684edd`
+(`main`) plus uncommitted Phase 17D (Payments) work — implemented, then
+re-audited
 against the full customer/vendor/partial/concurrent business scenarios,
 which found and closed two real gaps (no visible payment status, no
 concurrency safety on allocation) — Alembic head `5955ce0f8dd6`. Backend
@@ -64,6 +72,70 @@ clean, live-verified in a real browser session (Company C — Milestone
 Acceptance environment: `docs/owner-acceptance-m1b.md`. **Not yet
 committed, not yet Owner Accepted** — see the Milestone 1b checkpoint
 report for exact status.
+
+**UI/UX System-Wide Audit (2026-08-03)**: a structured, evidence-based
+audit of the entire system from a real Owner/User perspective — live code
+reads plus a live walkthrough on real demo data, all 15 areas the Owner
+requested (Login/Company Context, Navigation, Master Data, Sales,
+Purchasing, Inventory, Payments, Accounting, Reports, Traceability,
+Arabic/English/RTL, UI States, Forms, Tables, ERP UX principles). Findings
+classified Critical/High/Medium/Low/Already Good with evidence, proposed
+solution, Frontend/Backend split, and priority — see
+`docs/18-ui-ux-audit.md` in full. Top findings: no company-selection UI
+existed at all (silent `authorized_companies[0]` pick); no shared currency
+formatter (raw `"1250.0000"` strings on Sales/Purchasing/Inventory vs.
+formatted amounts on Dashboard/Accounting/Payments); Purchasing/Inventory
+use a weaker hand-rolled list pattern instead of the existing
+`ERPListView`; no toast/notification system anywhere; a locale bug found
+live (Topbar showed the Arabic company name while Dashboard showed the
+English one, same screen). **Audit only — no fixes implemented in this
+pass**, per the Owner's explicit instruction to stop and get scope
+approval first.
+
+**UI/UX Foundation + Company Context Milestone (2026-08-03, same day,
+Owner-approved scope)**: Implemented and Tested. Four shared frontend
+utilities (`formatCurrency`, `statusVariant`, `useCompanyName`, a
+`Toaster` built on the already-installed `@base-ui/react/toast` — no new
+library), applied as minimal swaps (currency formatting, status badges,
+success/error toasts) across Dashboard/Sales/Purchasing/Inventory/
+Payments/Accounting without touching any table structure. A real Company
+Context flow: `/select-company` picker shown whenever a login's
+`authorized_companies` has more than one entry, direct entry unchanged
+for single-company logins, a "Switch company" entry point in the Topbar.
+Backend: `POST /users/{id}/company-access` (grants an existing user
+access to another company in their own tenant) and, after a genuine
+blocker was found and the Owner explicitly approved closing it,
+`POST /companies` (adds a second company to an already-existing tenant —
+`/bootstrap` was previously the only creation path and always mints a new
+tenant; the creator is auto-provisioned as the new company's Admin, since
+there is otherwise no API to give anyone a role in it). One real RLS
+company-context bug in the access-grant endpoint was found and fixed
+during live two-company verification (not shipped broken). A second real
+bug — a hydration race that could bounce an already-logged-in user from
+`/select-company` back to `/login` on a hard page load/refresh (zustand's
+`persist` middleware rehydrates asynchronously; the dashboard layout
+already guards against this exact race, this new page initially didn't)
+— was found during the Owner-mandated re-verification pass and fixed.
+
+**Verified**: 165/165 backend tests (13 new, including a full two-company
+data-isolation flow), `ruff`/`tsc`/`eslint`/build all clean. **Live
+Demonstrated**: full real two-company browser walkthrough — login →
+company-selection screen → Company Alpha → data-heavy screen (Customers)
+→ switch to Company Beta via the real Topbar control (confirmed opening
+and completing the full click-driven journey) and via direct SPA
+navigation → Beta's data only, Beta's permissions active, no Alpha data
+or stale permissions at any point, no full-page reload used for the
+switch itself → switched back to Alpha → Alpha's data correctly restored.
+Single-company login (`demo-general@example.com`) confirmed unaffected —
+enters directly, no picker. Arabic/English locale correctness confirmed
+for company names across Topbar/Dashboard in both companies. Full detail,
+file list, and exact repro steps in the two closure checkpoint reports for
+this milestone. **Owner Accepted: not yet — pending the Owner personally
+trying the real login flow.**
+
+Committed as `1efdd7f` (foundations + Company Context) with a follow-up
+commit for the closure fixes (hydration race) — see git log for the exact
+hash.
 
 **Governance update (2026-08-02, same day)**: the Owner formalized the
 project-management methodology going forward — the Contractor never

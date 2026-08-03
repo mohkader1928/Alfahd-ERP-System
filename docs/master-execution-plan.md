@@ -361,6 +361,8 @@ No Critical or architectural-red-flag risks were found in this audit — nothing
 
 All Milestones follow the QA/Acceptance Strategy in Section H and the full Owner Checkpoint Protocol in Section G.
 
+**UI/UX System-Wide Audit + Foundation Milestone (2026-08-03)**: full detail in `docs/project-progress.md`'s dated entry and `docs/18-ui-ux-audit.md`. Summary: the audit (no fixes) shipped first per the Owner's instruction, then a scoped "UI/UX Foundation + Company Context" bundle was approved and executed — four shared utilities (currency formatting, status-badge variants, company-name resolution, a toast system) applied as swaps across Dashboard/Sales/Purchasing/Inventory/Payments/Accounting, plus a real Company Context (company-selection screen, Topbar switcher) backed by two new, narrowly-scoped backend endpoints. **Implemented, Tested (165/165 backend, 13 new), Verified, Live Demonstrated** (full two-company browser walkthrough including the real Topbar switcher click and a true SPA switch with no stale data/permissions) — **Owner Accepted: pending**. Two real bugs were found and fixed during this milestone's own live verification (an RLS company-context bug in the access-grant endpoint; a hydration race that could bounce an already-logged-in user off `/select-company` on a hard reload) — neither shipped unfixed. Explicitly deferred, not started: Sales Order/Invoice list pages, Purchasing/Inventory table redesign onto `ERPListView`, Cycle Count UI, Reporting expansion, Cancel/Void, Audit Trail expansion — these remain candidates for a future Milestone, not decided here.
+
 ---
 
 ## Global Roadmap Status
