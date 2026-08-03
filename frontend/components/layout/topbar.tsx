@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Moon, Sun, Languages, LogOut, Building2, Repeat } from "lucide-react";
+import { Moon, Sun, Languages, LogOut, Repeat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { useI18n } from "@/lib/i18n/config";
 import { useTheme } from "@/lib/theme";
 import { useAuthStore } from "@/stores/auth-store";
@@ -24,7 +26,7 @@ export function Topbar() {
 
   // Which company you're in must be visible at all times, not just
   // implicit — see docs/18-ui-ux-audit.md, Company Context findings.
-  const { name: companyName } = useCompanyName();
+  const { name: companyName, company, isLoading: companyLoading } = useCompanyName();
 
   // Only offer a switcher when there's actually something to switch
   // to — a single-company user (the common case today) should never see a
@@ -40,10 +42,14 @@ export function Topbar() {
 
   return (
     <header className="flex h-14 items-center justify-between gap-2 border-b px-4">
-      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-        <Building2 className="h-4 w-4" />
+      <Link
+        href="/company/profile"
+        className="flex items-center gap-2 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground"
+        title={t("company.profile.title")}
+      >
+        <EntityImage src={company?.logo_path} name={companyName ?? ""} shape="square" size="xs" isLoading={companyLoading} />
         <span>{companyName ?? " "}</span>
-      </div>
+      </Link>
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" onClick={toggleLocale} title={t("locale.toggle")}>
           <Languages className="h-4 w-4" />

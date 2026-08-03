@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
@@ -813,7 +814,10 @@ function CustomerSubledgerTab() {
         {ranAt && reportQuery.data && (
           <>
             <div className="hidden print:block">
-              <p className="text-base font-semibold">{companyQuery.data?.legal_name}</p>
+              <div className="flex items-center gap-2">
+                <EntityImage src={companyQuery.data?.logo_path} name={companyQuery.data?.legal_name ?? ""} shape="square" size="sm" />
+                <p className="text-base font-semibold">{companyQuery.data?.legal_name}</p>
+              </div>
               <h2 className="text-lg font-semibold">{t("accounting.sub.statement_title")} — {reportQuery.data.partner_name}</h2>
               <p className="text-sm text-muted-foreground">
                 {reportQuery.data.date_from} – {reportQuery.data.date_to}
@@ -910,7 +914,10 @@ function VendorSubledgerTab() {
         {ranAt && reportQuery.data && (
           <>
             <div className="hidden print:block">
-              <p className="text-base font-semibold">{companyQuery.data?.legal_name}</p>
+              <div className="flex items-center gap-2">
+                <EntityImage src={companyQuery.data?.logo_path} name={companyQuery.data?.legal_name ?? ""} shape="square" size="sm" />
+                <p className="text-base font-semibold">{companyQuery.data?.legal_name}</p>
+              </div>
               <h2 className="text-lg font-semibold">{t("accounting.sub.statement_title")} — {reportQuery.data.partner_name}</h2>
               <p className="text-sm text-muted-foreground">
                 {reportQuery.data.date_from} – {reportQuery.data.date_to}

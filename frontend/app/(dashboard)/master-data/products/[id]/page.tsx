@@ -4,6 +4,9 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RecordCard } from "@/components/erp/record-card/record-card";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
+import { EntityImageUpload } from "@/components/erp/entity-image/entity-image-upload";
+import { Can } from "@/components/erp/permissions/can";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +19,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { ApiError } from "@/lib/api-client";
+import { toastError, toastSuccess } from "@/lib/toast";
 import type { Product, ProductCategory, UnitOfMeasure } from "@/features/identity/api/types";
 
 /**
@@ -108,6 +112,29 @@ function ProductEditForm({
     onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
   });
 
+  const invalidateProduct = () => {
+    queryClient.invalidateQueries({ queryKey: ["product", companyId, product.id] });
+    queryClient.invalidateQueries({ queryKey: ["products", companyId] });
+  };
+
+  const uploadImageMutation = useMutation({
+    mutationFn: (file: File) => identityApi.uploadProductImage(companyId, product.id, file),
+    onSuccess: () => {
+      invalidateProduct();
+      toastSuccess(t("toast.success_title"), t("media.upload"));
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+  });
+
+  const removeImageMutation = useMutation({
+    mutationFn: () => identityApi.deleteProductImage(companyId, product.id),
+    onSuccess: () => {
+      invalidateProduct();
+      toastSuccess(t("toast.success_title"), t("media.remove"));
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+  });
+
   return (
     <RecordCard
       breadcrumbs={[
@@ -117,6 +144,7 @@ function ProductEditForm({
       ]}
       name={product.name}
       code={product.sku}
+      avatar={<EntityImage src={product.image_path} name={product.name} shape="square" size="md" />}
       statusBadge={
         <Badge variant={product.is_stockable ? "default" : "secondary"}>
           {product.is_stockable ? t("master_data.products.stockable") : t("master_data.products.non_stockable")}
@@ -128,6 +156,20 @@ function ProductEditForm({
           label: t("master_data.record_card.overview"),
           content: (
             <div className="space-y-4">
+              <div className="space-y-1">
+                <Label>{t("master_data.products.image")}</Label>
+                <Can permission="product.update">
+                  <EntityImageUpload
+                    src={product.image_path}
+                    name={product.name}
+                    shape="square"
+                    isUploading={uploadImageMutation.isPending}
+                    isRemoving={removeImageMutation.isPending}
+                    onUpload={(file) => uploadImageMutation.mutate(file)}
+                    onRemove={product.image_path ? () => removeImageMutation.mutate() : undefined}
+                  />
+                </Can>
+              </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label>{t("master_data.products.sku")}</Label>

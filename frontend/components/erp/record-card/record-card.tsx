@@ -15,6 +15,9 @@ interface RecordCardProps {
   breadcrumbs?: BreadcrumbItem[];
   name: string;
   code?: string;
+  /** Optional logo/photo shown before the name — e.g. EntityImage for
+   * Partner/Product records with an image. */
+  avatar?: React.ReactNode;
   statusBadge?: React.ReactNode;
   primaryActions?: React.ReactNode;
   summary?: { label: string; value: string }[];
@@ -32,7 +35,7 @@ interface RecordCardProps {
  * Tabs.Panel doesn't reliably hide inactive panels once a second one
  * mounts, so every ERP screen in this codebase sidesteps it the same way.
  */
-export function RecordCard({ breadcrumbs, name, code, statusBadge, primaryActions, summary, tabs, defaultTab }: RecordCardProps) {
+export function RecordCard({ breadcrumbs, name, code, avatar, statusBadge, primaryActions, summary, tabs, defaultTab }: RecordCardProps) {
   const [tab, setTab] = useState(defaultTab ?? tabs[0]?.key);
 
   return (
@@ -40,10 +43,13 @@ export function RecordCard({ breadcrumbs, name, code, statusBadge, primaryAction
       {breadcrumbs && <Breadcrumbs items={breadcrumbs} />}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold">{name}</h1>
-          {code && <span className="font-mono text-sm text-muted-foreground">{code}</span>}
-          {statusBadge}
+        <div className="flex items-center gap-3">
+          {avatar}
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold">{name}</h1>
+            {code && <span className="font-mono text-sm text-muted-foreground">{code}</span>}
+            {statusBadge}
+          </div>
         </div>
         {primaryActions && <div className="flex items-center gap-2">{primaryActions}</div>}
       </div>

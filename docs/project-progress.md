@@ -8,12 +8,14 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-03, against commit `1efdd7f` (`main`) plus the
-UI/UX Foundation closure fixes (hydration race in `/select-company`) —
-165/165 backend tests, `ruff`/`tsc`/`eslint`/build clean, live two-company
-browser walkthrough. See the dated entry below for full detail. The
-paragraphs immediately below (2026-08-02 and earlier) are kept verbatim
-as the historical record and were not re-verified as part of this pass.
+**Last verified**: 2026-08-03, uncommitted work on top of `1e4c0f9`
+(`main`) — the **UI/UX Evolution: Entity Media Foundation + Master Data
+Image Support** milestone — 173/173 backend tests, `ruff`/`tsc`/`eslint`/
+frontend production build all clean, full live browser verification
+(fresh company/user, real file uploads via the real API, not simulated).
+See the dated entry below for full detail. The paragraphs further below
+(2026-08-03 Company Context and earlier) are kept verbatim as the
+historical record and were not re-verified as part of this pass.
 
 **Historical — last verified 2026-08-02**, against commit `3684edd`
 (`main`) plus uncommitted Phase 17D (Payments) work — implemented, then
@@ -153,6 +155,105 @@ UX gap-check, part open architecture question for the Owner/Consultant).
 Full detail in `docs/master-execution-plan.md` §D3 and the updated Owner
 Checkpoint Protocol in §G. **No application code was changed to produce
 this update — planning documents only.**
+
+**UI/UX Evolution: Entity Media Foundation + Master Data Image Support
+(2026-08-03, same day, Owner-approved scope, built on top of the now-closed
+UI/UX Foundation + Company Context milestone — `1efdd7f`/`1e4c0f9`, not
+re-touched except the one shared component extension noted below)**:
+Implemented and Tested.
+
+- **Entity Media Foundation** (backend): inspected first — confirmed no
+  storage architecture existed anywhere (no upload endpoints, no image
+  columns, no upload UI). Built one shared module,
+  `backend/src/shared/media/storage.py` (content-type whitelist, 2MB
+  limit, uuid4 filenames), used identically for Company/Partner/Product —
+  not four separate solutions. Local-disk storage under
+  `settings.media_root`, served unauthenticated-but-unguessable via
+  FastAPI `StaticFiles` at `/media` — a deliberate tradeoff (print
+  headers/statements need plain `<img>` embedding with no way to attach an
+  Authorization header), the same pattern the existing ZATCA QR code
+  already uses. No new library, no object-storage service — an
+  unrequested architecture change was explicitly avoided. New migration
+  (`company.logo_path`, `partner.image_path`, `product.image_path`, all
+  nullable `Text`), 6 new upload/delete routes, `company.manage`
+  permission added for the company-logo actions (`partner.update`/
+  `product.update` reused, not duplicated, for partner/product images). A
+  new Docker volume (`media_data`) was added to the **production**
+  compose file only — dev's existing bind-mount already persists uploads,
+  so dev compose was left untouched.
+- **Entity Media Foundation** (frontend): one shared `EntityImage`/
+  `EntityImageUpload` component pair
+  (`frontend/components/erp/entity-image/`) — image, initials fallback,
+  placeholder, loading, broken-image fallback, alt text, RTL/LTR, and 5
+  responsive sizes, reused identically for Company/Partner/Product per
+  the Owner's explicit "one unified pattern, not 4" instruction. The
+  shared `apiClient.request()` now also accepts `FormData` bodies (one
+  function, not a parallel upload client).
+- **Company Logo**: a new Company Profile page (`/company/profile`,
+  reachable from the Topbar's company name, which is now a link) —
+  upload/change/remove, gated behind the new `company.manage` permission.
+  Logo now shows next to the company name in Topbar, Dashboard, the
+  `/select-company` picker, and Accounting's Customer/Vendor Subledger
+  print-statement headers — company switching still changes name + logo +
+  permissions + data together as one unit (verified, not just wired).
+- **Customer/Vendor/Product images**: `RecordCard` (the shared detail/edit
+  shell) gained one new optional `avatar` slot — used by the Partner and
+  Product detail pages to show the entity's image next to its name/code,
+  same shell everything else in those screens already uses. Each detail
+  page's Overview tab also gained an `EntityImageUpload` block, gated by
+  the same `partner.update`/`product.update` permissions the rest of the
+  form already requires. List thumbnails added to `PartnerListView`
+  (Customers/Vendors) and the Products list, reusing `EntityImage` at
+  `size="xs"` inside the existing Name column — no new column, no new
+  list pattern.
+- **Master Data UX consistency pass**: helpful, specific empty-state
+  descriptions added to the Customers/Vendors/Products lists (previously
+  a generic "No records found" with no guidance) — the one genuine gap
+  found; everything else in Master Data (Products/Customers/Vendors/UOM/
+  Categories) was already confirmed on the shared `ERPListView`/
+  `FormView`/`RecordCard`/`Can`/`Breadcrumbs`/`EmptyState`/`ErrorState`/
+  `Skeleton` pattern per `docs/18-ui-ux-audit.md`'s own findings — not
+  rebuilt. Per the Owner's explicit instruction, **Bundle 3** (migrating
+  Purchasing/Inventory onto `ERPListView`) was **not** started as part of
+  this pass.
+- **A real bug found and fixed by this milestone's own new tests**: all 6
+  new upload/delete routes originally called `db.refresh()` right after
+  `db.commit()` — `db.commit()` ends the transaction that carried the
+  RLS `SET LOCAL app.current_company_id`, so the refresh's implicit
+  SELECT ran with no tenant/company context and failed RLS
+  (`invalid input syntax for type uuid: ""`). Fixed by removing the
+  unnecessary refresh (the in-memory ORM object already reflects the
+  assigned field). `grep` confirmed this `db.refresh()`-after-`commit()`
+  pattern existed **only** in these 6 new lines anywhere in the backend —
+  a bug introduced by this milestone's own new code, not a pre-existing
+  one, caught before it shipped.
+
+**Verified**: 173/173 backend tests (8 new), `ruff check` clean on all new
+code (pre-existing Alembic-boilerplate style findings in
+`migrations/versions/*.py` are unrelated and untouched, same as every
+prior milestone), `tsc --noEmit`/`eslint`/frontend production build all
+clean. **Live Demonstrated**: a fresh company and user were bootstrapped
+via the real `/bootstrap` API specifically so the new user's role would
+include the newly-added `company.manage` permission (the existing demo
+user's role predates it — a known, previously-documented gap: no API
+exists yet to add a permission to an already-created role — not a bug in
+this milestone). Logged in for real, uploaded a real PNG through the
+actual upload API (the same one the UI's file-input form submits to —
+browser file-picker automation itself is not supported by the available
+tooling, so the upload call was made directly against the real endpoint
+and the *result* was verified rendering live in the browser), confirmed
+it renders correctly in Topbar, Dashboard, and Company Profile;
+confirmed the broken/no-image fallback (initials) after a real Remove
+call; confirmed Arabic/RTL rendering (`dir="rtl"`, `lang="ar"`, Arabic
+labels and alt text). Created a real Customer and a real Product through
+the actual UI forms, uploaded images for both via the real API, confirmed
+both render correctly in their list thumbnails, detail-page avatar, and
+detail-page image-upload widget. Confirmed the new empty-state copy
+renders on an empty Vendors list. **Owner Accepted: not yet — pending the
+Owner personally trying it.**
+
+**Not yet committed** — see the milestone's checkpoint report for exact
+file list and status.
 
 ---
 

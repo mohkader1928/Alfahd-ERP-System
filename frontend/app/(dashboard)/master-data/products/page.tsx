@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { FilterBar, type FilterFieldConfig } from "@/components/erp/filter-bar/filter-bar";
 import { flattenTree } from "@/components/erp/category-select/category-select";
 import { useI18n } from "@/lib/i18n/config";
@@ -51,7 +52,18 @@ export default function ProductsListPage() {
 
   const columns: ERPColumn<Product>[] = [
     { key: "sku", header: t("master_data.products.sku"), sortable: true, sortValue: (r) => r.sku, render: (r) => <span className="font-mono">{r.sku}</span> },
-    { key: "name", header: t("master_data.products.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
+    {
+      key: "name",
+      header: t("master_data.products.name"),
+      sortable: true,
+      sortValue: (r) => r.name,
+      render: (r) => (
+        <span className="flex items-center gap-2">
+          <EntityImage src={r.image_path} name={r.name} shape="square" size="xs" />
+          {r.name}
+        </span>
+      ),
+    },
     { key: "name_ar", header: t("master_data.products.name_ar"), render: (r) => r.name_ar ?? "—" },
     { key: "category", header: t("master_data.products.category"), render: (r) => categoryPath(r.category_id) },
     {
@@ -76,6 +88,7 @@ export default function ProductsListPage() {
       onRefresh={() => queryClient.invalidateQueries({ queryKey: ["products", companyId] })}
       searchText={(r) => `${r.sku} ${r.name} ${r.name_ar ?? ""}`}
       searchPlaceholder={t("list.search_placeholder")}
+      emptyDescription={t("master_data.products.empty_description")}
       filters={
         <FilterBar
           fields={filterFields}

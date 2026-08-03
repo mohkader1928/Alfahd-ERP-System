@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -24,6 +25,7 @@ export function PartnerListView({ kind }: { kind: "customer" | "vendor" }) {
 
   const title = kind === "customer" ? t("master_data.customers.title") : t("master_data.vendors.title");
   const newLabel = kind === "customer" ? t("master_data.customers.new") : t("master_data.vendors.new");
+  const emptyDescription = kind === "customer" ? t("master_data.customers.empty_description") : t("master_data.vendors.empty_description");
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["partners", companyId, kind],
@@ -41,7 +43,8 @@ export function PartnerListView({ kind }: { kind: "customer" | "vendor" }) {
       sortable: true,
       sortValue: (r) => r.name,
       render: (r) => (
-        <Link href={`/master-data/partners/${r.id}`} className="font-medium underline-offset-4 hover:underline">
+        <Link href={`/master-data/partners/${r.id}`} className="flex items-center gap-2 font-medium underline-offset-4 hover:underline">
+          <EntityImage src={r.image_path} name={r.name} size="xs" />
           {r.name}
         </Link>
       ),
@@ -70,6 +73,7 @@ export function PartnerListView({ kind }: { kind: "customer" | "vendor" }) {
       onRefresh={() => queryClient.invalidateQueries({ queryKey: ["partners", companyId, kind] })}
       searchText={(r) => `${r.name} ${r.name_ar ?? ""} ${r.vat_number ?? ""} ${r.cr_number ?? ""}`}
       searchPlaceholder={t("list.search_placeholder")}
+      emptyDescription={emptyDescription}
       createAction={{
         label: newLabel,
         href: `/master-data/partners/new?kind=${kind}`,

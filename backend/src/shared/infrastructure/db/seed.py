@@ -32,6 +32,10 @@ PERMISSION_CATALOG = [
     # add a second company (previously only possible via /bootstrap, which
     # always mints a brand-new tenant alongside it).
     ("company.create", "action"),
+    # UI/UX Evolution milestone — Entity Media Foundation: the one general
+    # "edit this company's own profile" permission; covers the logo today,
+    # the natural home for any future company-profile field.
+    ("company.manage", "action"),
     ("user.create", "action"),
     ("user.manage_roles", "action"),
     ("user.view", "screen"),

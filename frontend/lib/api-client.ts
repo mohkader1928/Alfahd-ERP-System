@@ -34,8 +34,13 @@ function getStoredAccessToken(): string | null {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, companyId, branchId, skipAuth, headers, ...rest } = options;
 
+  // FormData (file uploads) must NOT get a manual Content-Type: the browser
+  // sets its own multipart boundary, which JSON.stringify-ing the body (and
+  // forcing application/json below) would break.
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+
   const finalHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(headers as Record<string, string> | undefined),
   };
 
@@ -49,7 +54,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
     headers: finalHeaders,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: isFormData ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   if (response.status === 204) {

@@ -61,6 +61,7 @@ class Company(Base):
     )
     valuation_method: Mapped[str] = mapped_column(Text, nullable=False)
     zatca_environment: Mapped[str] = mapped_column(Text, nullable=False, server_default="sandbox")
+    logo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=text("now()"), onupdate=text("now()"), nullable=False

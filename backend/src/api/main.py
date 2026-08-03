@@ -7,9 +7,11 @@ module file changes.
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 import src.modules.accounting as accounting_module
@@ -63,6 +65,19 @@ register_error_handlers(app)
 
 for module in ENABLED_MODULES:
     module.register(app, event_bus)
+
+# Entity Media Foundation (UI/UX Evolution milestone): served unauthenticated
+# and at an unguessable path (uuid4 filenames — see shared/media/storage.py)
+# rather than behind a permission check, deliberately, because the Owner's
+# requirement includes embedding these images in print headers/statements,
+# which render as plain <img> tags with no way to attach an Authorization
+# header. This mirrors how the existing ZATCA QR code is already embedded
+# unauthenticated on the invoice page — low-sensitivity, print-facing
+# images, not a new class of exposure for this system. Upload/replace/
+# delete remain behind the normal authenticated + permission-checked
+# endpoints; only the already-saved bytes are served this way.
+Path(settings.media_root).mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=settings.media_root), name="media")
 
 
 @app.get("/health")

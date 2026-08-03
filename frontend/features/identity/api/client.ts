@@ -36,6 +36,15 @@ export const identityApi = {
 
   getCompany: (companyId: string) => apiClient.get<Company>(`${BASE}/companies/${companyId}`, { companyId }),
 
+  uploadCompanyLogo: (companyId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiClient.post<Company>(`${BASE}/companies/${companyId}/logo`, form, { companyId });
+  },
+
+  deleteCompanyLogo: (companyId: string) =>
+    apiClient.delete<Company>(`${BASE}/companies/${companyId}/logo`, { companyId }),
+
   getMyPermissions: (companyId: string, branchId: string | null) =>
     apiClient.get<MyPermissions>(`${BASE}/me/permissions`, { companyId, branchId }),
 
@@ -64,6 +73,15 @@ export const identityApi = {
   updatePartner: (companyId: string, id: string, payload: PartnerWriteInput) =>
     apiClient.patch<Partner>(`${BASE}/partners/${id}`, payload, { companyId }),
 
+  uploadPartnerImage: (companyId: string, id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiClient.post<Partner>(`${BASE}/partners/${id}/image`, form, { companyId });
+  },
+
+  deletePartnerImage: (companyId: string, id: string) =>
+    apiClient.delete<Partner>(`${BASE}/partners/${id}/image`, { companyId }),
+
   listProducts: (companyId: string, branchId: string | null, opts?: { categoryId?: string; search?: string }) =>
     apiClient.get<Product[]>(
       `${BASE}/products${qs({ category_id: opts?.categoryId, search: opts?.search })}`,
@@ -77,6 +95,15 @@ export const identityApi = {
 
   updateProduct: (companyId: string, id: string, payload: ProductWriteInput) =>
     apiClient.patch<Product>(`${BASE}/products/${id}`, payload, { companyId }),
+
+  uploadProductImage: (companyId: string, id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiClient.post<Product>(`${BASE}/products/${id}/image`, form, { companyId });
+  },
+
+  deleteProductImage: (companyId: string, id: string) =>
+    apiClient.delete<Product>(`${BASE}/products/${id}/image`, { companyId }),
 
   listProductCategories: (companyId: string) =>
     apiClient.get<ProductCategory[]>(`${BASE}/product-categories`, { companyId }),

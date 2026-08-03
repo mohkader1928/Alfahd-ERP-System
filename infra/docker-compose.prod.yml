@@ -50,6 +50,11 @@ services:
       target: production
     env_file:
       - ../backend/.env.production
+    volumes:
+      # Entity Media Foundation: production doesn't bind-mount source (the
+      # image COPYs it in), so uploaded images need their own volume or
+      # they'd vanish on every redeploy.
+      - media_data:/app/media
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -100,3 +105,4 @@ services:
 
 volumes:
   postgres_data:
+  media_data:

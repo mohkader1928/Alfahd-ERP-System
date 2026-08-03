@@ -3,9 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Building2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { decodeAccessToken } from "@/lib/jwt";
@@ -31,8 +30,8 @@ function CompanyOption({ entry, onSelect }: { entry: CompanyEntry; onSelect: () 
       onClick={onSelect}
       className="flex w-full items-center gap-3 rounded-md border p-3 text-start transition-colors hover:bg-muted"
     >
-      <Building2 className="h-5 w-5 shrink-0 text-muted-foreground" />
-      {query.isLoading ? <Skeleton className="h-4 w-40" /> : <span className="font-medium">{name ?? entry.companyId}</span>}
+      <EntityImage src={query.data?.logo_path} name={name ?? entry.companyId} shape="square" size="sm" isLoading={query.isLoading} />
+      {query.isLoading ? null : <span className="font-medium">{name ?? entry.companyId}</span>}
     </button>
   );
 }

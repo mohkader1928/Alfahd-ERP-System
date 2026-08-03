@@ -41,6 +41,7 @@ export interface Company {
   legal_name_ar: string;
   vat_number: string;
   valuation_method: string;
+  logo_path: string | null;
 }
 
 export interface Branch {
@@ -70,6 +71,7 @@ export interface Partner {
   cr_number: string | null;
   address: Address | null;
   is_active: boolean;
+  image_path: string | null;
 }
 
 export interface PartnerWriteInput {
@@ -94,6 +96,7 @@ export interface Product {
   sales_price: string;
   cost_price: string;
   default_tax_rate_id: string | null;
+  image_path: string | null;
 }
 
 export interface ProductWriteInput {

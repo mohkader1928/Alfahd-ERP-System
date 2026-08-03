@@ -16,6 +16,10 @@ __pycache__/
 .ruff_cache/
 .coverage
 
+# Uploaded entity images (dev bind-mounts ../backend:/app, so these land
+# on the host at backend/media/ — never real content to commit).
+backend/media/
+
 # Frontend
 node_modules/
 .next/

@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.identity.api.deps import (
@@ -80,6 +80,7 @@ from src.shared.infrastructure.db.session import (
     set_tenant_context,
 )
 from src.shared.infrastructure.messaging.event_bus import event_bus
+from src.shared.media.storage import InvalidImageError, delete_entity_image, save_entity_image
 from src.shared.security.auth_context import AuthContext, get_auth_context
 
 router = APIRouter()
@@ -313,6 +314,65 @@ async def get_company(
     return company
 
 
+@router.post("/companies/{company_id}/logo", response_model=CompanyOut)
+async def upload_company_logo(
+    company_id: UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("company.manage")),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """Entity Media Foundation. Mirrors get_company()'s existing precedent
+    of operating on the caller's active company (ctx.company_id) rather
+    than trusting the path segment — same resource, same convention."""
+    company = await company_repo.get_by_id(ctx.company_id)
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
+
+    try:
+        relative_path = await save_entity_image(file, entity_type="company", entity_id=str(company.id))
+    except InvalidImageError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    old_path = company.logo_path
+    company.logo_path = relative_path
+    # No db.refresh() here: `company.logo_path` is already set on this
+    # in-memory instance above, and a post-commit refresh would issue a
+    # fresh SELECT outside the transaction that carried the RLS
+    # SET LOCAL app.current_company_id — found live via this endpoint's own
+    # test, where that follow-up SELECT failed RLS with an empty session
+    # variable. The response schema doesn't need any server-generated
+    # column (e.g. updated_at) that only a refresh would pick up.
+    await db.commit()
+    delete_entity_image(old_path)
+    return company
+
+
+@router.delete("/companies/{company_id}/logo", response_model=CompanyOut)
+async def delete_company_logo(
+    company_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("company.manage")),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    company = await company_repo.get_by_id(ctx.company_id)
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
+
+    old_path = company.logo_path
+    company.logo_path = None
+    # No db.refresh() here: `company.logo_path` is already set on this
+    # in-memory instance above, and a post-commit refresh would issue a
+    # fresh SELECT outside the transaction that carried the RLS
+    # SET LOCAL app.current_company_id — found live via this endpoint's own
+    # test, where that follow-up SELECT failed RLS with an empty session
+    # variable. The response schema doesn't need any server-generated
+    # column (e.g. updated_at) that only a refresh would pick up.
+    await db.commit()
+    delete_entity_image(old_path)
+    return company
+
+
 @router.post("/companies/{company_id}/branches", response_model=BranchOut, status_code=status.HTTP_201_CREATED)
 async def create_branch(
     company_id: UUID,
@@ -533,6 +593,55 @@ async def update_partner(
     return partner
 
 
+@router.post("/partners/{partner_id}/image", response_model=PartnerOut)
+async def upload_partner_image(
+    partner_id: UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("partner.update")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+):
+    """Entity Media Foundation. Same explicit company_id check as
+    get_partner()/update_partner() above — partner_repo isn't itself
+    company-scoped."""
+    partner = await partner_repo.get_by_id(partner_id)
+    if partner is None or partner.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Partner not found")
+
+    try:
+        relative_path = await save_entity_image(file, entity_type="partner", entity_id=str(partner.id))
+    except InvalidImageError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    old_path = partner.image_path
+    partner.image_path = relative_path
+    # See the comment on the equivalent company-logo endpoint above for why
+    # there's deliberately no db.refresh() here.
+    await db.commit()
+    delete_entity_image(old_path)
+    return partner
+
+
+@router.delete("/partners/{partner_id}/image", response_model=PartnerOut)
+async def delete_partner_image(
+    partner_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("partner.update")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+):
+    partner = await partner_repo.get_by_id(partner_id)
+    if partner is None or partner.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Partner not found")
+
+    old_path = partner.image_path
+    partner.image_path = None
+    # See the comment on the equivalent company-logo endpoint above for why
+    # there's deliberately no db.refresh() here.
+    await db.commit()
+    delete_entity_image(old_path)
+    return partner
+
+
 @router.get("/products", response_model=list[ProductOut])
 async def list_products(
     category_id: UUID | None = None,
@@ -618,6 +727,54 @@ async def update_product(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
     await db.commit()
+    return product
+
+
+@router.post("/products/{product_id}/image", response_model=ProductOut)
+async def upload_product_image(
+    product_id: UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("product.update")),
+    product_repo: ProductRepository = Depends(get_product_repo),
+):
+    """Entity Media Foundation. Same explicit company_id check as
+    get_product()/update_product() above."""
+    product = await product_repo.get_by_id(product_id)
+    if product is None or product.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+
+    try:
+        relative_path = await save_entity_image(file, entity_type="product", entity_id=str(product.id))
+    except InvalidImageError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    old_path = product.image_path
+    product.image_path = relative_path
+    # See the comment on the equivalent company-logo endpoint above for why
+    # there's deliberately no db.refresh() here.
+    await db.commit()
+    delete_entity_image(old_path)
+    return product
+
+
+@router.delete("/products/{product_id}/image", response_model=ProductOut)
+async def delete_product_image(
+    product_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("product.update")),
+    product_repo: ProductRepository = Depends(get_product_repo),
+):
+    product = await product_repo.get_by_id(product_id)
+    if product is None or product.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+
+    old_path = product.image_path
+    product.image_path = None
+    # See the comment on the equivalent company-logo endpoint above for why
+    # there's deliberately no db.refresh() here.
+    await db.commit()
+    delete_entity_image(old_path)
     return product
 
 

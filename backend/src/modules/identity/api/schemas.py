@@ -77,6 +77,7 @@ class CompanyOut(BaseModel):
     legal_name_ar: str
     vat_number: str
     valuation_method: str
+    logo_path: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -168,6 +169,7 @@ class PartnerOut(BaseModel):
     cr_number: str | None
     address: dict | None
     is_active: bool
+    image_path: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -251,6 +253,7 @@ class ProductOut(BaseModel):
     sales_price: Decimal
     cost_price: Decimal
     default_tax_rate_id: UUID | None
+    image_path: str | None = None
 
     model_config = {"from_attributes": True}
 

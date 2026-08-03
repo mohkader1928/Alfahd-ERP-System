@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     # origins (e.g. a staging + production frontend) without a code change.
     cors_origins: str = "http://localhost:3000"
 
+    # Entity Media Foundation (UI/UX Evolution milestone): local-disk
+    # storage, served back out via a StaticFiles mount at /media — no
+    # object-storage service (S3/MinIO) exists in this stack yet, and
+    # adding one is a real infrastructure change this milestone didn't ask
+    # for. /app/media is bind-mounted in dev (part of the existing
+    # ../backend:/app mount) and a dedicated named volume in prod (see
+    # infra/docker-compose.prod.yml) so uploads survive container
+    # recreation either way.
+    media_root: str = "/app/media"
+    media_max_bytes: int = 2 * 1024 * 1024
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

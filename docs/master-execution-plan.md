@@ -363,6 +363,34 @@ All Milestones follow the QA/Acceptance Strategy in Section H and the full Owner
 
 **UI/UX System-Wide Audit + Foundation Milestone (2026-08-03)**: full detail in `docs/project-progress.md`'s dated entry and `docs/18-ui-ux-audit.md`. Summary: the audit (no fixes) shipped first per the Owner's instruction, then a scoped "UI/UX Foundation + Company Context" bundle was approved and executed — four shared utilities (currency formatting, status-badge variants, company-name resolution, a toast system) applied as swaps across Dashboard/Sales/Purchasing/Inventory/Payments/Accounting, plus a real Company Context (company-selection screen, Topbar switcher) backed by two new, narrowly-scoped backend endpoints. **Implemented, Tested (165/165 backend, 13 new), Verified, Live Demonstrated** (full two-company browser walkthrough including the real Topbar switcher click and a true SPA switch with no stale data/permissions) — **Owner Accepted: pending**. Two real bugs were found and fixed during this milestone's own live verification (an RLS company-context bug in the access-grant endpoint; a hydration race that could bounce an already-logged-in user off `/select-company` on a hard reload) — neither shipped unfixed. Explicitly deferred, not started: Sales Order/Invoice list pages, Purchasing/Inventory table redesign onto `ERPListView`, Cycle Count UI, Reporting expansion, Cancel/Void, Audit Trail expansion — these remain candidates for a future Milestone, not decided here.
 
+**UI/UX Evolution: Entity Media Foundation + Master Data Image Support
+(2026-08-03)**: full detail in `docs/project-progress.md`'s dated entry.
+Summary: a shared local-disk Entity Media Foundation (no new
+infrastructure dependency) plus one shared `EntityImage`/
+`EntityImageUpload` component pair, used identically for Company logo,
+Customer/Vendor image, and Product image — not four separate builds.
+Company logo now flows through Topbar/Dashboard/`/select-company`/
+Accounting print statements as one unit with company switching, matching
+§E item 5 (Company identity visibility pass) above — that roadmap item is
+now substantially delivered for Company; Partner/Product identity images
+are a new addition beyond what §E originally scoped. Customer/Vendor/
+Product images wired into Master Data create/edit/detail/list via the
+existing `RecordCard`/`ERPListView`/`Can` patterns (one new optional
+`avatar` slot added to `RecordCard`, no new list pattern). A genuine RLS
+bug in this milestone's own new upload/delete endpoints (`db.refresh()`
+after `db.commit()` losing its RLS transaction context) was found by this
+milestone's own tests and fixed before shipping. **Implemented, Tested
+(173/173 backend, 8 new), Verified, Live Demonstrated** (real file
+uploads via the real API against a freshly-bootstrapped user/company,
+confirmed rendering across Topbar/Dashboard/Company Profile/Customer/
+Vendor/Product list+detail, confirmed fallback and Arabic/RTL states) —
+**Owner Accepted: pending**. Per the Owner's explicit instruction, Bundle
+3 (§ K above, Purchasing/Inventory onto `ERPListView`) was **not**
+started as part of this pass — Master Data's own UX consistency gap was
+smaller than originally scoped (already largely on the shared pattern per
+the audit; only empty-state copy was genuinely missing) and is now
+closed.
+
 ---
 
 ## Global Roadmap Status
@@ -389,7 +417,7 @@ Evidence basis: direct repository inspection (modules, migrations, tests, fronte
 | E-Commerce | ⚪ Not started | 0% | Out of scope for now. |
 | BI / Analytics | ⚪ Not started | 0% | Out of scope for now; depends on Reports (above) maturing first. |
 | AI features | ⚪ Not started | 0% | Out of scope for now. |
-| UX / UI Design System | 🟡 Partial (est.) | 70% | Phase 17A/17B established shared list/form/table components and i18n+RTL; consistency pass still needed (Section E). |
+| UX / UI Design System | 🟡 Partial (est.) | 75% | Phase 17A/17B established shared list/form/table components and i18n+RTL; Company Context + Entity Media Foundation (logos/images for Company/Customer/Vendor/Product) now shipped; Purchasing/Inventory list-consistency pass (Bundle 3) still needed (Section E). |
 | Testing / QA | 🟡 Good, uneven coverage | 65% (est.) | ~141 backend tests, strong on Payments/Sales/RLS; Reports and several UI paths have little to no automated coverage. |
 | Deployment / DevOps | 🟢 Strong | 95% | Docker Compose, role bootstrap, migration discipline, health checks all working and repeatedly verified across phases. |
 
