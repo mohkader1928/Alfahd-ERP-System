@@ -1,5 +1,13 @@
 import { apiClient } from "@/lib/api-client";
-import type { DocumentBalance, Payment, PaymentCreateInput, PaymentDetail, PaymentType } from "./types";
+import type {
+  AgingReport,
+  DocumentBalance,
+  Payment,
+  PaymentCreateInput,
+  PaymentDetail,
+  PaymentType,
+  Subledger,
+} from "./types";
 
 const BASE = "/api/v1/payments";
 
@@ -18,4 +26,22 @@ export const paymentsApi = {
 
   getVendorBillBalance: (companyId: string, billId: string) =>
     apiClient.get<DocumentBalance>(`${BASE}/balance/vendor-bill/${billId}`, { companyId }),
+
+  customerSubledger: (companyId: string, partnerId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<Subledger>(
+      `${BASE}/subledger/customer/${partnerId}?date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  vendorSubledger: (companyId: string, partnerId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<Subledger>(
+      `${BASE}/subledger/vendor/${partnerId}?date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  arAging: (companyId: string, asOfDate: string) =>
+    apiClient.get<AgingReport>(`${BASE}/aging/ar?as_of_date=${asOfDate}`, { companyId }),
+
+  apAging: (companyId: string, asOfDate: string) =>
+    apiClient.get<AgingReport>(`${BASE}/aging/ap?as_of_date=${asOfDate}`, { companyId }),
 };

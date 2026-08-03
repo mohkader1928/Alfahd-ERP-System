@@ -56,6 +56,8 @@ class JournalEntryOut(BaseModel):
     entry_date: date
     reference: str | None
     status: str
+    source_table: str | None
+    source_id: UUID | None
 
     model_config = {"from_attributes": True}
 
@@ -93,6 +95,8 @@ class GeneralLedgerLine(BaseModel):
     credit: Decimal
     description: str | None
     running_balance: Decimal
+    source_table: str | None
+    source_id: UUID | None
 
 
 class GeneralLedgerResponse(BaseModel):

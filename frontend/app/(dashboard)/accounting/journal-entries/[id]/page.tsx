@@ -9,10 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import Link from "next/link";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
 import { ApiError } from "@/lib/api-client";
+import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
 
 export default function JournalEntryDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -71,6 +73,25 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <dt className="text-muted-foreground">{t("accounting.je.date")}</dt>
             <dd>{entry.entry_date}</dd>
+            {entry.source_table && (
+              <>
+                <dt className="text-muted-foreground">{t("accounting.je.source_document")}</dt>
+                <dd>
+                  {(() => {
+                    const href = sourceDocumentHref(entry.source_table, entry.source_id);
+                    const labelKey = sourceDocumentLabelKey(entry.source_table);
+                    const label = labelKey ? t(labelKey) : entry.source_table;
+                    return href ? (
+                      <Link href={href} className="underline-offset-4 hover:underline">
+                        {label}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">{label}</span>
+                    );
+                  })()}
+                </dd>
+              </>
+            )}
           </dl>
           <Table>
             <TableHeader>

@@ -22,6 +22,8 @@ export interface JournalEntry {
   entry_date: string;
   reference: string | null;
   status: "draft" | "posted" | "reversed";
+  source_table: string | null;
+  source_id: string | null;
 }
 
 export interface JournalEntryLine {
@@ -55,6 +57,8 @@ export interface GeneralLedgerLine {
   credit: string;
   description: string | null;
   running_balance: string;
+  source_table: string | null;
+  source_id: string | null;
 }
 
 export interface GeneralLedgerResponse {

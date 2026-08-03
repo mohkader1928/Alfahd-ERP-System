@@ -55,6 +55,9 @@ PERMISSION_CATALOG = [
     ("accounting.reports.general_ledger.view", "screen"),
     ("accounting.reports.income_statement.view", "screen"),
     ("accounting.reports.balance_sheet.view", "screen"),
+    # Milestone 1b — Subledgers + AR/AP Aging
+    ("payment.subledger.view", "screen"),
+    ("payment.aging.view", "screen"),
     # M2 — Sales + ZATCA
     ("sales.quotation.create", "action"),
     ("sales.quotation.confirm", "action"),

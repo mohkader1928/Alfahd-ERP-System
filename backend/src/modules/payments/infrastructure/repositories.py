@@ -36,11 +36,15 @@ class PaymentRepository:
         query = select(Payment).where(Payment.company_id == company_id)
         if payment_type is not None:
             query = query.where(Payment.payment_type == payment_type)
-        result = await self.session.execute(query.order_by(Payment.payment_date.desc()).limit(limit))
+        result = await self.session.execute(
+            query.order_by(Payment.payment_date.desc()).limit(limit)
+        )
         return list(result.scalars().all())
 
     async def next_number(self, company_id: UUID) -> str:
-        result = await self.session.execute(select(func.count()).where(Payment.company_id == company_id))
+        result = await self.session.execute(
+            select(func.count()).where(Payment.company_id == company_id)
+        )
         count = result.scalar_one()
         return f"PAY-{count + 1:06d}"
 
@@ -59,3 +63,43 @@ class PaymentRepository:
             )
         )
         return result.scalar_one()
+
+    async def list_allocations_for_partner(
+        self, company_id: UUID, partner_id: UUID, payment_type: str
+    ) -> list[dict]:
+        """Milestone 1b — every allocation belonging to one partner's
+        payments, each carrying its payment's own date/number/reference and
+        which document (sales invoice or vendor bill) it settled -- the raw
+        material for that partner's Subledger. Joined rather than fetched
+        via `get_allocations` per-payment so a partner with many payments
+        costs one query, not N+1."""
+        result = await self.session.execute(
+            select(
+                PaymentAllocation.sales_invoice_id,
+                PaymentAllocation.vendor_bill_id,
+                PaymentAllocation.amount,
+                Payment.id.label("payment_id"),
+                Payment.number,
+                Payment.payment_date,
+                Payment.reference,
+            )
+            .join(Payment, Payment.id == PaymentAllocation.payment_id)
+            .where(
+                Payment.company_id == company_id,
+                Payment.partner_id == partner_id,
+                Payment.payment_type == payment_type,
+            )
+            .order_by(Payment.payment_date)
+        )
+        return [
+            {
+                "sales_invoice_id": row.sales_invoice_id,
+                "vendor_bill_id": row.vendor_bill_id,
+                "amount": Decimal(row.amount),
+                "payment_id": row.payment_id,
+                "number": row.number,
+                "payment_date": row.payment_date,
+                "reference": row.reference,
+            }
+            for row in result.all()
+        ]

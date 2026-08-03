@@ -58,3 +58,40 @@ class DocumentBalanceOut(BaseModel):
     amount_paid: Decimal
     balance_due: Decimal
     payment_status: str
+
+
+class SubledgerLine(BaseModel):
+    date: date
+    movement_type: str
+    document_type: str
+    document_id: UUID
+    reference: str
+    debit: Decimal
+    credit: Decimal
+    running_balance: Decimal
+
+
+class SubledgerResponse(BaseModel):
+    partner_id: UUID
+    partner_name: str
+    date_from: date
+    date_to: date
+    opening_balance: Decimal
+    lines: list[SubledgerLine]
+    closing_balance: Decimal
+
+
+class AgingRow(BaseModel):
+    partner_id: UUID | None
+    partner_name: str
+    document_id: UUID
+    number: str
+    due_date: date
+    balance_due: Decimal
+    days_overdue: int
+    bucket: str
+
+
+class AgingResponse(BaseModel):
+    as_of_date: date
+    rows: list[AgingRow]

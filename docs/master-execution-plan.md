@@ -71,7 +71,7 @@
 |---|---|---|---|---|---|
 | **M0 — Baseline & Governance** (this document) | None | This plan, UX standard doc, updated progress doc | Owner approval | Same session | None — pure audit/planning |
 | **M1a — General Ledger, Income Statement, Balance Sheet** | Payments (M0) committed; Journal Entry posting already correct | GL per-account drill-down, Income Statement (Revenue/COGS/OpEx/Net Income via existing CoA hierarchy), Balance Sheet (provably `Assets = Liabilities + Equity`) | Scenario #7 in Section D2 passes live | **Done** — 6 new tests, 147/147 suite, live-verified; see `docs/17e-accounting-standardization.md` | Reconciled cleanly against real posted JEs; no discrepancy found |
-| **M1b — Customer/Vendor Subledgers + AR/AP Aging** *(scope clarified 2026-08-02, §D3.2 — was "Aging + Statements", now explicitly full subledgers)* | M1a; Payments' existing balance logic; Sales/Purchasing due dates (Phase 17D) | Real Customer Subledger and Vendor Subledger (opening balance → invoices/credit notes/payments/adjustments → running balance → closing balance, each line drillable to source, §D3.1), plus AR/AP Aging buckets | Subledger closing balance matches Accounting's own AR/AP balances exactly; every subledger line opens its real source document | 4–6 days *(was 3–5; increased for the subledger drill-down requirement)* | Not yet started — kept as its own checkpoint per the Owner's "don't batch weeks of work" rule |
+| **M1b — Customer/Vendor Subledgers + AR/AP Aging** *(scope clarified 2026-08-02, §D3.2 — was "Aging + Statements", now explicitly full subledgers)* | M1a; Payments' existing balance logic; Sales/Purchasing due dates (Phase 17D) | Real Customer Subledger and Vendor Subledger (opening balance → invoices/credit notes/payments/adjustments → running balance → closing balance, each line drillable to source, §D3.1), plus AR/AP Aging buckets | Subledger closing balance matches Accounting's own AR/AP balances exactly; every subledger line opens its real source document | **Done** — 13 new tests, 159/159 suite, live-verified; see `docs/17f-subledgers-and-aging.md` | Reconciled cleanly against real posted data (direct assertion test); one real correctness bug found and fixed during verification, not shipped silently (17f doc §5); one structural RBAC finding documented, not fixed (17f doc §7) |
 | **M2 — Reporting Polish** | M1 (reports need real Accounting views to link to) | Filterable Sales/Purchasing/Inventory report screens wired to real data | Owner can filter by date/customer/status and get correct results | 3–5 days | Risk of becoming a second, disconnected reporting path if not built against M1's views (see Section J) |
 | **M3 — Demo Data Mechanism** | M2 (so reports have data worth seeding) | Idempotent seed script, ~100 records/type, transactional spread (Section F) | Script reruns cleanly; Owner sees a populated system end to end | 2–3 days | Must go through service layer under RLS — slower than raw SQL, non-negotiable per Owner directive |
 | **M4 — Sales/Purchasing Standardization** | M1 (statements need Accounting views) | Customer/Vendor statement screens, history views, cancel-workflow decision | Statements match Accounting's own AR/AP figures exactly | 3–5 days | Cancel/void is a real scope decision, not just UI — must be explicitly scoped at this Milestone's checkpoint, not assumed |
@@ -306,7 +306,7 @@ Ranges reflect real uncertainty, not false precision, and assume the working pac
 |---|---|---|---|---|
 | **M0 — Baseline & Governance** | done (this document) | done (fresh 141/141 tests, lint, health — same session) | pending — this checkpoint | none |
 | **M1a — General Ledger, Income Statement, Balance Sheet** | done | done (147/147 suite, live-verified) | pending — Owner Acceptance environment ready, awaiting Owner's own test | M0 |
-| **M1b — Customer/Vendor Subledgers, AR/AP Aging** *(scope expanded, §D3.2)* | 4–6 days | +0.5–1 day | +1–2 days (Owner runs Scenario #7) | M1a |
+| **M1b — Customer/Vendor Subledgers, AR/AP Aging** *(scope expanded, §D3.2)* | done | done (159/159 suite, live-verified, one real bug found+fixed during this pass) | pending — Owner Acceptance environment ready (`docs/owner-acceptance-m1b.md`), awaiting Owner's own test | M1a |
 | **M2 — Reporting Polish** | 3–5 days | +0.5–1 day | +1–2 days | M1 |
 | **M3 — Demo Data Mechanism** | 2–3 days | +0.5 day | +1 day (Owner test-drives populated system) | M2 |
 | **M4 — Sales/Purchasing Standardization** | 3–5 days | +0.5–1 day | +1–2 days | M1 |
@@ -355,9 +355,11 @@ No Critical or architectural-red-flag risks were found in this audit — nothing
 
 **Milestone 1a — General Ledger, Income Statement, Balance Sheet**: done, committed, Owner Acceptance environment prepared — awaiting the Owner's own test and explicit approval (not assumed from this document).
 
-**Candidate for what's technically unblocked next** (per Rule 0 in Section G, this is a dependency note for the Owner's decision, not a self-issued go-ahead): **Milestone 1b — Customer/Vendor Subledgers + AR/AP Aging** (§D3.2) is the only Milestone that is fully unblocked by what's already shipped (Payments' balance logic, Sales/Purchasing due dates) and closes the largest remaining gap in Section D. It is **not started**, and will not start without an explicit Owner instruction to proceed.
+**Milestone 1b — Customer/Vendor Subledgers, AR/AP Aging, JE source-document drill-down**: implemented, tested (159/159 suite), verified, live-demonstrated — **not yet committed**, Owner Acceptance environment prepared (`docs/owner-acceptance-m1b.md`), awaiting the Owner's own test and explicit approval. Full detail, including two real findings surfaced (and one fixed) during this Milestone's own verification, in `docs/17f-subledgers-and-aging.md`.
 
-Both Milestones follow the QA/Acceptance Strategy in Section H and the full Owner Checkpoint Protocol in Section G.
+**Candidate for what's technically unblocked next** (per Rule 0 in Section G, this is a dependency note for the Owner's decision, not a self-issued go-ahead): with M1a and M1b both done, **Milestone 2 — Reporting Polish** is the only Milestone fully unblocked by what's already shipped (it needs real Accounting views to link to, per §C2, and now has them). It is **not started**, and will not start without an explicit Owner instruction to proceed.
+
+All Milestones follow the QA/Acceptance Strategy in Section H and the full Owner Checkpoint Protocol in Section G.
 
 ---
 
@@ -374,7 +376,7 @@ Evidence basis: direct repository inspection (modules, migrations, tests, fronte
 | Sales | 🟡 Partial | 55% | Full Quotation→Payment lifecycle works end-to-end; missing statement/history/report screens (Section D). |
 | Purchasing | 🟡 Partial | 55% | Mirrors Sales — PO→Payment lifecycle works; same statement/report gap. |
 | Inventory | 🟡 Partial | 55% | Warehouses/stock/transfers/cycle counts work and post correctly; missing valuation/low-stock/history reports. |
-| Accounting | 🟢 Strong (pending commit) | 75% | CoA, Journal Entries, Trial Balance, correct auto-posting from every module, plus **General Ledger, Income Statement, Balance Sheet (Milestone 1a — new, live-verified)**; missing AR/AP Aging and Partner Statements — **Milestone 1b**. |
+| Accounting | 🟢 Strong (pending commit) | 85% | CoA, Journal Entries, Trial Balance, correct auto-posting from every module, General Ledger, Income Statement, Balance Sheet (M1a), plus **Customer/Vendor Subledgers, AR/AP Aging, JE source-document drill-down (Milestone 1b — new, live-verified)**; missing period-closing and Vendor Bill's own detail page (Subledger row not clickable). |
 | Payments | 🟢 Strong (pending commit) | 85% | Full customer/vendor payment lifecycle, real allocation with concurrency protection, live-verified; refund/credit-application flow deliberately deferred. |
 | Reports | 🔴 Minimal | 15% | A handful of flat CSV exports; no interactive filters, no drill-down yet. |
 | ZATCA (e-invoicing) | 🟡 Partial | 40% | Sandbox integration works for simplified/standard invoices; production certification not yet pursued (explicitly out of scope until named). |

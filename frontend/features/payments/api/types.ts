@@ -48,3 +48,40 @@ export interface PaymentCreateInput {
   reference?: string;
   allocations: PaymentAllocationIn[];
 }
+
+export interface SubledgerLine {
+  date: string;
+  movement_type: "invoice" | "credit_note" | "bill" | "payment";
+  document_type: "sales_invoice" | "vendor_bill" | "payment";
+  document_id: string;
+  reference: string;
+  debit: string;
+  credit: string;
+  running_balance: string;
+}
+
+export interface Subledger {
+  partner_id: string;
+  partner_name: string;
+  date_from: string;
+  date_to: string;
+  opening_balance: string;
+  lines: SubledgerLine[];
+  closing_balance: string;
+}
+
+export interface AgingRow {
+  partner_id: string | null;
+  partner_name: string;
+  document_id: string;
+  number: string;
+  due_date: string;
+  balance_due: string;
+  days_overdue: number;
+  bucket: "current" | "1_30" | "31_60" | "61_90" | "over_90";
+}
+
+export interface AgingReport {
+  as_of_date: string;
+  rows: AgingRow[];
+}

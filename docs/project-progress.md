@@ -48,6 +48,23 @@ is not yet Owner Accepted (implemented/tested/verified/live-demonstrated
 by the Contractor, per §"Status buckets" language below — but the Owner
 has not yet personally tried it and approved it).
 
+**Milestone 1b — Customer/Vendor Subledgers, AR/AP Aging, Traceability**
+(same day): implemented on top of the same, already-correct Sales/
+Purchasing/Payments data (no new tables), including `source_table`/
+`source_id` now exposed on Journal Entries and General Ledger lines for
+real drill-down. A real correctness bug was found during this Milestone's
+own live verification (AR Aging didn't net a credit note against its
+original invoice) and fixed, with a regression test proving it — see
+`docs/17f-subledgers-and-aging.md` §5. A second, structural finding (no
+API exists to grant a new permission to an already-bootstrapped company's
+role) is documented in the same file §7, not fixed here — out of scope.
+13 new tests, **159/159 full suite**, `ruff`/`tsc`/`eslint`/build all
+clean, live-verified in a real browser session (Company C — Milestone
+1a's demo company can't reach these two new screens, see §7 above). Owner
+Acceptance environment: `docs/owner-acceptance-m1b.md`. **Not yet
+committed, not yet Owner Accepted** — see the Milestone 1b checkpoint
+report for exact status.
+
 **Governance update (2026-08-02, same day)**: the Owner formalized the
 project-management methodology going forward — the Contractor never
 self-selects or announces the next Milestone; every checkpoint report
@@ -120,7 +137,7 @@ Legend: 🟢 Production-ready · 🟡 Partial/working-but-incomplete · 🔴 Not
 | **Multi-tenancy / RLS** | Phase 7 §1.4, 16A, 17C-RLS | Both policy families enforced by the real runtime role (`erp_app`), `FORCE ROW LEVEL SECURITY` everywhere, default-deny proven | 🟢 100% | 24/24 direct RLS tests | none open |
 | **Security / Roles** | Phase 17C-RLS | `erp_migrate`/`erp_app` split, least-privilege grants, login/2FA escape hatch, 3 separate context-ordering bugs found and fixed (ZATCA worker, cycle-count, bootstrap) | 🟢 100% | `docs/17c-rls-runtime-role-hardening.md` | historical pre-16A dump-restore limitation (accepted); `role_permission`/`user_role` RLS gap (§4) |
 | **Identity/Auth/RBAC** | Phase 2, 7 | Bootstrap, JWT+refresh, TOTP 2FA, 47-permission RBAC, VAT/email/SKU uniqueness, category-cycle detection | 🟡 75% | `identity/api/routes.py`; `AuditLogRepository.record()` only called for `assign_role` in this whole module | no user deactivate/lock, no password-reset flow, no TOTP-enrollment endpoint (verify-2fa exists, nothing sets `totp_secret` except this session's manual SQL test setup), no `Company` update endpoint, no Partner deactivate, no role-management UI |
-| **Accounting** | Phase 2, blueprint §8 | CoA, journals, JE draft/post/reverse with real immutability + balance guards, fiscal-period open/close, Trial Balance, **General Ledger, Income Statement, Balance Sheet (Phase 17E / Milestone 1a — committed `4b9ae08`)** | 🟢 75% (Implemented/Tested/Verified/Live-demonstrated; **not yet Owner Accepted** — environment ready, see `docs/owner-acceptance-m1a.md`) | `accounting/api/routes.py` (12 endpoints); `docs/17e-accounting-standardization.md`; 6 new tests incl. a direct `assets_total == liabilities_total + equity_total` assertion; live-verified in browser against real posted entries | Customer/Vendor Subledgers + AR/AP Aging deferred to Milestone 1b (scope now includes full subledgers, not just aging — `docs/master-execution-plan.md` §D3.2; not started); no period-closing/closing-entry mechanism (Balance Sheet shows unclosed current earnings instead — documented, not a bug); `CostCenter` is schema-only (zero CRUD/reporting); no multi-currency JEs, no bank reconciliation |
+| **Accounting** | Phase 2, blueprint §8 | CoA, journals, JE draft/post/reverse with real immutability + balance guards, fiscal-period open/close, Trial Balance, General Ledger, Income Statement, Balance Sheet (Phase 17E / M1a — committed `4b9ae08`), **Customer/Vendor Subledgers, AR/AP Aging, JE source-document drill-down (Phase 17F / Milestone 1b — new, not yet committed)** | 🟢 85% (Implemented/Tested/Verified/Live-demonstrated; **not yet Owner Accepted** — environment ready, see `docs/owner-acceptance-m1a.md` and `docs/owner-acceptance-m1b.md`) | `payments/api/routes.py` (4 new endpoints — hosted in Payments module by design, see `docs/17f-subledgers-and-aging.md` §2); 13 new tests incl. a direct Subledger-vs-General-Ledger reconciliation assertion; live-verified in browser (Company C) incl. a real bug found and fixed during this Milestone's own verification (§5 of the 17f doc) | no period-closing/closing-entry mechanism (documented, not a bug); Vendor Bill has no detail page yet so Vendor Subledger rows aren't clickable (Sales/Purchasing Standardization territory); `CostCenter` is schema-only; no multi-currency JEs, no bank reconciliation; RBAC permission-catalog growth doesn't propagate to already-bootstrapped companies — a real, structural finding, §7 of the 17f doc, not fixed in this Milestone |
 | **Sales** | Phase 2, blueprint §9 | Quotation→confirm→Order→Invoice(clearance/reporting)→Credit-Note, real B2B/B2C routing, real double-invoice race prevention (app check + DB partial unique index) | 🟡 50% | `sales/api/routes.py`; **zero `AuditLogRepository` calls in this module** | no payment (0% — no table), no customer statement, hardcoded flat 15% VAT per line ("follow-up" per code comment), no price lists/discounts, no `:cancel` despite `cancelled` being a valid status, `SalesOrderLine.qty_invoiced` field exists but is dead code (never incremented), Delivery is not a distinct document (deliberate) |
 | **Purchasing** | Phase 2, blueprint §10 | PO→confirm→Goods-Receipt→Vendor-Bill, real 3-way match (qty/price, human-readable mismatch reasons persisted) blocking approval | 🟡 50% | `purchasing/api/routes.py`; **zero `AuditLogRepository` calls**; module's own service docstring admits *"Approval routing... deferred — the nucleus auto-confirms every PO"* | no vendor payment (0%), no vendor statement, no PO approval-threshold workflow (self-admitted gap), no RFQ (deliberate), no `:cancel`, no bill without a PO (unplanned expenses unsupported) |
 | **Inventory** | Phase 2, blueprint §7 | Warehouses/locations, FIFO/average valuation (verified oldest-first / recompute formula), transfers, cycle-count with real adjustment + journal posting | 🟡 55% | `inventory/api/routes.py`; **zero `AuditLogRepository` calls** despite moving financial value | no stock card, no reorder rules (no min/max fields exist), `/stock/receive` is an ungated manual-adjustment backdoor (no reason code), no valuation report, no serial/lot tracking, **cycle-count has a backend workflow with zero frontend UI at all** |
@@ -197,12 +214,16 @@ Documentation.
 
 **NEXT**: Milestone 0 (`e402571`, `2135486`), Phase 17D (Payments,
 `e402571`), and Milestone 1a (`4b9ae08`, `43ced32`) are all **committed**.
-Milestone 1a awaits the Owner's own hands-on test (`docs/owner-
-acceptance-m1a.md`) before it can be called Owner Accepted. Per the
-governance update recorded above, the Contractor does not self-select or
-begin the next Milestone — **Milestone 1b — Customer/Vendor Subledgers +
-AR/AP Aging** (scope expanded per §D3.2) is recorded as the only
-technically-unblocked candidate, not a started or announced next step.
+Milestone 1b — Customer/Vendor Subledgers, AR/AP Aging, and JE
+source-document traceability — is **implemented, tested (159/159 full
+suite), verified, and live-demonstrated**, with its own Owner Acceptance
+environment ready (`docs/owner-acceptance-m1b.md`), but **not yet
+committed**. Both Milestone 1a and 1b await the Owner's own hands-on test
+before either can be called Owner Accepted. Per the governance update
+recorded above, the Contractor does not self-select or begin the next
+Milestone after 1b — the next roadmap item (Reporting Polish, Milestone
+2) is recorded in `docs/master-execution-plan.md` as the technically-
+unblocked candidate only, not a started or announced next step.
 
 **DEFERRED**: Customer/Vendor/Product cards + statements, Stock card +
 reorder rules, remaining analysis reports, RBAC role management UI, real

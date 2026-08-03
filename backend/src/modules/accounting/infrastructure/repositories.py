@@ -278,6 +278,8 @@ class JournalEntryRepository:
                 JournalEntry.entry_date,
                 JournalEntry.reference,
                 JournalEntry.status,
+                JournalEntry.source_table,
+                JournalEntry.source_id,
                 JournalEntryLine.debit,
                 JournalEntryLine.credit,
                 JournalEntryLine.description,
@@ -305,6 +307,8 @@ class JournalEntryRepository:
                 "debit": Decimal(row.debit),
                 "credit": Decimal(row.credit),
                 "description": row.description,
+                "source_table": row.source_table,
+                "source_id": row.source_id,
             }
             for row in result.all()
         ]

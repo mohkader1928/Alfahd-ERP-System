@@ -28,7 +28,9 @@ class Payment(Base):
     payment_date: Mapped[date] = mapped_column(nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     currency_code: Mapped[str] = mapped_column(Text, nullable=False, server_default="SAR")
-    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("account.id"), nullable=False)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("account.id"), nullable=False
+    )
     reference: Mapped[str | None] = mapped_column(Text, nullable=True)
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("journal_entry.id"), nullable=True
