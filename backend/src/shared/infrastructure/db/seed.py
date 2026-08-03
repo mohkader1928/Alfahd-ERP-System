@@ -28,6 +28,10 @@ PERMISSION_CATALOG = [
     # M0 — Identity
     ("company.manage_branches", "action"),
     ("company.view", "screen"),
+    # UI/UX Foundation milestone — Company Context: lets an existing tenant
+    # add a second company (previously only possible via /bootstrap, which
+    # always mints a brand-new tenant alongside it).
+    ("company.create", "action"),
     ("user.create", "action"),
     ("user.manage_roles", "action"),
     ("user.view", "screen"),

@@ -15,6 +15,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { paymentsApi } from "@/features/payments/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import type { PaymentAllocation } from "@/features/payments/api/types";
+import { formatCurrency } from "@/lib/format-currency";
 
 // Resolves a real invoice number (never a raw UUID) for sales-invoice
 // allocations; vendor bills have no detail screen yet (see
@@ -80,9 +81,7 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
             <dt className="text-muted-foreground">{t("payments.date")}</dt>
             <dd>{payment.payment_date}</dd>
             <dt className="text-muted-foreground">{t("payments.amount")}</dt>
-            <dd>
-              {payment.amount} {payment.currency_code}
-            </dd>
+            <dd>{formatCurrency(payment.amount, payment.currency_code)}</dd>
             {payment.reference && (
               <>
                 <dt className="text-muted-foreground">{t("payments.reference")}</dt>
@@ -103,7 +102,7 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
                   <TableCell>
                     <AllocationDocumentCell allocation={a} companyId={companyId} />
                   </TableCell>
-                  <TableCell className="text-end">{a.amount}</TableCell>
+                  <TableCell className="text-end">{formatCurrency(a.amount, payment.currency_code)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

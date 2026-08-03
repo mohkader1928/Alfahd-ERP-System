@@ -34,9 +34,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex flex-1">
-      <Sidebar />
+      {/* Printing (e.g. the Subledger "Print statement" button) must show
+          only the report content, not the app's own navigation chrome —
+          neither was hidden before, so a printed page included the
+          sidebar and topbar. */}
+      <div className="print:hidden">
+        <Sidebar />
+      </div>
       <div className="flex flex-1 flex-col">
-        <Topbar />
+        <div className="print:hidden">
+          <Topbar />
+        </div>
         <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>
     </div>

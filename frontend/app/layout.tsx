@@ -4,6 +4,7 @@ import "./globals.css";
 import { I18nProvider } from "@/lib/i18n/config";
 import { ThemeProvider } from "@/lib/theme";
 import { ReactQueryProvider } from "@/lib/react-query-client";
+import { Toaster } from "@/components/ui/toast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,7 +35,10 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ReactQueryProvider>
           <I18nProvider>
-            <ThemeProvider>{children}</ThemeProvider>
+            <ThemeProvider>
+              {children}
+              <Toaster />
+            </ThemeProvider>
           </I18nProvider>
         </ReactQueryProvider>
       </body>

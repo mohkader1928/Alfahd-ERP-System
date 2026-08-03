@@ -16,6 +16,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { inventoryApi } from "@/features/inventory/api/client";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 function useProductLabel() {
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
@@ -49,10 +51,15 @@ function WarehousesTab() {
     mutationFn: () => inventoryApi.createWarehouse(companyId, branchId, { name, is_default: isDefault }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["warehouses", companyId] });
+      toastSuccess(t("toast.success_title"), name);
       setName("");
       setIsDefault(false);
     },
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
   });
 
   return (
@@ -153,8 +160,13 @@ function StockTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["stock-quants", companyId] });
       queryClient.invalidateQueries({ queryKey: ["stock-moves", companyId] });
+      toastSuccess(t("toast.success_title"), t("inventory.stock.receive"));
     },
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
   });
 
   return (
@@ -238,7 +250,7 @@ function StockTab() {
               <TableRow key={`${q.product_id}-${q.location_id}`}>
                 <TableCell>{productLabel(q.product_id)}</TableCell>
                 <TableCell className="text-end">{q.qty_on_hand}</TableCell>
-                <TableCell className="text-end">{q.moving_avg_cost}</TableCell>
+                <TableCell className="text-end">{formatCurrency(q.moving_avg_cost)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -288,7 +300,7 @@ function MovesTab() {
                   <Badge variant="secondary">{m.move_type}</Badge>
                 </TableCell>
                 <TableCell className="text-end">{m.qty}</TableCell>
-                <TableCell className="text-end">{m.unit_cost}</TableCell>
+                <TableCell className="text-end">{formatCurrency(m.unit_cost)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -328,9 +340,14 @@ function TransferTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["stock-quants", companyId] });
       queryClient.invalidateQueries({ queryKey: ["stock-moves", companyId] });
+      toastSuccess(t("toast.success_title"), t("inventory.transfer.save"));
       setQty("1");
     },
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
   });
 
   return (

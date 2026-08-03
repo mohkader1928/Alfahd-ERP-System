@@ -9,6 +9,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
 import type { Quotation } from "@/features/sales/api/types";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
+import { statusVariant } from "@/lib/status-variant";
 
 /**
  * Phase 17A reference implementation: this page is the proof that
@@ -52,7 +54,7 @@ export default function QuotationsPage() {
       header: t("sales.quotations.status"),
       sortable: true,
       sortValue: (row) => row.status,
-      render: (row) => <Badge variant={row.status === "confirmed" ? "default" : "secondary"}>{row.status}</Badge>,
+      render: (row) => <Badge variant={statusVariant(row.status)}>{row.status}</Badge>,
     },
     {
       key: "total_amount",
@@ -60,7 +62,7 @@ export default function QuotationsPage() {
       align: "end",
       sortable: true,
       sortValue: (row) => Number(row.total_amount),
-      render: (row) => row.total_amount,
+      render: (row) => formatCurrency(row.total_amount),
     },
   ];
 

@@ -18,6 +18,9 @@ import { accountingApi } from "@/features/accounting/api/client";
 import type { JournalEntryLineIn } from "@/features/accounting/api/types";
 import { identityApi } from "@/features/identity/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
+import { formatCurrency } from "@/lib/format-currency";
+import { statusVariant } from "@/lib/status-variant";
+import { toastError, toastSuccess } from "@/lib/toast";
 import type { AgingRow, SubledgerLine } from "@/features/payments/api/types";
 import { ApiError } from "@/lib/api-client";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
@@ -44,10 +47,15 @@ function ChartOfAccountsTab() {
     mutationFn: () => accountingApi.createAccount(companyId, { code, name, account_type_code: accountTypeCode }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accounts", companyId] });
+      toastSuccess(t("toast.success_title"), name);
       setCode("");
       setName("");
     },
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
   });
 
   return (
@@ -163,13 +171,18 @@ function JournalEntriesTab() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["journal-entries", companyId] });
+      toastSuccess(t("toast.success_title"), t("accounting.je.save"));
       setReference("");
       setLines([
         { account_id: "", debit: "0", credit: "0" },
         { account_id: "", debit: "0", credit: "0" },
       ]);
     },
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
   });
 
   function updateLine(index: number, patch: Partial<JournalEntryLineIn>) {
@@ -297,7 +310,7 @@ function JournalEntriesTab() {
                   </Link>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={e.status === "posted" ? "default" : "secondary"}>{e.status}</Badge>
+                  <Badge variant={statusVariant(e.status)}>{e.status}</Badge>
                 </TableCell>
               </TableRow>
             ))}
@@ -362,8 +375,8 @@ function TrialBalanceTab() {
               <TableRow key={row.account_id}>
                 <TableCell className="font-mono">{row.account_code}</TableCell>
                 <TableCell>{row.account_name}</TableCell>
-                <TableCell className="text-end">{row.total_debit}</TableCell>
-                <TableCell className="text-end">{row.total_credit}</TableCell>
+                <TableCell className="text-end">{formatCurrency(row.total_debit)}</TableCell>
+                <TableCell className="text-end">{formatCurrency(row.total_credit)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -443,11 +456,11 @@ function GeneralLedgerTab() {
             <div className="flex gap-6 text-sm">
               <span>
                 {t("accounting.gl.opening_balance")}:{" "}
-                <span className="font-mono">{reportQuery.data.opening_balance}</span>
+                <span className="font-mono">{formatCurrency(reportQuery.data.opening_balance)}</span>
               </span>
               <span>
                 {t("accounting.gl.closing_balance")}:{" "}
-                <span className="font-mono">{reportQuery.data.closing_balance}</span>
+                <span className="font-mono">{formatCurrency(reportQuery.data.closing_balance)}</span>
               </span>
             </div>
             <Table>
@@ -496,9 +509,9 @@ function GeneralLedgerTab() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-end font-mono">{line.debit}</TableCell>
-                      <TableCell className="text-end font-mono">{line.credit}</TableCell>
-                      <TableCell className="text-end font-mono">{line.running_balance}</TableCell>
+                      <TableCell className="text-end font-mono">{formatCurrency(line.debit)}</TableCell>
+                      <TableCell className="text-end font-mono">{formatCurrency(line.credit)}</TableCell>
+                      <TableCell className="text-end font-mono">{formatCurrency(line.running_balance)}</TableCell>
                     </TableRow>
                   );
                 })}
@@ -550,27 +563,27 @@ function IncomeStatementTab() {
           <div className="max-w-md space-y-1 font-mono text-sm">
             <div className="flex justify-between">
               <span className="font-sans">{t("accounting.is.revenue")}</span>
-              <span>{r.revenue_total}</span>
+              <span>{formatCurrency(r.revenue_total)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span className="font-sans">{t("accounting.is.cogs")}</span>
-              <span>({r.cogs_total})</span>
+              <span>({formatCurrency(r.cogs_total)})</span>
             </div>
             <div className="flex justify-between border-t pt-1 font-semibold">
               <span className="font-sans">{t("accounting.is.gross_profit")}</span>
-              <span>{r.gross_profit}</span>
+              <span>{formatCurrency(r.gross_profit)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span className="font-sans">{t("accounting.is.opex")}</span>
-              <span>({r.opex_total})</span>
+              <span>({formatCurrency(r.opex_total)})</span>
             </div>
             <div className="flex justify-between border-t pt-1 font-semibold">
               <span className="font-sans">{t("accounting.is.operating_income")}</span>
-              <span>{r.operating_income}</span>
+              <span>{formatCurrency(r.operating_income)}</span>
             </div>
             <div className="flex justify-between border-t-2 pt-1 text-base font-bold">
               <span className="font-sans">{t("accounting.is.net_income")}</span>
-              <span>{r.net_income}</span>
+              <span>{formatCurrency(r.net_income)}</span>
             </div>
           </div>
         )}
@@ -596,12 +609,12 @@ function BalanceSheetSection({
       {rows.map((row, i) => (
         <div key={i} className="flex justify-between ps-4">
           <span className="font-sans text-muted-foreground">{row.account_name}</span>
-          <span>{row.amount}</span>
+          <span>{formatCurrency(row.amount)}</span>
         </div>
       ))}
       <div className="flex justify-between border-t pt-1 font-semibold">
         <span className="font-sans">{totalLabel}</span>
-        <span>{total}</span>
+        <span>{formatCurrency(total)}</span>
       </div>
     </div>
   );
@@ -657,21 +670,21 @@ function BalanceSheetTab() {
                 {r.equity.map((row, i) => (
                   <div key={i} className="flex justify-between ps-4">
                     <span className="font-sans text-muted-foreground">{row.account_name}</span>
-                    <span>{row.amount}</span>
+                    <span>{formatCurrency(row.amount)}</span>
                   </div>
                 ))}
                 <div className="flex justify-between ps-4">
                   <span className="font-sans text-muted-foreground">{t("accounting.bs.current_earnings")}</span>
-                  <span>{r.current_earnings}</span>
+                  <span>{formatCurrency(r.current_earnings)}</span>
                 </div>
                 <div className="flex justify-between border-t pt-1 font-semibold">
                   <span className="font-sans">{t("accounting.bs.total_equity")}</span>
-                  <span>{r.equity_total}</span>
+                  <span>{formatCurrency(r.equity_total)}</span>
                 </div>
               </div>
               <div className="flex justify-between border-t-2 pt-1 font-mono text-sm font-bold">
                 <span className="font-sans">{t("accounting.bs.total_liabilities_and_equity")}</span>
-                <span>{r.total_liabilities_and_equity}</span>
+                <span>{formatCurrency(r.total_liabilities_and_equity)}</span>
               </div>
             </div>
           </div>
@@ -716,9 +729,9 @@ function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
                   line.reference
                 )}
               </TableCell>
-              <TableCell className="text-end font-mono">{line.debit}</TableCell>
-              <TableCell className="text-end font-mono">{line.credit}</TableCell>
-              <TableCell className="text-end font-mono">{line.running_balance}</TableCell>
+              <TableCell className="text-end font-mono">{formatCurrency(line.debit)}</TableCell>
+              <TableCell className="text-end font-mono">{formatCurrency(line.credit)}</TableCell>
+              <TableCell className="text-end font-mono">{formatCurrency(line.running_balance)}</TableCell>
             </TableRow>
           );
         })}
@@ -740,6 +753,10 @@ function CustomerSubledgerTab() {
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, "customers"],
     queryFn: () => identityApi.listPartners(companyId, branchId, { customersOnly: true }),
+  });
+  const companyQuery = useQuery({
+    queryKey: ["company", companyId],
+    queryFn: () => identityApi.getCompany(companyId),
   });
   const reportQuery = useQuery({
     queryKey: ["customer-subledger", companyId, ranAt?.partner, ranAt?.from, ranAt?.to],
@@ -796,6 +813,7 @@ function CustomerSubledgerTab() {
         {ranAt && reportQuery.data && (
           <>
             <div className="hidden print:block">
+              <p className="text-base font-semibold">{companyQuery.data?.legal_name}</p>
               <h2 className="text-lg font-semibold">{t("accounting.sub.statement_title")} — {reportQuery.data.partner_name}</h2>
               <p className="text-sm text-muted-foreground">
                 {reportQuery.data.date_from} – {reportQuery.data.date_to}
@@ -804,11 +822,11 @@ function CustomerSubledgerTab() {
             <div className="flex gap-6 text-sm">
               <span>
                 {t("accounting.sub.opening_balance")}:{" "}
-                <span className="font-mono">{reportQuery.data.opening_balance}</span>
+                <span className="font-mono">{formatCurrency(reportQuery.data.opening_balance)}</span>
               </span>
               <span>
                 {t("accounting.sub.closing_balance")}:{" "}
-                <span className="font-mono">{reportQuery.data.closing_balance}</span>
+                <span className="font-mono">{formatCurrency(reportQuery.data.closing_balance)}</span>
               </span>
             </div>
             <SubledgerLinesTable lines={reportQuery.data.lines} />
@@ -832,6 +850,10 @@ function VendorSubledgerTab() {
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, "vendors"],
     queryFn: () => identityApi.listPartners(companyId, branchId, { vendorsOnly: true }),
+  });
+  const companyQuery = useQuery({
+    queryKey: ["company", companyId],
+    queryFn: () => identityApi.getCompany(companyId),
   });
   const reportQuery = useQuery({
     queryKey: ["vendor-subledger", companyId, ranAt?.partner, ranAt?.from, ranAt?.to],
@@ -888,6 +910,7 @@ function VendorSubledgerTab() {
         {ranAt && reportQuery.data && (
           <>
             <div className="hidden print:block">
+              <p className="text-base font-semibold">{companyQuery.data?.legal_name}</p>
               <h2 className="text-lg font-semibold">{t("accounting.sub.statement_title")} — {reportQuery.data.partner_name}</h2>
               <p className="text-sm text-muted-foreground">
                 {reportQuery.data.date_from} – {reportQuery.data.date_to}
@@ -896,11 +919,11 @@ function VendorSubledgerTab() {
             <div className="flex gap-6 text-sm">
               <span>
                 {t("accounting.sub.opening_balance")}:{" "}
-                <span className="font-mono">{reportQuery.data.opening_balance}</span>
+                <span className="font-mono">{formatCurrency(reportQuery.data.opening_balance)}</span>
               </span>
               <span>
                 {t("accounting.sub.closing_balance")}:{" "}
-                <span className="font-mono">{reportQuery.data.closing_balance}</span>
+                <span className="font-mono">{formatCurrency(reportQuery.data.closing_balance)}</span>
               </span>
             </div>
             <SubledgerLinesTable lines={reportQuery.data.lines} />
@@ -937,9 +960,9 @@ function AgingTable({ rows, partnerLabel }: { rows: AgingRow[]; partnerLabel: st
             <TableCell>{row.partner_name}</TableCell>
             <TableCell>{row.number}</TableCell>
             <TableCell>{row.due_date}</TableCell>
-            <TableCell className="text-end font-mono">{row.balance_due}</TableCell>
+            <TableCell className="text-end font-mono">{formatCurrency(row.balance_due)}</TableCell>
             <TableCell>
-              <Badge variant={row.bucket === "current" ? "default" : "secondary"}>
+              <Badge variant={statusVariant(row.bucket)}>
                 {t(`accounting.aging.bucket.${row.bucket}`)}
               </Badge>
             </TableCell>

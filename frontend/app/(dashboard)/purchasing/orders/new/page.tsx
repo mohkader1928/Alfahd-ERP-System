@@ -14,6 +14,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 // Same nucleus gap as the sales quotation form: no tax-rate list endpoint
 // yet, so a fixed Standard-15% placeholder is used (backend doesn't
@@ -56,9 +57,14 @@ export default function NewPurchaseOrderPage() {
       }),
     onSuccess: (order) => {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders", companyId] });
+      toastSuccess(t("toast.success_title"), order.number);
       router.push(`/purchasing/orders/${order.id}`);
     },
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
   });
 
   function updateLine(index: number, patch: Partial<Line>) {

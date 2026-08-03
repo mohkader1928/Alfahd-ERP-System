@@ -5,6 +5,8 @@ import { DashboardGrid } from "@/components/erp/dashboard/dashboard-grid";
 import { KpiCard } from "@/components/erp/dashboard/kpi-card";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { useCompanyName } from "@/hooks/use-company-name";
+import { formatCurrency } from "@/lib/format-currency";
 import { reportingApi } from "@/features/reporting/api/client";
 
 function currentYearRange() {
@@ -12,14 +14,11 @@ function currentYearRange() {
   return { start: `${year}-01-01`, end: `${year}-12-31` };
 }
 
-function formatSar(value: string) {
-  return `${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SAR`;
-}
-
 export default function DashboardPage() {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const { start, end } = currentYearRange();
+  const { name: companyName } = useCompanyName();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["dashboard", companyId, start, end],
@@ -35,13 +34,16 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">{t("dashboard.title")}</h1>
+      <div>
+        <h1 className="text-2xl font-semibold">{t("dashboard.title")}</h1>
+        {companyName && <p className="text-sm text-muted-foreground">{companyName}</p>}
+      </div>
       <DashboardGrid>
         {cards.map((card) => (
           <KpiCard
             key={card.key}
             label={t(card.key)}
-            value={formatSar(card.value ?? "0")}
+            value={formatCurrency(card.value ?? "0")}
             isLoading={isLoading}
             isError={isError}
           />

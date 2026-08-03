@@ -98,9 +98,10 @@ class CompanyRegistrationService:
 class UserManagementService:
     """UC-CORE-03 — user creation and role assignment."""
 
-    def __init__(self, user_repo: UserRepository, role_repo: RoleRepository):
+    def __init__(self, user_repo: UserRepository, role_repo: RoleRepository, company_repo: CompanyRepository):
         self.user_repo = user_repo
         self.role_repo = role_repo
+        self.company_repo = company_repo
 
     async def create_user(
         self,
@@ -140,6 +141,29 @@ class UserManagementService:
 
     async def assign_role(self, *, user_id: UUID, role_id: UUID) -> None:
         await self.role_repo.assign_to_user(user_id, role_id)
+
+    async def grant_company_access(
+        self, *, tenant_id: UUID, user_id: UUID, company_id: UUID, branch_id: UUID | None = None
+    ) -> None:
+        """UI/UX Foundation milestone — lets an already-existing user be
+        authorized for an additional company, so a real multi-company login
+        can be tested. Reuses UserRepository.grant_company_access exactly as
+        create_user's own bootstrap path already does; this only exposes it
+        for a user who already exists, instead of only at creation time.
+        """
+        user = await self.user_repo.get_by_id(user_id)
+        if user is None or user.tenant_id != tenant_id:
+            raise ValueError("User not found")
+
+        company = await self.company_repo.get_by_id(company_id)
+        if company is None or company.tenant_id != tenant_id:
+            raise ValueError("Company not found")
+
+        existing = await self.user_repo.list_authorized_companies(user_id)
+        if any(a.company_id == company_id and a.branch_id == branch_id for a in existing):
+            raise ValueError("User already has access to this company")
+
+        await self.user_repo.grant_company_access(user_id, company_id, branch_id)
 
 
 class AuthenticationService:

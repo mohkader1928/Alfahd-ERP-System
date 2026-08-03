@@ -12,6 +12,9 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
+import { statusVariant } from "@/lib/status-variant";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 export default function QuotationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -30,8 +33,10 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
     mutationFn: () => salesApi.confirmQuotation(companyId, branchId, id),
     onSuccess: (order) => {
       queryClient.invalidateQueries({ queryKey: ["quotations", companyId] });
+      toastSuccess(t("toast.success_title"), order.number);
       router.push(`/sales/orders/${order.id}`);
     },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
@@ -47,7 +52,7 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             {quotation.number}
-            <Badge variant={quotation.status === "confirmed" ? "default" : "secondary"}>{quotation.status}</Badge>
+            <Badge variant={statusVariant(quotation.status)}>{quotation.status}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -55,7 +60,7 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
             <dt className="text-muted-foreground">{t("sales.quotations.date")}</dt>
             <dd>{quotation.quote_date}</dd>
             <dt className="text-muted-foreground">{t("sales.quotations.total")}</dt>
-            <dd>{quotation.total_amount}</dd>
+            <dd>{formatCurrency(quotation.total_amount)}</dd>
           </dl>
           {quotation.status === "draft" && (
             <Button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending}>

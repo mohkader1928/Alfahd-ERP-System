@@ -14,13 +14,9 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
-
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  cleared: "default",
-  reported: "default",
-  pending_submission: "secondary",
-  rejected: "destructive",
-};
+import { formatCurrency } from "@/lib/format-currency";
+import { statusVariant } from "@/lib/status-variant";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -40,8 +36,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     mutationFn: () => salesApi.issueCreditNote(companyId, branchId, id, reason),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["invoice", companyId, id] });
+      toastSuccess(t("toast.success_title"), result.invoice.number);
       router.push(`/sales/invoices/${result.invoice.id}`);
     },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
   if (isLoading) return <Skeleton className="h-60 w-full" />;
@@ -59,7 +57,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             {t("sales.invoice.title")} — {invoice.number}
-            <Badge variant={STATUS_VARIANT[invoice.status] ?? "secondary"}>{invoice.status}</Badge>
+            <Badge variant={statusVariant(invoice.status)}>{invoice.status}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -67,11 +65,11 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             <dt className="text-muted-foreground">Type</dt>
             <dd className="capitalize">{invoice.invoice_type.replace("_", " ")}</dd>
             <dt className="text-muted-foreground">Subtotal</dt>
-            <dd>{invoice.subtotal_amount}</dd>
+            <dd>{formatCurrency(invoice.subtotal_amount)}</dd>
             <dt className="text-muted-foreground">VAT</dt>
-            <dd>{invoice.tax_amount}</dd>
+            <dd>{formatCurrency(invoice.tax_amount)}</dd>
             <dt className="text-muted-foreground">{t("sales.quotations.total")}</dt>
-            <dd className="font-semibold">{invoice.total_amount}</dd>
+            <dd className="font-semibold">{formatCurrency(invoice.total_amount)}</dd>
           </dl>
 
           <div className="space-y-2 border-t pt-4">

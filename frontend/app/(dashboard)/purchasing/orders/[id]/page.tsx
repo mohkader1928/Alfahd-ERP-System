@@ -14,6 +14,9 @@ import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
+import { statusVariant } from "@/lib/status-variant";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -39,10 +42,19 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
     queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] });
   };
 
+  function handleError(err: unknown) {
+    const detail = err instanceof ApiError ? err.detail : t("common.error");
+    setActionError(detail);
+    toastError(t("toast.error_title"), detail);
+  }
+
   const confirmMutation = useMutation({
     mutationFn: () => purchasingApi.confirmOrder(companyId, id),
-    onSuccess: invalidate,
-    onError: (err) => setActionError(err instanceof ApiError ? err.detail : t("common.error")),
+    onSuccess: () => {
+      invalidate();
+      toastSuccess(t("toast.success_title"), t("purchasing.orders.confirm"));
+    },
+    onError: handleError,
   });
 
   const receiveMutation = useMutation({
@@ -52,8 +64,11 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
         .filter((l) => Number(l.qty) > 0);
       return purchasingApi.recordGoodsReceipt(companyId, branchId, id, { lines: remaining });
     },
-    onSuccess: invalidate,
-    onError: (err) => setActionError(err instanceof ApiError ? err.detail : t("common.error")),
+    onSuccess: () => {
+      invalidate();
+      toastSuccess(t("toast.success_title"), t("purchasing.orders.receive_all"));
+    },
+    onError: handleError,
   });
 
   const billMutation = useMutation({
@@ -67,8 +82,11 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
         .filter((l) => Number(l.qty) > 0);
       return purchasingApi.registerVendorBill(companyId, branchId, id, { lines: receivedUnbilled });
     },
-    onSuccess: invalidate,
-    onError: (err) => setActionError(err instanceof ApiError ? err.detail : t("common.error")),
+    onSuccess: () => {
+      invalidate();
+      toastSuccess(t("toast.success_title"), t("purchasing.orders.bill_all"));
+    },
+    onError: handleError,
   });
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
@@ -89,7 +107,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             {order.number}
-            <Badge variant={order.status === "confirmed" ? "default" : "secondary"}>{order.status}</Badge>
+            <Badge variant={statusVariant(order.status)}>{order.status}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -97,7 +115,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
             <dt className="text-muted-foreground">{t("purchasing.orders.date")}</dt>
             <dd>{order.order_date}</dd>
             <dt className="text-muted-foreground">{t("purchasing.orders.total")}</dt>
-            <dd>{order.total_amount}</dd>
+            <dd>{formatCurrency(order.total_amount)}</dd>
           </dl>
           <Table>
             <TableHeader>

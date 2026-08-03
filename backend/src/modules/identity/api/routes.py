@@ -24,6 +24,8 @@ from src.modules.identity.api.schemas import (
     BootstrapResponse,
     BranchCreateRequest,
     BranchOut,
+    CompanyAccessGrantRequest,
+    CompanyCreateRequest,
     CompanyOut,
     LoginRequest,
     MyPermissionsOut,
@@ -131,7 +133,7 @@ async def bootstrap(
     # unconditionally); erp_app does not bypass it.
     await set_company_context(db, company.id)
 
-    user_service = UserManagementService(user_repo, role_repo)
+    user_service = UserManagementService(user_repo, role_repo, company_repo)
     try:
         admin_user = await user_service.create_user(
             tenant_id=tenant.id,
@@ -222,6 +224,83 @@ async def get_my_permissions(
     return MyPermissionsOut(permission_codes=sorted(codes))
 
 
+@router.post("/companies", response_model=CompanyOut, status_code=status.HTTP_201_CREATED)
+async def create_company(
+    payload: CompanyCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("company.create")),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+    branch_repo: BranchRepository = Depends(get_branch_repo),
+    currency_repo: CurrencyRepository = Depends(get_currency_repo),
+    user_repo: UserRepository = Depends(get_user_repo),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """UI/UX Foundation milestone (explicitly approved by the Owner):
+    before this, /bootstrap was the only way to create a company, and it
+    always mints a brand-new tenant alongside it — there was no way to add
+    a second company to an already-existing tenant, which blocked building
+    a genuine multi-company acceptance test for the new Company Context
+    picker. Reuses the same, already-tested CompanyRegistrationService
+    bootstrap itself uses; the new company always lands in the caller's
+    own tenant (ctx.tenant_id), never an arbitrary one.
+
+    Also provisions the caller as this company's Admin (same "Admin" role
+    shape /bootstrap creates — full current permission catalog — plus a
+    company-access grant), because without it the new company would have
+    zero roles and be unusable by anyone: unlike /bootstrap, there is no
+    other API path today to create a role for an existing company. This
+    was found live while building the two-company acceptance scenario
+    (granting bare company access alone still 403'd on every real screen,
+    since access and permissions are separate)."""
+    company_service = CompanyRegistrationService(company_repo, branch_repo, currency_repo)
+    try:
+        company, _branch = await company_service.register_company(
+            tenant_id=ctx.tenant_id,
+            legal_name=payload.legal_name,
+            legal_name_ar=payload.legal_name_ar,
+            vat_number=payload.vat_number,
+            base_currency_code=payload.base_currency_code,
+            valuation_method=payload.valuation_method,
+            main_branch_name=payload.main_branch_name,
+            main_branch_name_ar=payload.main_branch_name_ar,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    # role/user_role/user_company_access carry company_isolation RLS keyed
+    # off the new company, not the caller's currently active one.
+    await set_company_context(db, company.id)
+
+    user_service = UserManagementService(user_repo, role_repo, company_repo)
+    try:
+        from src.shared.infrastructure.db.seed import PERMISSION_CATALOG
+
+        admin_role = await user_service.create_role(
+            company_id=company.id,
+            name="Admin",
+            permission_codes=[code for code, _ in PERMISSION_CATALOG],
+        )
+        await user_service.assign_role(user_id=ctx.user_id, role_id=admin_role.id)
+        await user_service.grant_company_access(
+            tenant_id=ctx.tenant_id, user_id=ctx.user_id, company_id=company.id, branch_id=None
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    await set_company_context(db, ctx.company_id)
+
+    # Same as /bootstrap: Accounting listens for this to seed the default
+    # Saudi Chart of Accounts, tax rates, etc. for the new company —
+    # without it, this company would be structurally incomplete compared
+    # to every other company in the system.
+    await event_bus.publish(
+        CompanyRegistered(tenant_id=ctx.tenant_id, company_id=company.id, valuation_method=payload.valuation_method)
+    )
+
+    return company
+
+
 @router.get("/companies/{company_id}", response_model=CompanyOut)
 async def get_company(
     company_id: UUID,
@@ -275,8 +354,9 @@ async def create_user(
     ctx: AuthContext = Depends(require_permission("user.create")),
     user_repo: UserRepository = Depends(get_user_repo),
     role_repo: RoleRepository = Depends(get_role_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
 ):
-    user_service = UserManagementService(user_repo, role_repo)
+    user_service = UserManagementService(user_repo, role_repo, company_repo)
     try:
         user = await user_service.create_user(
             tenant_id=ctx.tenant_id,
@@ -311,6 +391,57 @@ async def assign_role(
         field_name="role_id",
         old_value=None,
         new_value=str(payload.role_id),
+    )
+    await db.commit()
+
+
+@router.post("/users/{user_id}/company-access", status_code=status.HTTP_204_NO_CONTENT)
+async def grant_company_access(
+    user_id: UUID,
+    payload: CompanyAccessGrantRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("user.manage_roles")),
+    user_repo: UserRepository = Depends(get_user_repo),
+    role_repo: RoleRepository = Depends(get_role_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """UI/UX Foundation milestone: exposes the already-existing, already-used
+    UserRepository.grant_company_access for an existing user, so a genuine
+    multi-company login can be built and tested via the real API — no such
+    endpoint existed before (create_user only ever grants access to the one
+    company being created for). Scoped to the caller's own tenant/company
+    catalog; does not add any broader role-management surface."""
+    user_service = UserManagementService(user_repo, role_repo, company_repo)
+    try:
+        # user_company_access carries company_isolation RLS keyed off the
+        # row's own company_id — get_auth_context() only set the session to
+        # the caller's *active* company, which is the wrong context when
+        # granting access to a *different* company (found live while
+        # verifying the two-company acceptance scenario: real 403 from
+        # Postgres, not a bug in the grant logic itself).
+        await set_company_context(db, payload.company_id)
+        await user_service.grant_company_access(
+            tenant_id=ctx.tenant_id,
+            user_id=user_id,
+            company_id=payload.company_id,
+            branch_id=payload.branch_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    # Restore the caller's own active-company context before writing the
+    # audit log entry, which is recorded against ctx.company_id, not the
+    # company access was just granted to.
+    await set_company_context(db, ctx.company_id)
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="user_company_access",
+        target_id=user_id,
+        field_name="company_id",
+        old_value=None,
+        new_value=str(payload.company_id),
     )
     await db.commit()
 

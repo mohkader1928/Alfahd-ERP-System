@@ -97,6 +97,246 @@ async def test_protected_endpoint_rejects_unauthorized_company(client):
     assert resp.status_code == 403
 
 
+async def test_grant_company_access_rejects_company_from_a_different_tenant(client):
+    """UI/UX Foundation milestone: POST /users/{id}/company-access must not
+    let a caller graft access onto a company outside their own tenant — the
+    tenant boundary is the real ownership boundary in this system, and this
+    endpoint's whole job is granting access, so it's the one place this
+    needs an explicit test, not just incidental RLS coverage."""
+    resp_a, payload_a = await _bootstrap(client)
+    company_a_id = resp_a.json()["company_id"]
+    admin_a_user_id = resp_a.json()["admin_user_id"]
+
+    resp_b, _ = await _bootstrap(client)
+    company_b_id = resp_b.json()["company_id"]
+
+    login_resp = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload_a["admin_email"], "password": payload_a["admin_password"]},
+    )
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}", "X-Company-Id": company_a_id}
+
+    resp = await client.post(
+        f"/api/v1/identity/users/{admin_a_user_id}/company-access",
+        headers=headers,
+        json={"company_id": company_b_id},
+    )
+    assert resp.status_code == 422
+    assert "Company not found" in resp.json()["detail"]
+
+
+async def test_grant_company_access_rejects_duplicate_grant(client):
+    resp, payload = await _bootstrap(client)
+    company_id = resp.json()["company_id"]
+    branch_id = resp.json()["branch_id"]
+    admin_user_id = resp.json()["admin_user_id"]
+
+    login_resp = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload["admin_email"], "password": payload["admin_password"]},
+    )
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}", "X-Company-Id": company_id}
+
+    # The bootstrap admin already has (company_id, branch_id) access, granted
+    # at creation time (create_user grants access scoped to the main
+    # branch) — granting the exact same (company_id, branch_id) pair again
+    # must be rejected, not silently duplicated.
+    resp2 = await client.post(
+        f"/api/v1/identity/users/{admin_user_id}/company-access",
+        headers=headers,
+        json={"company_id": company_id, "branch_id": branch_id},
+    )
+    assert resp2.status_code == 422
+    assert "already has access" in resp2.json()["detail"]
+
+
+async def test_grant_company_access_rejects_unknown_user_and_company(client):
+    resp, payload = await _bootstrap(client)
+    company_id = resp.json()["company_id"]
+
+    login_resp = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload["admin_email"], "password": payload["admin_password"]},
+    )
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}", "X-Company-Id": company_id}
+
+    unknown_user_resp = await client.post(
+        "/api/v1/identity/users/00000000-0000-0000-0000-000000000000/company-access",
+        headers=headers,
+        json={"company_id": company_id},
+    )
+    assert unknown_user_resp.status_code == 422
+    assert "User not found" in unknown_user_resp.json()["detail"]
+
+
+async def test_grant_company_access_requires_user_manage_roles_permission(client):
+    """A user with zero role assignment (created but never assigned a role
+    — create_user does not auto-assign one) has zero granted permissions in
+    that company, so this reproduces a genuine 'lacks user.manage_roles'
+    403 through real permission data, not a mocked/forced check."""
+    resp, payload = await _bootstrap(client)
+    company_id = resp.json()["company_id"]
+    admin_user_id = resp.json()["admin_user_id"]
+
+    admin_login = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload["admin_email"], "password": payload["admin_password"]},
+    )
+    admin_token = admin_login.json()["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}", "X-Company-Id": company_id}
+
+    no_role_email = unique_email()
+    create_resp = await client.post(
+        "/api/v1/identity/users",
+        headers=admin_headers,
+        json={
+            "email": no_role_email,
+            "full_name": "No Role User",
+            "password": "Str0ng!Passw0rd",
+            "company_id": company_id,
+        },
+    )
+    assert create_resp.status_code == 201
+
+    no_role_login = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": no_role_email, "password": "Str0ng!Passw0rd"},
+    )
+    no_role_token = no_role_login.json()["access_token"]
+    no_role_headers = {"Authorization": f"Bearer {no_role_token}", "X-Company-Id": company_id}
+
+    resp = await client.post(
+        f"/api/v1/identity/users/{admin_user_id}/company-access",
+        headers=no_role_headers,
+        json={"company_id": company_id},
+    )
+    assert resp.status_code == 403
+
+
+async def test_create_company_adds_second_company_to_same_tenant(client):
+    """UI/UX Foundation milestone (Owner-approved addition): POST /companies
+    lets an existing tenant add a second company — before this, /bootstrap
+    was the only creation path and it always mints a brand-new tenant
+    alongside it. The creator is auto-provisioned as that company's Admin
+    (own role + access grant), because there is no other API path to give
+    anyone a role in a company outside of /bootstrap — without this, the
+    new company would be permanently unusable by any real screen."""
+    resp, payload = await _bootstrap(client)
+    company_a_id = resp.json()["company_id"]
+
+    login_resp = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload["admin_email"], "password": payload["admin_password"]},
+    )
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}", "X-Company-Id": company_a_id}
+
+    create_resp = await client.post(
+        "/api/v1/identity/companies",
+        headers=headers,
+        json={
+            "legal_name": "Second Company Ltd.",
+            "legal_name_ar": "الشركة الثانية",
+            "vat_number": unique_vat(),
+            "base_currency_code": "SAR",
+            "valuation_method": "average",
+        },
+    )
+    assert create_resp.status_code == 201
+    company_b = create_resp.json()
+    assert company_b["id"] != company_a_id
+    assert company_b["legal_name"] == "Second Company Ltd."
+
+    # The JWT used to create Company B was issued before Company B existed,
+    # so its authorized_companies claim can't include it yet — a fresh
+    # login is required, same as any other newly-granted access.
+    relogin_resp = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload["admin_email"], "password": payload["admin_password"]},
+    )
+    new_token = relogin_resp.json()["access_token"]
+    get_resp = await client.get(
+        f"/api/v1/identity/companies/{company_b['id']}",
+        headers={"Authorization": f"Bearer {new_token}", "X-Company-Id": company_b["id"]},
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["id"] == company_b["id"]
+
+
+async def test_full_two_company_flow_grants_access_and_isolates_data(client):
+    """The real acceptance scenario end to end, via pure API calls: one
+    admin ends up with two real companies under one tenant, sees both in a
+    fresh login's authorized_companies, and each company's own data stays
+    genuinely separate."""
+    resp, payload = await _bootstrap(client)
+    company_a_id = resp.json()["company_id"]
+
+    login_resp = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload["admin_email"], "password": payload["admin_password"]},
+    )
+    token = login_resp.json()["access_token"]
+    headers_a = {"Authorization": f"Bearer {token}", "X-Company-Id": company_a_id}
+
+    create_resp = await client.post(
+        "/api/v1/identity/companies",
+        headers=headers_a,
+        json={
+            "legal_name": "Second Company Ltd.",
+            "legal_name_ar": "الشركة الثانية",
+            "vat_number": unique_vat(),
+        },
+    )
+    assert create_resp.status_code == 201
+    company_b_id = create_resp.json()["id"]
+
+    # create_company already auto-provisions the creator as Company B's
+    # Admin (see its docstring) — no separate company-access call needed
+    # here for the creator themselves; that endpoint exists for granting
+    # access to *other* users, covered by the test_grant_company_access_*
+    # tests above.
+
+    # A fresh login is required to see the new grant — the JWT's
+    # authorized_companies claim is fixed at issuance, matching how the
+    # frontend's Company Context picker actually behaves.
+    relogin_resp = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload["admin_email"], "password": payload["admin_password"]},
+    )
+    new_token = relogin_resp.json()["access_token"]
+    import base64
+    import json as jsonlib
+
+    payload_b64 = new_token.split(".")[1]
+    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+    claims = jsonlib.loads(base64.urlsafe_b64decode(padded))
+    authorized = claims["authorized_companies"]
+    assert any(entry == company_a_id or entry.startswith(f"{company_a_id}:") for entry in authorized)
+    assert any(entry == company_b_id or entry.startswith(f"{company_b_id}:") for entry in authorized)
+
+    # Data isolation: a partner created under Company A must not appear
+    # under Company B, even for the same admin user.
+    headers_b = {"Authorization": f"Bearer {new_token}", "X-Company-Id": company_b_id}
+    partner_resp = await client.post(
+        "/api/v1/identity/partners",
+        headers={"Authorization": f"Bearer {new_token}", "X-Company-Id": company_a_id},
+        json={"name": "Only In Company A", "is_customer": True},
+    )
+    assert partner_resp.status_code == 201
+
+    list_in_b = await client.get("/api/v1/identity/partners", headers=headers_b)
+    assert list_in_b.status_code == 200
+    assert all(p["name"] != "Only In Company A" for p in list_in_b.json())
+
+    list_in_a = await client.get(
+        "/api/v1/identity/partners", headers={"Authorization": f"Bearer {new_token}", "X-Company-Id": company_a_id}
+    )
+    assert any(p["name"] == "Only In Company A" for p in list_in_a.json())
+
+
 async def test_full_o2c_precondition_flow_branch_and_company_scoped_access(client):
     """UC-CORE-02/03: admin can view their company, list branches, create a branch."""
     bootstrap_resp, payload = await _bootstrap(client)

@@ -12,6 +12,9 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
+import { statusVariant } from "@/lib/status-variant";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 export default function SalesOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -27,7 +30,11 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
 
   const invoiceMutation = useMutation({
     mutationFn: () => salesApi.issueInvoice(companyId, branchId, id),
-    onSuccess: (result) => router.push(`/sales/invoices/${result.invoice.id}`),
+    onSuccess: (result) => {
+      toastSuccess(t("toast.success_title"), result.invoice.number);
+      router.push(`/sales/invoices/${result.invoice.id}`);
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
@@ -43,7 +50,7 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             {order.number}
-            <Badge variant={order.status === "confirmed" ? "default" : "secondary"}>{order.status}</Badge>
+            <Badge variant={statusVariant(order.status)}>{order.status}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -51,7 +58,7 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
             <dt className="text-muted-foreground">{t("sales.quotations.date")}</dt>
             <dd>{order.order_date}</dd>
             <dt className="text-muted-foreground">{t("sales.quotations.total")}</dt>
-            <dd>{order.total_amount}</dd>
+            <dd>{formatCurrency(order.total_amount)}</dd>
           </dl>
           {order.status === "confirmed" && (
             <Button onClick={() => invoiceMutation.mutate()} disabled={invoiceMutation.isPending}>

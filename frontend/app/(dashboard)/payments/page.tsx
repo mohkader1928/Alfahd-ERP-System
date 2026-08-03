@@ -8,6 +8,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { paymentsApi } from "@/features/payments/api/client";
 import type { Payment } from "@/features/payments/api/types";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
 
 export default function PaymentsPage() {
   const { t } = useI18n();
@@ -51,7 +52,7 @@ export default function PaymentsPage() {
       align: "end",
       sortable: true,
       sortValue: (row) => Number(row.amount),
-      render: (row) => `${row.amount} ${row.currency_code}`,
+      render: (row) => formatCurrency(row.amount, row.currency_code),
     },
     {
       key: "reference",

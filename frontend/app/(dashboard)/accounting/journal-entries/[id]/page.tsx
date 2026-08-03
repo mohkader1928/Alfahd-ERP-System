@@ -15,6 +15,9 @@ import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
 import { ApiError } from "@/lib/api-client";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
+import { formatCurrency } from "@/lib/format-currency";
+import { statusVariant } from "@/lib/status-variant";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 export default function JournalEntryDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -37,14 +40,18 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["journal-entry", companyId, id] });
       queryClient.invalidateQueries({ queryKey: ["journal-entries", companyId] });
+      toastSuccess(t("toast.success_title"), t("accounting.je.post"));
     },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
   const reverseMutation = useMutation({
     mutationFn: () => accountingApi.reverseJournalEntry(companyId, id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["journal-entry", companyId, id] });
       queryClient.invalidateQueries({ queryKey: ["journal-entries", companyId] });
+      toastSuccess(t("toast.success_title"), t("accounting.je.reverse"));
     },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
@@ -66,7 +73,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             {entry.reference ?? entry.id.slice(0, 8)}
-            <Badge variant={entry.status === "posted" ? "default" : "secondary"}>{entry.status}</Badge>
+            <Badge variant={statusVariant(entry.status)}>{entry.status}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -105,8 +112,8 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
               {lines.map((line) => (
                 <TableRow key={line.id}>
                   <TableCell>{accountLabel(line.account_id)}</TableCell>
-                  <TableCell className="text-end">{line.debit}</TableCell>
-                  <TableCell className="text-end">{line.credit}</TableCell>
+                  <TableCell className="text-end">{formatCurrency(line.debit)}</TableCell>
+                  <TableCell className="text-end">{formatCurrency(line.credit)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

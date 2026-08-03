@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
-import { firstAuthorizedCompany } from "@/lib/jwt";
+import { decodeAccessToken, firstAuthorizedCompany } from "@/lib/jwt";
 import { ApiError } from "@/lib/api-client";
 
 export default function LoginPage() {
@@ -46,6 +46,13 @@ export default function LoginPage() {
 
   function applyTokens(accessToken: string, refreshToken: string) {
     setTokens(accessToken, refreshToken);
+    const authorizedCompanies = decodeAccessToken(accessToken)?.authorized_companies ?? [];
+    // More than one company: no default is assumed — the picker decides,
+    // never a silent [0] pick (docs/18-ui-ux-audit.md, finding B1).
+    if (authorizedCompanies.length > 1) {
+      router.push("/select-company");
+      return;
+    }
     const active = firstAuthorizedCompany(accessToken);
     if (active) setActiveCompany(active.companyId, active.branchId);
     router.push("/dashboard");

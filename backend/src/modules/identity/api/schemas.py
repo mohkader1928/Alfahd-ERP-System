@@ -61,6 +61,16 @@ class MyPermissionsOut(BaseModel):
     permission_codes: list[str]
 
 
+class CompanyCreateRequest(BaseModel):
+    legal_name: str
+    legal_name_ar: str
+    vat_number: str = Field(min_length=15, max_length=15)
+    base_currency_code: str = Field(min_length=3, max_length=3, default="SAR")
+    valuation_method: str = Field(pattern="^(fifo|average)$", default="average")
+    main_branch_name: str = "Main Branch"
+    main_branch_name_ar: str = "الفرع الرئيسي"
+
+
 class CompanyOut(BaseModel):
     id: UUID
     legal_name: str
@@ -107,6 +117,11 @@ class UserOut(BaseModel):
 
 class RoleAssignRequest(BaseModel):
     role_id: UUID
+
+
+class CompanyAccessGrantRequest(BaseModel):
+    company_id: UUID
+    branch_id: UUID | None = None
 
 
 class AddressIn(BaseModel):

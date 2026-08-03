@@ -14,6 +14,9 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
+import { statusVariant } from "@/lib/status-variant";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 function OrdersTab() {
   const { t } = useI18n();
@@ -62,9 +65,9 @@ function OrdersTab() {
                 </TableCell>
                 <TableCell>{o.order_date}</TableCell>
                 <TableCell>
-                  <Badge variant={o.status === "confirmed" ? "default" : "secondary"}>{o.status}</Badge>
+                  <Badge variant={statusVariant(o.status)}>{o.status}</Badge>
                 </TableCell>
-                <TableCell className="text-end">{o.total_amount}</TableCell>
+                <TableCell className="text-end">{formatCurrency(o.total_amount)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -86,7 +89,11 @@ function VendorBillsTab() {
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => purchasingApi.approveVendorBill(companyId, id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] });
+      toastSuccess(t("toast.success_title"), t("purchasing.vendor_bills.approve"));
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
   if (billsQuery.isLoading) return <Skeleton className="h-40 w-full" />;
@@ -118,10 +125,10 @@ function VendorBillsTab() {
               <TableRow key={b.id}>
                 <TableCell>{b.number}</TableCell>
                 <TableCell className="space-x-1">
-                  <Badge variant={b.status === "posted" ? "default" : "secondary"}>{b.status}</Badge>
+                  <Badge variant={statusVariant(b.status)}>{b.status}</Badge>
                   {b.mismatch_reasons && <Badge variant="destructive">{t("purchasing.vendor_bills.mismatch")}</Badge>}
                 </TableCell>
-                <TableCell className="text-end">{b.total_amount}</TableCell>
+                <TableCell className="text-end">{formatCurrency(b.total_amount)}</TableCell>
                 <TableCell className="text-end">
                   {b.status !== "posted" && (
                     <Button

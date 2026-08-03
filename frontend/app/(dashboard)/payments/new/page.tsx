@@ -16,6 +16,8 @@ import { purchasingApi } from "@/features/purchasing/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
 import type { PaymentType } from "@/features/payments/api/types";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
+import { toastError, toastSuccess } from "@/lib/toast";
 
 export default function NewPaymentPage() {
   const { t } = useI18n();
@@ -98,11 +100,16 @@ export default function NewPaymentPage() {
             ]
           : [],
       }),
-    onSuccess: () => {
+    onSuccess: (payment) => {
       queryClient.invalidateQueries({ queryKey: ["payments", companyId] });
+      toastSuccess(t("toast.success_title"), payment.number);
       router.push("/payments");
     },
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
   });
 
   return (
@@ -176,21 +183,21 @@ export default function NewPaymentPage() {
               <SelectValue placeholder={partnerId ? t("payments.select_document") : t("payments.select_partner_first")}>
                 {(v: string) => {
                   const doc = documents?.find((d) => d.id === v);
-                  return doc ? `${doc.number} — ${doc.total_amount}` : v;
+                  return doc ? `${doc.number} — ${formatCurrency(doc.total_amount)}` : v;
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {documents?.map((doc) => (
                 <SelectItem key={doc.id} value={doc.id}>
-                  {doc.number} — {doc.total_amount}
+                  {doc.number} — {formatCurrency(doc.total_amount)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           {balanceQuery.data && (
             <p className="text-muted-foreground text-xs">
-              {t("payments.outstanding_balance")}: {balanceQuery.data.balance_due} (
+              {t("payments.outstanding_balance")}: {formatCurrency(balanceQuery.data.balance_due)} (
               {t(`payments.status.${balanceQuery.data.payment_status}`)})
             </p>
           )}
