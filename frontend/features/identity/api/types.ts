@@ -40,8 +40,16 @@ export interface Company {
   legal_name: string;
   legal_name_ar: string;
   vat_number: string;
+  cr_number: string | null;
   valuation_method: string;
   logo_path: string | null;
+}
+
+export interface CompanyWriteInput {
+  legal_name: string;
+  legal_name_ar: string;
+  vat_number: string;
+  cr_number?: string | null;
 }
 
 export interface Branch {
@@ -128,5 +136,24 @@ export interface UnitOfMeasure {
 }
 
 export interface MyPermissions {
+  permission_codes: string[];
+}
+
+export interface Permission {
+  id: string;
+  code: string;
+  scope: "screen" | "field" | "action";
+}
+
+export interface Role {
+  id: string;
+  name: string;
+  is_system: boolean;
+}
+
+export interface RoleDetail {
+  id: string;
+  name: string;
+  is_system: boolean;
   permission_codes: string[];
 }

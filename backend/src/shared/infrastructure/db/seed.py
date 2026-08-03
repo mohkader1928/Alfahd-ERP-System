@@ -40,6 +40,12 @@ PERMISSION_CATALOG = [
     ("user.manage_roles", "action"),
     ("user.view", "screen"),
     ("audit_log.view", "screen"),
+    # Settings Architecture Foundation milestone: controls the Security
+    # settings section (view/create roles, edit a role's own permission
+    # set). Deliberately one permission for the whole section, not split
+    # view/manage — anyone who can see role membership can already infer
+    # the access model, and a narrower split has no real use case yet.
+    ("role.manage", "action"),
     ("partner.view", "screen"),
     ("partner.create", "action"),
     ("partner.update", "action"),

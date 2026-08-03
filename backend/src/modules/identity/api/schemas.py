@@ -76,10 +76,27 @@ class CompanyOut(BaseModel):
     legal_name: str
     legal_name_ar: str
     vat_number: str
+    cr_number: str | None = None
     valuation_method: str
     logo_path: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class CompanyUpdateRequest(BaseModel):
+    """Settings Architecture Foundation milestone. Deliberately excludes
+    base_currency_id and valuation_method — both drive historical monetary/
+    costing calculations and changing them post-transactions would corrupt
+    already-posted data; re-scoping those as editable needs a dedicated,
+    guarded migration path, not a plain field edit. zatca_environment is
+    excluded too — switching to "production" has real e-invoicing
+    consequences and deserves its own deliberate flow, not a side effect of
+    a general company-details save."""
+
+    legal_name: str
+    legal_name_ar: str
+    vat_number: str = Field(min_length=15, max_length=15)
+    cr_number: str | None = None
 
 
 class BranchCreateRequest(BaseModel):
@@ -118,6 +135,37 @@ class UserOut(BaseModel):
 
 class RoleAssignRequest(BaseModel):
     role_id: UUID
+
+
+class PermissionOut(BaseModel):
+    id: UUID
+    code: str
+    scope: str
+
+    model_config = {"from_attributes": True}
+
+
+class RoleOut(BaseModel):
+    id: UUID
+    name: str
+    is_system: bool
+
+    model_config = {"from_attributes": True}
+
+
+class RoleDetailOut(BaseModel):
+    id: UUID
+    name: str
+    is_system: bool
+    permission_codes: list[str]
+
+
+class RoleCreateRequest(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class RolePermissionsUpdateRequest(BaseModel):
+    permission_codes: list[str]
 
 
 class CompanyAccessGrantRequest(BaseModel):

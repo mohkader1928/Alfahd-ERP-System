@@ -43,7 +43,7 @@ export function Topbar() {
   return (
     <header className="flex h-14 items-center justify-between gap-2 border-b px-4">
       <Link
-        href="/company/profile"
+        href="/settings/company"
         className="flex items-center gap-2 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground"
         title={t("company.profile.title")}
       >

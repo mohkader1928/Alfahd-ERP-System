@@ -140,6 +140,45 @@ class RoleRepository:
         )
         return set(result.scalars().all())
 
+    async def list_by_company(self, company_id: UUID) -> list[Role]:
+        result = await self.session.execute(
+            select(Role).where(Role.company_id == company_id).order_by(Role.name)
+        )
+        return list(result.scalars().all())
+
+    async def get_by_id(self, company_id: UUID, role_id: UUID) -> Role | None:
+        result = await self.session.execute(
+            select(Role).where(Role.id == role_id, Role.company_id == company_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_all_permissions(self) -> list[Permission]:
+        """Permission is a global catalog (Phase 7), not company-scoped —
+        every company chooses from the same fixed set."""
+        result = await self.session.execute(select(Permission).order_by(Permission.code))
+        return list(result.scalars().all())
+
+    async def get_role_permission_codes(self, role_id: UUID) -> set[str]:
+        result = await self.session.execute(
+            select(Permission.code)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role_id)
+        )
+        return set(result.scalars().all())
+
+    async def set_permissions(self, role_id: UUID, permission_ids: list[UUID]) -> None:
+        """Replaces a role's entire permission set — matches the checkbox-
+        matrix + Save UX (Settings Architecture Foundation milestone), the
+        first API able to change permissions on an already-existing role;
+        previously a role's permissions were fixed at creation time
+        (bootstrap/company-create), a known, previously-documented gap."""
+        await self.session.execute(
+            RolePermission.__table__.delete().where(RolePermission.role_id == role_id)
+        )
+        for permission_id in permission_ids:
+            self.session.add(RolePermission(role_id=role_id, permission_id=permission_id))
+        await self.session.flush()
+
 
 class AuditLogRepository:
     def __init__(self, session: AsyncSession):

@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.identity.api.deps import (
@@ -27,11 +28,13 @@ from src.modules.identity.api.schemas import (
     CompanyAccessGrantRequest,
     CompanyCreateRequest,
     CompanyOut,
+    CompanyUpdateRequest,
     LoginRequest,
     MyPermissionsOut,
     PartnerCreateRequest,
     PartnerOut,
     PartnerUpdateRequest,
+    PermissionOut,
     ProductCategoryCreateRequest,
     ProductCategoryOut,
     ProductCategoryUpdateRequest,
@@ -39,6 +42,10 @@ from src.modules.identity.api.schemas import (
     ProductOut,
     ProductUpdateRequest,
     RoleAssignRequest,
+    RoleCreateRequest,
+    RoleDetailOut,
+    RoleOut,
+    RolePermissionsUpdateRequest,
     TokenResponse,
     TwoFactorLoginRequest,
     TwoFactorRequiredResponse,
@@ -314,6 +321,72 @@ async def get_company(
     return company
 
 
+@router.patch("/companies/{company_id}", response_model=CompanyOut)
+async def update_company(
+    company_id: UUID,
+    payload: CompanyUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("company.manage")),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """Settings Architecture Foundation milestone. The first endpoint able
+    to edit a company's own core details at all — until now legal_name/
+    legal_name_ar/vat_number/cr_number were fixed at /bootstrap time with no
+    way to correct them, a real gap surfaced while building the Company
+    Profile screen (that screen showed these fields read-only specifically
+    because this endpoint didn't exist yet)."""
+    company = await company_repo.get_by_id(ctx.company_id)
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
+
+    old_values = {
+        "legal_name": company.legal_name,
+        "legal_name_ar": company.legal_name_ar,
+        "vat_number": company.vat_number,
+        "cr_number": company.cr_number,
+    }
+    company.legal_name = payload.legal_name
+    company.legal_name_ar = payload.legal_name_ar
+    company.vat_number = payload.vat_number
+    company.cr_number = payload.cr_number
+
+    audit_repo = AuditLogRepository(db)
+    new_values = {
+        "legal_name": company.legal_name,
+        "legal_name_ar": company.legal_name_ar,
+        "vat_number": company.vat_number,
+        "cr_number": company.cr_number,
+    }
+    try:
+        for field_name, old_value in old_values.items():
+            new_value = new_values[field_name]
+            if old_value != new_value:
+                await audit_repo.record(
+                    tenant_id=ctx.tenant_id,
+                    company_id=ctx.company_id,
+                    user_id=ctx.user_id,
+                    target_table="company",
+                    target_id=company.id,
+                    field_name=field_name,
+                    old_value=old_value,
+                    new_value=new_value,
+                )
+        # No db.refresh(): same RLS/transaction-scoping reason documented on
+        # upload_company_logo() below — company already reflects the new
+        # values in memory, and the response schema needs no server-generated
+        # column a refresh would add.
+        await db.commit()
+    except IntegrityError as e:
+        # ux_company_vat is global (not per-company), so a duplicate on
+        # another company's row is invisible to a plain SELECT under this
+        # request's RLS context (other companies aren't visible) — the
+        # unique index itself is the only thing that actually catches it,
+        # found live via this endpoint's own test.
+        await db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "VAT number already in use") from e
+    return company
+
+
 @router.post("/companies/{company_id}/logo", response_model=CompanyOut)
 async def upload_company_logo(
     company_id: UUID,
@@ -504,6 +577,103 @@ async def grant_company_access(
         new_value=str(payload.company_id),
     )
     await db.commit()
+
+
+@router.get("/permissions", response_model=list[PermissionOut])
+async def list_permissions(
+    ctx: AuthContext = Depends(require_permission("role.manage")),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """Settings Architecture Foundation milestone — the fixed, global
+    permission catalog a Security settings screen renders as a checkbox
+    matrix. Not company-scoped (Permission has no company_id, Phase 7)."""
+    return await role_repo.list_all_permissions()
+
+
+@router.get("/roles", response_model=list[RoleOut])
+async def list_roles(
+    ctx: AuthContext = Depends(require_permission("role.manage")),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    return await role_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/roles/{role_id}", response_model=RoleDetailOut)
+async def get_role(
+    role_id: UUID,
+    ctx: AuthContext = Depends(require_permission("role.manage")),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    role = await role_repo.get_by_id(ctx.company_id, role_id)
+    if role is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Role not found")
+    permission_codes = await role_repo.get_role_permission_codes(role.id)
+    return RoleDetailOut(id=role.id, name=role.name, is_system=role.is_system, permission_codes=sorted(permission_codes))
+
+
+@router.post("/roles", response_model=RoleDetailOut, status_code=status.HTTP_201_CREATED)
+async def create_role(
+    payload: RoleCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("role.manage")),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """Creates an empty custom role (no permissions yet — granted via
+    PUT /roles/{id}/permissions right after, same as the checkbox-matrix +
+    Save flow the Security screen uses for editing any other role)."""
+    import uuid as _uuid
+
+    from src.modules.identity.infrastructure.models import Role
+
+    role = Role(id=_uuid.uuid4(), company_id=ctx.company_id, name=payload.name, is_system=False)
+    await role_repo.add(role)
+    await db.commit()
+    return RoleDetailOut(id=role.id, name=role.name, is_system=role.is_system, permission_codes=[])
+
+
+@router.put("/roles/{role_id}/permissions", response_model=RoleDetailOut)
+async def update_role_permissions(
+    role_id: UUID,
+    payload: RolePermissionsUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("role.manage")),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """The fix for a real, previously-documented operational gap: until now
+    a role's permissions were fixed at creation time (bootstrap or
+    company-create), with no way to grant an already-existing role a
+    permission added by a later product change — hit twice during the
+    Entity Media Foundation milestone, which needed a freshly-bootstrapped
+    company each time just to test a new permission."""
+    role = await role_repo.get_by_id(ctx.company_id, role_id)
+    if role is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Role not found")
+
+    all_permissions = await role_repo.list_all_permissions()
+    by_code = {p.code: p.id for p in all_permissions}
+    unknown = [code for code in payload.permission_codes if code not in by_code]
+    if unknown:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown permission code(s): {', '.join(unknown)}")
+
+    old_codes = await role_repo.get_role_permission_codes(role.id)
+    new_codes = set(payload.permission_codes)
+    permission_ids = [by_code[code] for code in new_codes]
+    await role_repo.set_permissions(role.id, permission_ids)
+
+    if old_codes != new_codes:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="role",
+            target_id=role.id,
+            field_name="permissions",
+            old_value=", ".join(sorted(old_codes)),
+            new_value=", ".join(sorted(new_codes)),
+        )
+
+    await db.commit()
+    return RoleDetailOut(id=role.id, name=role.name, is_system=role.is_system, permission_codes=sorted(new_codes))
 
 
 @router.get("/partners", response_model=list[PartnerOut])

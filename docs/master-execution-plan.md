@@ -391,6 +391,51 @@ smaller than originally scoped (already largely on the shared pattern per
 the audit; only empty-state copy was genuinely missing) and is now
 closed.
 
+**Product/ERP Architecture Reassessment + Settings Architecture
+Foundation (2026-08-04)**: at the Owner's explicit direction, a planning-
+only pass (no code) benchmarked the current system against Odoo/
+ERPNext/Microsoft Dynamics 365 Business Central/SAP Business One's
+official documentation, specifically to judge maturity on UX/product-
+architecture terms, not feature count. Key finding: the current unified
+`Partner` (customer/vendor via flags) already matches a real
+international pattern (SAP Business One's Business Partner) — a full
+Party/Contact/Employee merge was assessed and explicitly **not**
+recommended now (no benchmarked system merges Employee in either). The
+two most foundational, real gaps identified: no Settings/configuration
+architecture at all (not even the company's own name was editable after
+`/bootstrap`), and no way to change an already-created role's
+permissions (a recurring operational blocker, hit twice in the prior
+milestone). **Settings Architecture Foundation** was chosen as the
+single next milestone over other real candidates (Address Book, Audit
+Trail UI, a Partner "360° view" tab) specifically because it resolves
+both P0 gaps at once, in one coherent, reusable shell, with the lowest
+migration risk (no changes to any Sales/Purchasing/Inventory/Payments/
+Accounting/Master Data table).
+
+Delivered: a reusable `SettingsShell` (section nav + content area,
+extensible to Sales/Purchasing/Inventory/Accounting/Payments/System
+settings later without redesign); `/settings/company` (the first
+endpoint able to edit `legal_name`/`legal_name_ar`/`vat_number`/
+`cr_number` at all, deliberately excluding `base_currency`/
+`valuation_method`/`zatca_environment` for correctness reasons,
+documented not silent); `/settings/security` (list/create roles, edit
+any role's full permission set via a checkbox matrix — the actual fix
+for the "no way to add a permission to an existing role" gap first
+documented in Milestone 1b and hit again in the Entity Media Foundation
+milestone). A genuine RLS-related bug (a VAT-uniqueness pre-check that
+RLS made unreliable across companies) was found by this milestone's own
+new test and fixed via the correct pattern (catch the database's own
+unique-constraint violation) rather than trusting a cross-company
+SELECT. **Implemented, Tested (183/183 backend, 10 new), Verified, Live
+Demonstrated** (grant/revoke of a permission on an already-existing
+role, confirmed to take effect immediately with no logout; Arabic/RTL
+and mobile-responsive behavior confirmed) — **Owner Accepted: pending**.
+Explicitly deferred, not started: Company/Module settings beyond the
+Company section shipped here, Address Book (multi-address/multi-contact
+on Partner), Audit Trail UI (backend infrastructure already exists,
+barely wired), Attachments/Documents, Bundle 3 — these remain candidates
+for future milestones, not decided here.
+
 ---
 
 ## Global Roadmap Status
@@ -401,7 +446,7 @@ Evidence basis: direct repository inspection (modules, migrations, tests, fronte
 |---|---|---|---|
 | Foundation / Architecture | 🟢 Strong | 90% | Modular monolith, one-way module dependencies, Docker, CI baseline all in place and stable across 7 completed phases. |
 | Security / RLS | 🟢 Complete | 100% | Verified: 3-tier DB roles, `FORCE ROW LEVEL SECURITY` on every business table, 24/24 RLS tests, no superuser in the runtime path. |
-| Identity / Users / RBAC | 🟡 Partial | 75% | Login, 2FA, roles/permissions enforced; missing a Role Management UI (permissions are only editable via seed data today). |
+| Identity / Users / RBAC | 🟢 Strong | 85% | Login, 2FA, roles/permissions enforced; Role Management UI now shipped (Settings Architecture Foundation) — roles can be created and their permissions edited live via `/settings/security`, closing the former "permissions only editable via seed data" gap; still missing per-user permission overrides and field-level permission UI (schema supports it, unused). |
 | Master Data | 🟢 Strong | 88% | Products, Categories, UOM, Customers/Vendors fully on the design system with CRUD + validation. |
 | Sales | 🟡 Partial | 55% | Full Quotation→Payment lifecycle works end-to-end; missing statement/history/report screens (Section D). |
 | Purchasing | 🟡 Partial | 55% | Mirrors Sales — PO→Payment lifecycle works; same statement/report gap. |

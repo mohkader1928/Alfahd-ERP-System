@@ -9,6 +9,8 @@ import {
   LayoutDashboard,
   Package,
   Ruler,
+  Settings,
+  ShieldCheck,
   ShoppingCart,
   Truck,
   Users,
@@ -68,6 +70,15 @@ export const NAV_CONFIG: NavEntry[] = [
       { type: "link", href: "/master-data/uom", labelKey: "nav.master_data.uom", icon: Ruler },
       { type: "link", href: "/master-data/customers", labelKey: "nav.master_data.customers", icon: Users },
       { type: "link", href: "/master-data/vendors", labelKey: "nav.master_data.vendors", icon: Building2 },
+    ],
+  },
+  {
+    type: "group",
+    labelKey: "settings.title",
+    icon: Settings,
+    children: [
+      { type: "link", href: "/settings/company", labelKey: "settings.section.company", icon: Building2 },
+      { type: "link", href: "/settings/security", labelKey: "settings.section.security", icon: ShieldCheck },
     ],
   },
 ];

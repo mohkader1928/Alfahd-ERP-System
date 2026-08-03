@@ -8,14 +8,16 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-03, uncommitted work on top of `1e4c0f9`
-(`main`) — the **UI/UX Evolution: Entity Media Foundation + Master Data
-Image Support** milestone — 173/173 backend tests, `ruff`/`tsc`/`eslint`/
-frontend production build all clean, full live browser verification
-(fresh company/user, real file uploads via the real API, not simulated).
-See the dated entry below for full detail. The paragraphs further below
-(2026-08-03 Company Context and earlier) are kept verbatim as the
-historical record and were not re-verified as part of this pass.
+**Last verified**: 2026-08-04, on top of committed `d37661a` (`main`) —
+the **Settings Architecture Foundation (Company Settings + Security/
+Roles & Permissions)** milestone, uncommitted at time of writing —
+183/183 backend tests, `ruff`/`tsc`/`eslint`/frontend production build
+all clean, full live browser verification against a freshly-bootstrapped
+company (real grant/revoke of a permission on an already-existing role,
+confirmed to take effect immediately with no logout). See the dated
+entry below for full detail. The paragraphs further below (2026-08-03
+Entity Media Foundation and earlier) are kept verbatim as the historical
+record and were not re-verified as part of this pass.
 
 **Historical — last verified 2026-08-02**, against commit `3684edd`
 (`main`) plus uncommitted Phase 17D (Payments) work — implemented, then
@@ -251,6 +253,89 @@ both render correctly in their list thumbnails, detail-page avatar, and
 detail-page image-upload widget. Confirmed the new empty-state copy
 renders on an empty Vendors list. **Owner Accepted: not yet — pending the
 Owner personally trying it.**
+
+**Committed as `d37661a`.**
+
+**Product/ERP Architecture Reassessment (2026-08-04, planning only, no
+code)**: at the Owner's explicit direction, stopped feature work to
+reassess against the original plan and against Odoo/ERPNext/Microsoft
+Dynamics 365 Business Central/SAP Business One official documentation.
+Found the current Partner model (customer/vendor unified via flags)
+already matches a real, internationally-used pattern (SAP Business
+One's Business Partner) rather than being a gap — recommended **not**
+pursuing a full Party/Contact/Employee unification now (no mainstream
+system merges Employee into it either, including Odoo's own
+`res.partner`). Identified the two most foundational, genuinely missing
+pieces as (1) no Settings/configuration architecture at all — even the
+company's own legal name was not editable after `/bootstrap` — and (2)
+no way to change an already-created role's permissions, a real
+operational blocker hit twice in the prior two milestones. Recommended
+**Settings Architecture Foundation** as the single next milestone over
+several competing candidates (Address Book, Audit Trail UI, Party 360°
+view) — full detail in the milestone entry immediately below. No
+application code was changed to produce this reassessment.
+
+**Settings Architecture Foundation — Company Settings + Security
+(2026-08-04, same day, Owner-approved scope)**: Implemented and Tested.
+
+- **Settings Shell**: one reusable layout (`SettingsShell`, a section
+  nav + content area) every future settings area — Sales/Purchasing/
+  Inventory/Accounting/Payments module settings, System settings — will
+  extend without redesigning navigation or layout, per the Owner's
+  explicit "design the architecture right the first time" instruction.
+  Only two sections are actually built now (Company, Security); no
+  placeholder nav entries for unbuilt sections, per this project's
+  standing "no fake nav entries" rule.
+- **Company Settings** (`/settings/company`, supersedes the prior
+  milestone's `/company/profile`, now removed — one screen, not two
+  competing ones): the first endpoint able to edit a company's own
+  `legal_name`/`legal_name_ar`/`vat_number`/`cr_number` at all — until
+  now these were fixed at `/bootstrap` time with zero way to correct
+  them (confirmed live: the prior milestone's Company Profile page
+  showed these fields read-only specifically because this endpoint
+  didn't exist). Deliberately excludes `base_currency`/
+  `valuation_method`/`zatca_environment` from editing — each drives
+  historical monetary/costing/e-invoicing correctness and needs its own
+  guarded flow, not a plain field edit; documented in the schema, not a
+  silent gap.
+- **Security — Roles & Permissions** (`/settings/security`): the fix
+  for a real, previously-documented gap — a role's permissions used to
+  be fixed at creation time (`/bootstrap` or `POST /companies`) with no
+  API to change them afterwards, hit twice in the prior milestone
+  (needed a fresh company each time just to test a newly-added
+  permission). Now: list roles, create a custom role, and edit any
+  role's full permission set via a checkbox matrix grouped by module —
+  changes take effect immediately for any user holding that role, no
+  logout required (the frontend invalidates its own permission cache on
+  save).
+- **A real cross-company data bug found and fixed by this milestone's
+  own test**: the Company VAT-uniqueness pre-check queried
+  `Company` by VAT number under the caller's own RLS company context,
+  which made another company's row invisible to the query — so the
+  pre-check silently passed even though the database's own unique index
+  would then reject the update. Fixed by catching the `IntegrityError`
+  from the actual write instead of trusting a pre-check that RLS can
+  make unreliable across companies for a globally-unique column — caught
+  by this milestone's own new test before shipping, not by the Owner.
+
+**Verified**: 183/183 backend tests (10 new), `ruff`/`tsc`/`eslint`/
+frontend production build all clean. **Live Demonstrated**: on a
+freshly-bootstrapped company (needed so the account's Admin role
+included the new `role.manage` permission — same known, unresolved
+"can't add a permission to an old role via itself" limitation this very
+milestone fixes for every *future* permission, just not retroactively
+for roles that predate it) — edited Company Settings and watched the
+change propagate instantly to Topbar/Dashboard; opened the Admin role,
+unchecked its own `company.manage` permission, saved, and watched
+`/settings/company` immediately fall back to read-only with **no
+logout, no reload**; re-granted it and watched the edit form return;
+created a new custom role from empty, confirmed it started with zero
+permissions. Confirmed Arabic/RTL rendering (`dir="rtl"`, translated
+nav/labels — permission codes themselves render in formatted English,
+a deliberate scope boundary, not a bug) and mobile-responsive behavior
+(the section nav collapses to a horizontal scroll row below the `sm`
+breakpoint). **Owner Accepted: not yet — pending the Owner personally
+trying it.**
 
 **Not yet committed** — see the milestone's checkpoint report for exact
 file list and status.

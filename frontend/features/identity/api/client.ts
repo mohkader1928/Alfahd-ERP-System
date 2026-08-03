@@ -4,13 +4,17 @@ import type {
   BootstrapRequest,
   BootstrapResponse,
   Company,
+  CompanyWriteInput,
   LoginRequest,
   MyPermissions,
   Partner,
   PartnerWriteInput,
+  Permission,
   Product,
   ProductCategory,
   ProductWriteInput,
+  Role,
+  RoleDetail,
   TokenResponse,
   TwoFactorRequiredResponse,
   UnitOfMeasure,
@@ -35,6 +39,9 @@ export const identityApi = {
     apiClient.post<TokenResponse>(`${BASE}/auth/login/verify-2fa`, payload, { skipAuth: true }),
 
   getCompany: (companyId: string) => apiClient.get<Company>(`${BASE}/companies/${companyId}`, { companyId }),
+
+  updateCompany: (companyId: string, payload: CompanyWriteInput) =>
+    apiClient.patch<Company>(`${BASE}/companies/${companyId}`, payload, { companyId }),
 
   uploadCompanyLogo: (companyId: string, file: File) => {
     const form = new FormData();
@@ -131,4 +138,21 @@ export const identityApi = {
     id: string,
     payload: { name: string; name_ar?: string | null; code: string; active: boolean }
   ) => apiClient.patch<UnitOfMeasure>(`${BASE}/uom/${id}`, payload, { companyId }),
+
+  listPermissions: (companyId: string) => apiClient.get<Permission[]>(`${BASE}/permissions`, { companyId }),
+
+  listRoles: (companyId: string) => apiClient.get<Role[]>(`${BASE}/roles`, { companyId }),
+
+  getRole: (companyId: string, roleId: string) =>
+    apiClient.get<RoleDetail>(`${BASE}/roles/${roleId}`, { companyId }),
+
+  createRole: (companyId: string, name: string) =>
+    apiClient.post<RoleDetail>(`${BASE}/roles`, { name }, { companyId }),
+
+  updateRolePermissions: (companyId: string, roleId: string, permissionCodes: string[]) =>
+    apiClient.put<RoleDetail>(
+      `${BASE}/roles/${roleId}/permissions`,
+      { permission_codes: permissionCodes },
+      { companyId }
+    ),
 };
