@@ -642,7 +642,12 @@ async def test_get_partner_master_data(client):
     assert resp.json()["is_active"] is True
 
 
-async def test_update_partner_requires_customer_or_vendor(client):
+async def test_update_partner_may_clear_all_role_flags(client):
+    """Unified Address Book bundle: a Partner with no Customer/Vendor/
+    Employee role is a legitimate state (a plain Address Book entry, or a
+    Contact Person under a company) — the old "must be customer or vendor"
+    rule was removed, since Employee and Contact are now first-class roles
+    too and neither requires Customer/Vendor to be set."""
     company = await _bootstrap_company(client, f"PartnerReq-{uuid.uuid4().hex[:6]}")
     partner = (
         await client.post(
@@ -654,7 +659,9 @@ async def test_update_partner_requires_customer_or_vendor(client):
         headers=company["headers"],
         json={"name": "Valid", "is_customer": False, "is_vendor": False},
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 200
+    assert resp.json()["is_customer"] is False
+    assert resp.json()["is_vendor"] is False
 
 
 async def test_partner_cross_company_isolation(client):

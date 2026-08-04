@@ -12,6 +12,7 @@ from uuid import UUID
 from src.modules.identity.domain.entities import InactiveUserError
 from src.modules.identity.infrastructure.master_data_models import (
     Partner,
+    PartnerAddress,
     Product,
     ProductCategory,
     UnitOfMeasure,
@@ -27,6 +28,7 @@ from src.modules.identity.infrastructure.repositories import (
     BranchRepository,
     CompanyRepository,
     CurrencyRepository,
+    PartnerAddressRepository,
     PartnerRepository,
     ProductCategoryRepository,
     ProductRepository,
@@ -228,11 +230,31 @@ class TenantProvisioningService:
 
 
 class PartnerService:
-    """FR-CORE-042 — unified customer/vendor contact, consumed by Sales (M2)
-    and Purchasing (M4)."""
+    """FR-CORE-042 — the one master entity for company/individual,
+    Customer/Vendor/Employee, and Contact Person (Unified Address Book
+    bundle). Consumed by Sales (M2), Purchasing (M4), and the Address Book/
+    Customers/Vendors/Employees screens, which are all filtered views over
+    this same table.
 
-    def __init__(self, partner_repo: PartnerRepository):
+    Validation deliberately no longer requires is_customer/is_vendor: a
+    Partner can be a pure Contact Person (a child of a company, via
+    parent_partner_id, with no role flags at all) or a company/individual
+    created before any role is decided — both are legitimate states now
+    that Employee and Contact are first-class alongside Customer/Vendor.
+    """
+
+    def __init__(self, partner_repo: PartnerRepository, address_repo: PartnerAddressRepository | None = None):
         self.partner_repo = partner_repo
+        self.address_repo = address_repo
+
+    async def _validate_parent(self, *, company_id: UUID, parent_partner_id: UUID | None, self_id: UUID | None) -> None:
+        if parent_partner_id is None:
+            return
+        if self_id is not None and parent_partner_id == self_id:
+            raise ValueError("A partner cannot be its own parent")
+        parent = await self.partner_repo.get_by_id(parent_partner_id)
+        if parent is None or parent.company_id != company_id:
+            raise ValueError("Parent partner not found")
 
     async def create_partner(
         self,
@@ -241,22 +263,39 @@ class PartnerService:
         company_id: UUID,
         name: str,
         name_ar: str | None = None,
+        is_company: bool = True,
+        parent_partner_id: UUID | None = None,
         is_customer: bool = False,
         is_vendor: bool = False,
+        is_employee: bool = False,
+        job_title: str | None = None,
+        is_primary_contact: bool = False,
+        phone: str | None = None,
+        mobile: str | None = None,
+        email: str | None = None,
+        website: str | None = None,
         vat_number: str | None = None,
         cr_number: str | None = None,
         address: dict | None = None,
     ) -> Partner:
-        if not is_customer and not is_vendor:
-            raise ValueError("A partner must be a customer, a vendor, or both")
+        await self._validate_parent(company_id=company_id, parent_partner_id=parent_partner_id, self_id=None)
         partner = Partner(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
             company_id=company_id,
             name=name,
             name_ar=name_ar,
+            is_company=is_company,
+            parent_partner_id=parent_partner_id,
             is_customer=is_customer,
             is_vendor=is_vendor,
+            is_employee=is_employee,
+            job_title=job_title,
+            is_primary_contact=is_primary_contact,
+            phone=phone,
+            mobile=mobile,
+            email=email,
+            website=website,
             vat_number=vat_number,
             cr_number=cr_number,
             address=address,
@@ -270,8 +309,16 @@ class PartnerService:
         partner_id: UUID,
         name: str,
         name_ar: str | None,
+        is_company: bool,
         is_customer: bool,
         is_vendor: bool,
+        is_employee: bool,
+        job_title: str | None,
+        is_primary_contact: bool,
+        phone: str | None,
+        mobile: str | None,
+        email: str | None,
+        website: str | None,
         vat_number: str | None,
         cr_number: str | None,
         address: dict | None,
@@ -279,16 +326,109 @@ class PartnerService:
         partner = await self.partner_repo.get_by_id(partner_id)
         if partner is None or partner.company_id != company_id:
             raise LookupError("Partner not found")
-        if not is_customer and not is_vendor:
-            raise ValueError("A partner must be a customer, a vendor, or both")
         partner.name = name
         partner.name_ar = name_ar
+        partner.is_company = is_company
         partner.is_customer = is_customer
         partner.is_vendor = is_vendor
+        partner.is_employee = is_employee
+        partner.job_title = job_title
+        partner.is_primary_contact = is_primary_contact
+        partner.phone = phone
+        partner.mobile = mobile
+        partner.email = email
+        partner.website = website
         partner.vat_number = vat_number
         partner.cr_number = cr_number
         partner.address = address
         return partner
+
+    async def archive_partner(self, *, company_id: UUID, partner_id: UUID) -> Partner:
+        import datetime as _dt
+
+        partner = await self.partner_repo.get_by_id(partner_id)
+        if partner is None or partner.company_id != company_id:
+            raise LookupError("Partner not found")
+        # Naive UTC — `deleted_at` is TIMESTAMP WITHOUT TIME ZONE, matching
+        # created_at/updated_at's server-side now() on this same table.
+        partner.deleted_at = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+        return partner
+
+    async def restore_partner(self, *, company_id: UUID, partner_id: UUID) -> Partner:
+        partner = await self.partner_repo.get_by_id(partner_id, include_archived=True)
+        if partner is None or partner.company_id != company_id:
+            raise LookupError("Partner not found")
+        partner.deleted_at = None
+        return partner
+
+    async def add_address(
+        self,
+        *,
+        company_id: UUID,
+        partner_id: UUID,
+        type: str,
+        is_default: bool,
+        street: str | None,
+        city: str | None,
+        region: str | None,
+        postal_code: str | None,
+        country_code: str | None,
+    ) -> PartnerAddress:
+        assert self.address_repo is not None
+        partner = await self.partner_repo.get_by_id(partner_id)
+        if partner is None or partner.company_id != company_id:
+            raise LookupError("Partner not found")
+        if is_default:
+            await self.address_repo.unset_other_defaults(company_id, partner_id, type)
+        address = PartnerAddress(
+            id=uuid.uuid4(),
+            company_id=company_id,
+            partner_id=partner_id,
+            type=type,
+            is_default=is_default,
+            street=street,
+            city=city,
+            region=region,
+            postal_code=postal_code,
+            country_code=country_code,
+        )
+        return await self.address_repo.add(address)
+
+    async def update_address(
+        self,
+        *,
+        company_id: UUID,
+        partner_id: UUID,
+        address_id: UUID,
+        type: str,
+        is_default: bool,
+        street: str | None,
+        city: str | None,
+        region: str | None,
+        postal_code: str | None,
+        country_code: str | None,
+    ) -> PartnerAddress:
+        assert self.address_repo is not None
+        address = await self.address_repo.get_by_id(company_id, address_id)
+        if address is None or address.partner_id != partner_id:
+            raise LookupError("Address not found")
+        if is_default:
+            await self.address_repo.unset_other_defaults(company_id, partner_id, type, exclude_id=address_id)
+        address.type = type
+        address.is_default = is_default
+        address.street = street
+        address.city = city
+        address.region = region
+        address.postal_code = postal_code
+        address.country_code = country_code
+        return address
+
+    async def delete_address(self, *, company_id: UUID, partner_id: UUID, address_id: UUID) -> None:
+        assert self.address_repo is not None
+        address = await self.address_repo.get_by_id(company_id, address_id)
+        if address is None or address.partner_id != partner_id:
+            raise LookupError("Address not found")
+        await self.address_repo.delete(address)
 
 
 class ProductService:

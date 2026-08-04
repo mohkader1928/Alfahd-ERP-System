@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -741,15 +742,22 @@ function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
   );
 }
 
-function CustomerSubledgerTab() {
+function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string }) {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
 
-  const [partnerId, setPartnerId] = useState("");
+  // Deep-link from a Partner Profile's Accounting tab ("smart action" per
+  // the Unified Address Book bundle) — preselects and auto-runs the report
+  // for that customer on first render instead of just landing on the right
+  // tab. Read once via lazy useState initializers (not an effect) since
+  // this only ever needs to apply once, on mount.
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [ranAt, setRanAt] = useState<{ partner: string; from: string; to: string } | null>(null);
+  const [partnerId, setPartnerId] = useState(initialPartnerId ?? "");
+  const [ranAt, setRanAt] = useState<{ partner: string; from: string; to: string } | null>(() =>
+    initialPartnerId ? { partner: initialPartnerId, from: dateFrom, to: dateTo } : null
+  );
 
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, "customers"],
@@ -841,15 +849,17 @@ function CustomerSubledgerTab() {
   );
 }
 
-function VendorSubledgerTab() {
+function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string }) {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
 
-  const [partnerId, setPartnerId] = useState("");
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [ranAt, setRanAt] = useState<{ partner: string; from: string; to: string } | null>(null);
+  const [partnerId, setPartnerId] = useState(initialPartnerId ?? "");
+  const [ranAt, setRanAt] = useState<{ partner: string; from: string; to: string } | null>(() =>
+    initialPartnerId ? { partner: initialPartnerId, from: dateFrom, to: dateTo } : null
+  );
 
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, "vendors"],
@@ -1048,13 +1058,15 @@ function ApAgingTab() {
 
 export default function AccountingPage() {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
   // Base UI's Tabs.Panel fails to hide inactive panels once a second panel
   // mounts (its internal data-index tracking never resolves past -1 for
   // panels mounted after first render, so `hidden`/`data-hidden` never gets
   // set) — confirmed by inspecting the live DOM. Controlling the active tab
   // ourselves and gating each panel's content on it sidesteps the bug
   // regardless of its root cause.
-  const [tab, setTab] = useState("accounts");
+  const [tab, setTab] = useState(() => searchParams.get("tab") ?? "accounts");
+  const deepLinkPartnerId = searchParams.get("partner") ?? undefined;
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">{t("nav.accounting")}</h1>
@@ -1078,10 +1090,10 @@ export default function AccountingPage() {
         <TabsContent value="income-statement">{tab === "income-statement" && <IncomeStatementTab />}</TabsContent>
         <TabsContent value="balance-sheet">{tab === "balance-sheet" && <BalanceSheetTab />}</TabsContent>
         <TabsContent value="customer-subledger">
-          {tab === "customer-subledger" && <CustomerSubledgerTab />}
+          {tab === "customer-subledger" && <CustomerSubledgerTab initialPartnerId={deepLinkPartnerId} />}
         </TabsContent>
         <TabsContent value="vendor-subledger">
-          {tab === "vendor-subledger" && <VendorSubledgerTab />}
+          {tab === "vendor-subledger" && <VendorSubledgerTab initialPartnerId={deepLinkPartnerId} />}
         </TabsContent>
         <TabsContent value="ar-aging">{tab === "ar-aging" && <ArAgingTab />}</TabsContent>
         <TabsContent value="ap-aging">{tab === "ap-aging" && <ApAgingTab />}</TabsContent>

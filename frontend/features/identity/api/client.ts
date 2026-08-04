@@ -8,6 +8,8 @@ import type {
   LoginRequest,
   MyPermissions,
   Partner,
+  PartnerAddress,
+  PartnerAddressWriteInput,
   PartnerWriteInput,
   Permission,
   Product,
@@ -61,12 +63,22 @@ export const identityApi = {
   listPartners: (
     companyId: string,
     branchId: string | null,
-    opts?: { customersOnly?: boolean; vendorsOnly?: boolean; search?: string }
+    opts?: {
+      customersOnly?: boolean;
+      vendorsOnly?: boolean;
+      employeesOnly?: boolean;
+      parentPartnerId?: string;
+      includeArchived?: boolean;
+      search?: string;
+    }
   ) =>
     apiClient.get<Partner[]>(
       `${BASE}/partners${qs({
         customers_only: opts?.customersOnly,
         vendors_only: opts?.vendorsOnly,
+        employees_only: opts?.employeesOnly,
+        parent_partner_id: opts?.parentPartnerId,
+        include_archived: opts?.includeArchived,
         search: opts?.search,
       })}`,
       { companyId, branchId }
@@ -80,6 +92,12 @@ export const identityApi = {
   updatePartner: (companyId: string, id: string, payload: PartnerWriteInput) =>
     apiClient.patch<Partner>(`${BASE}/partners/${id}`, payload, { companyId }),
 
+  archivePartner: (companyId: string, id: string) =>
+    apiClient.post<Partner>(`${BASE}/partners/${id}/archive`, {}, { companyId }),
+
+  restorePartner: (companyId: string, id: string) =>
+    apiClient.post<Partner>(`${BASE}/partners/${id}/restore`, {}, { companyId }),
+
   uploadPartnerImage: (companyId: string, id: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -88,6 +106,18 @@ export const identityApi = {
 
   deletePartnerImage: (companyId: string, id: string) =>
     apiClient.delete<Partner>(`${BASE}/partners/${id}/image`, { companyId }),
+
+  listPartnerAddresses: (companyId: string, partnerId: string) =>
+    apiClient.get<PartnerAddress[]>(`${BASE}/partners/${partnerId}/addresses`, { companyId }),
+
+  createPartnerAddress: (companyId: string, partnerId: string, payload: PartnerAddressWriteInput) =>
+    apiClient.post<PartnerAddress>(`${BASE}/partners/${partnerId}/addresses`, payload, { companyId }),
+
+  updatePartnerAddress: (companyId: string, partnerId: string, addressId: string, payload: PartnerAddressWriteInput) =>
+    apiClient.patch<PartnerAddress>(`${BASE}/partners/${partnerId}/addresses/${addressId}`, payload, { companyId }),
+
+  deletePartnerAddress: (companyId: string, partnerId: string, addressId: string) =>
+    apiClient.delete<void>(`${BASE}/partners/${partnerId}/addresses/${addressId}`, { companyId }),
 
   listProducts: (companyId: string, branchId: string | null, opts?: { categoryId?: string; search?: string }) =>
     apiClient.get<Product[]>(

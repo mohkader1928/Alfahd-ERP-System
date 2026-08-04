@@ -11,6 +11,7 @@ from src.modules.identity.api.deps import (
     get_branch_repo,
     get_company_repo,
     get_currency_repo,
+    get_partner_address_repo,
     get_partner_repo,
     get_product_category_repo,
     get_product_repo,
@@ -31,6 +32,9 @@ from src.modules.identity.api.schemas import (
     CompanyUpdateRequest,
     LoginRequest,
     MyPermissionsOut,
+    PartnerAddressCreateRequest,
+    PartnerAddressOut,
+    PartnerAddressUpdateRequest,
     PartnerCreateRequest,
     PartnerOut,
     PartnerUpdateRequest,
@@ -73,6 +77,7 @@ from src.modules.identity.infrastructure.repositories import (
     BranchRepository,
     CompanyRepository,
     CurrencyRepository,
+    PartnerAddressRepository,
     PartnerRepository,
     ProductCategoryRepository,
     ProductRepository,
@@ -680,12 +685,26 @@ async def update_role_permissions(
 async def list_partners(
     customers_only: bool = False,
     vendors_only: bool = False,
+    employees_only: bool = False,
+    parent_partner_id: UUID | None = None,
+    include_archived: bool = False,
     search: str | None = None,
     ctx: AuthContext = Depends(require_permission("partner.view")),
     partner_repo: PartnerRepository = Depends(get_partner_repo),
 ):
+    """Unfiltered (no role flag set) = the Address Book master view;
+    customers_only/vendors_only/employees_only turn this into the Customers/
+    Vendors/Employees screens — all filtered views over the same table, per
+    the Unified Address Book bundle. parent_partner_id lists a single
+    company's Contacts (child partners)."""
     return await partner_repo.list_by_company(
-        ctx.company_id, customers_only=customers_only, vendors_only=vendors_only, search=search
+        ctx.company_id,
+        customers_only=customers_only,
+        vendors_only=vendors_only,
+        employees_only=employees_only,
+        parent_partner_id=parent_partner_id,
+        search=search,
+        include_archived=include_archived,
     )
 
 
@@ -700,7 +719,10 @@ async def get_partner(
     # ripple across those call sites, out of scope here) — RLS is *meant*
     # to close that gap at the DB layer, but do not rely on RLS alone: an
     # explicit company_id check is the actual boundary for this new route.
-    partner = await partner_repo.get_by_id(partner_id)
+    # include_archived=True so an archived partner's profile (and its
+    # Restore action) stays reachable — every other call site keeps the
+    # default (active-only), so this has no effect outside this one route.
+    partner = await partner_repo.get_by_id(partner_id, include_archived=True)
     if partner is None or partner.company_id != ctx.company_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Partner not found")
     return partner
@@ -720,8 +742,17 @@ async def create_partner(
             company_id=ctx.company_id,
             name=payload.name,
             name_ar=payload.name_ar,
+            is_company=payload.is_company,
+            parent_partner_id=payload.parent_partner_id,
             is_customer=payload.is_customer,
             is_vendor=payload.is_vendor,
+            is_employee=payload.is_employee,
+            job_title=payload.job_title,
+            is_primary_contact=payload.is_primary_contact,
+            phone=payload.phone,
+            mobile=payload.mobile,
+            email=payload.email,
+            website=payload.website,
             vat_number=payload.vat_number,
             cr_number=payload.cr_number,
             address=payload.address.model_dump() if payload.address else None,
@@ -748,8 +779,16 @@ async def update_partner(
             partner_id=partner_id,
             name=payload.name,
             name_ar=payload.name_ar,
+            is_company=payload.is_company,
             is_customer=payload.is_customer,
             is_vendor=payload.is_vendor,
+            is_employee=payload.is_employee,
+            job_title=payload.job_title,
+            is_primary_contact=payload.is_primary_contact,
+            phone=payload.phone,
+            mobile=payload.mobile,
+            email=payload.email,
+            website=payload.website,
             vat_number=payload.vat_number,
             cr_number=payload.cr_number,
             address=payload.address.model_dump() if payload.address else None,
@@ -761,6 +800,126 @@ async def update_partner(
 
     await db.commit()
     return partner
+
+
+@router.post("/partners/{partner_id}/archive", response_model=PartnerOut)
+async def archive_partner(
+    partner_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("partner.update")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+):
+    service = PartnerService(partner_repo)
+    try:
+        partner = await service.archive_partner(company_id=ctx.company_id, partner_id=partner_id)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    await db.commit()
+    return partner
+
+
+@router.post("/partners/{partner_id}/restore", response_model=PartnerOut)
+async def restore_partner(
+    partner_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("partner.update")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+):
+    service = PartnerService(partner_repo)
+    try:
+        partner = await service.restore_partner(company_id=ctx.company_id, partner_id=partner_id)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    await db.commit()
+    return partner
+
+
+@router.get("/partners/{partner_id}/addresses", response_model=list[PartnerAddressOut])
+async def list_partner_addresses(
+    partner_id: UUID,
+    ctx: AuthContext = Depends(require_permission("partner.view")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+    address_repo: PartnerAddressRepository = Depends(get_partner_address_repo),
+):
+    partner = await partner_repo.get_by_id(partner_id, include_archived=True)
+    if partner is None or partner.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Partner not found")
+    return await address_repo.list_by_partner(ctx.company_id, partner_id)
+
+
+@router.post("/partners/{partner_id}/addresses", response_model=PartnerAddressOut, status_code=status.HTTP_201_CREATED)
+async def create_partner_address(
+    partner_id: UUID,
+    payload: PartnerAddressCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("partner.update")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+    address_repo: PartnerAddressRepository = Depends(get_partner_address_repo),
+):
+    service = PartnerService(partner_repo, address_repo)
+    try:
+        address = await service.add_address(
+            company_id=ctx.company_id,
+            partner_id=partner_id,
+            type=payload.type,
+            is_default=payload.is_default,
+            street=payload.street,
+            city=payload.city,
+            region=payload.region,
+            postal_code=payload.postal_code,
+            country_code=payload.country_code,
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    await db.commit()
+    return address
+
+
+@router.patch("/partners/{partner_id}/addresses/{address_id}", response_model=PartnerAddressOut)
+async def update_partner_address(
+    partner_id: UUID,
+    address_id: UUID,
+    payload: PartnerAddressUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("partner.update")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+    address_repo: PartnerAddressRepository = Depends(get_partner_address_repo),
+):
+    service = PartnerService(partner_repo, address_repo)
+    try:
+        address = await service.update_address(
+            company_id=ctx.company_id,
+            partner_id=partner_id,
+            address_id=address_id,
+            type=payload.type,
+            is_default=payload.is_default,
+            street=payload.street,
+            city=payload.city,
+            region=payload.region,
+            postal_code=payload.postal_code,
+            country_code=payload.country_code,
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    await db.commit()
+    return address
+
+
+@router.delete("/partners/{partner_id}/addresses/{address_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_partner_address(
+    partner_id: UUID,
+    address_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("partner.update")),
+    partner_repo: PartnerRepository = Depends(get_partner_repo),
+    address_repo: PartnerAddressRepository = Depends(get_partner_address_repo),
+):
+    service = PartnerService(partner_repo, address_repo)
+    try:
+        await service.delete_address(company_id=ctx.company_id, partner_id=partner_id, address_id=address_id)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    await db.commit()
 
 
 @router.post("/partners/{partner_id}/image", response_model=PartnerOut)

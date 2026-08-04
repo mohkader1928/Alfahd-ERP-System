@@ -189,8 +189,17 @@ class AddressIn(BaseModel):
 class PartnerCreateRequest(BaseModel):
     name: str
     name_ar: str | None = None
+    is_company: bool = True
+    parent_partner_id: UUID | None = None
     is_customer: bool = False
     is_vendor: bool = False
+    is_employee: bool = False
+    job_title: str | None = None
+    is_primary_contact: bool = False
+    phone: str | None = None
+    mobile: str | None = None
+    email: str | None = None
+    website: str | None = None
     vat_number: str | None = None
     cr_number: str | None = None
     address: AddressIn | None = None
@@ -199,8 +208,16 @@ class PartnerCreateRequest(BaseModel):
 class PartnerUpdateRequest(BaseModel):
     name: str
     name_ar: str | None = None
+    is_company: bool = True
     is_customer: bool = False
     is_vendor: bool = False
+    is_employee: bool = False
+    job_title: str | None = None
+    is_primary_contact: bool = False
+    phone: str | None = None
+    mobile: str | None = None
+    email: str | None = None
+    website: str | None = None
     vat_number: str | None = None
     cr_number: str | None = None
     address: AddressIn | None = None
@@ -211,13 +228,57 @@ class PartnerOut(BaseModel):
     company_id: UUID
     name: str
     name_ar: str | None
+    is_company: bool
+    parent_partner_id: UUID | None
     is_customer: bool
     is_vendor: bool
+    is_employee: bool
+    job_title: str | None
+    is_primary_contact: bool
+    phone: str | None
+    mobile: str | None
+    email: str | None
+    website: str | None
     vat_number: str | None
     cr_number: str | None
     address: dict | None
     is_active: bool
     image_path: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class PartnerAddressCreateRequest(BaseModel):
+    type: str = Field(pattern="^(billing|shipping|other)$")
+    is_default: bool = False
+    street: str | None = None
+    city: str | None = None
+    region: str | None = None
+    postal_code: str | None = None
+    country_code: str | None = None
+
+
+class PartnerAddressUpdateRequest(BaseModel):
+    type: str = Field(pattern="^(billing|shipping|other)$")
+    is_default: bool = False
+    street: str | None = None
+    city: str | None = None
+    region: str | None = None
+    postal_code: str | None = None
+    country_code: str | None = None
+
+
+class PartnerAddressOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    partner_id: UUID
+    type: str
+    is_default: bool
+    street: str | None
+    city: str | None
+    region: str | None
+    postal_code: str | None
+    country_code: str | None
 
     model_config = {"from_attributes": True}
 

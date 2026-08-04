@@ -8,9 +8,45 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-04, on top of committed `686c873` (`main`) —
-**Bundle 3 — Purchasing/Inventory List & Form Consistency**, uncommitted
-at time of writing — 183/183 backend tests (unchanged, no backend code
+**Last verified**: 2026-08-04, on top of committed `89949ec` (`main`) —
+**Unified Address Book / Partner & Contacts**, uncommitted at time of
+writing — Implemented and Tested (192/192 backend tests, 9 new; `ruff
+check src tests` and `tsc`/`eslint`/frontend production build all clean)
+and Live Demonstrated end to end in a real browser session: created one
+real Partner ("Ahmed Trading Co.") simultaneously Customer + Vendor +
+Employee via the New Partner form; added Billing/Shipping/Other addresses
+with correct per-type default enforcement; added a primary contact ("Ahmed
+Mohammed", Purchasing Manager) and a second contact ("Sara Al-Otaibi",
+Accountant) — each landed as its own real, independently-navigable Partner
+row (`is_company=false`, `parent_partner_id` set), not a separate lookalike
+table; confirmed via the raw `GET /partners` response that exactly one
+"Ahmed Trading Co." row exists (no duplicate) and both contacts have
+correct `parent_partner_id`/`job_title`/`is_primary_contact`; confirmed the
+same partner appears correctly filtered in Address Book, Customers,
+Vendors, and Employees (all four are views over the same table); confirmed
+the new Accounting-tab smart links (`/accounting?tab=customer-subledger&partner=<id>`)
+land on the right tab, preselect the partner, and auto-run the report with
+real (zero, correct) figures; confirmed the duplicate-detection warning
+fires non-blockingly on a matching VAT number with a working link to the
+existing record, and does not fire on new data; confirmed Arabic/RTL
+renders correctly for the new nav entries, all 8 profile tabs, and the
+list filters. **Not** re-verified live in this pass: a second-company
+switch test for this bundle's new tables specifically (only one company
+was attached to the demo login used) — cross-company isolation for
+`partner_address` and the new `parent_partner_id` linkage is instead
+covered by 4 new automated tests (cross-company 404 on address read/
+update/delete, parent-partner-must-be-same-company on create), and by the
+pre-existing `company_isolation` RLS policy applied identically to the new
+`partner_address` table. Permission gating (create/update/archive all
+403 for a zero-role user) is covered by a new automated test, not
+re-created manually as a second live browser session, since Bundle 3
+already live-verified this exact `Can`/`require_permission` mechanism
+end-to-end for other modules. Owner Acceptance for this bundle is
+**pending** — never assumed. See the dated entry below for full detail.
+
+**Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
+**Bundle 3 — Purchasing/Inventory List & Form Consistency**, then
+committed as `89949ec` — 183/183 backend tests (unchanged, no backend code
 touched), `ruff`/`tsc`/`eslint`/frontend production build all clean, a
 full real business flow live-demonstrated end to end (Purchase Order →
 Confirm → Goods Receipt → Vendor Bill → Approve → Stock → Transfer), plus
@@ -457,7 +493,7 @@ Legend: 🟢 Production-ready · 🟡 Partial/working-but-incomplete · 🔴 Not
 | **Inventory** | Phase 2, blueprint §7 | Warehouses/locations, FIFO/average valuation (verified oldest-first / recompute formula), transfers, cycle-count with real adjustment + journal posting | 🟡 55% | `inventory/api/routes.py`; **zero `AuditLogRepository` calls** despite moving financial value | no stock card, no reorder rules (no min/max fields exist), `/stock/receive` is an ungated manual-adjustment backdoor (no reason code), no valuation report, no serial/lot tracking, **cycle-count has a backend workflow with zero frontend UI at all** |
 | **ZATCA e-invoicing** | Phase 2 | Real hash-chaining, real TLV QR (tags 1–6 populated), B2B-clearance/B2C-reporting routing, correct async worker RLS-context ordering | 🟡 40% (pipeline works end-to-end; **0% production-ready by the code's own admission**) | `sandbox_gateway.py`: *"NOT A REAL ZATCA INTEGRATION"*; `signing.py`: HMAC placeholder explicitly documented as *not* a real Cryptographic Stamp; no CSID onboarding flow | needs genuine ECDSA/secp256k1 signing + CSID certificate + real ZATCA endpoint integration — a compliance project of its own, correctly out of nucleus scope so far |
 | **Reporting** | Phase 2, blueprint §11 | Dashboard (4 KPIs), CSV export ×2 (sales invoices, audit log) | 🔴 15% | `reporting/` — 85+55+20+17+13 lines total across all files, exhaustively read | no shared report/filter architecture, no GL/P&L/Balance Sheet/aging, no PDF export (explicitly deferred in code comment), only 2 of 7 modules have any export at all, one blanket permission for all exports |
-| **Master Data** | Phase 17B | Product (category+UOM+cost now exposed), ProductCategory tree, UnitOfMeasure, Partner — full CRUD+RLS+UI, best-covered area for permission-gating and error/empty states | 🟢 88% | `docs/17b-master-data.md`; 21 tests; frontend audit: only area with consistent `Can` gating AND explicit 404-vs-error distinction | no relation tabs on Product/Partner cards yet (Inventory/Sales/Purchase history — deferred by design comment), no bulk import/export |
+| **Master Data / Address Book** | Phase 17B, Unified Address Book bundle (2026-08-04, uncommitted) | Product, ProductCategory, UnitOfMeasure unchanged; Partner is now the single master entity for Company/Individual, Customer/Vendor/Employee, and Contact Person (via `parent_partner_id`, no separate contact table) — Address Book/Customers/Vendors/Employees are filtered views over one table; multi-address (`partner_address`, billing/shipping/other, per-type default); non-blocking duplicate-detection warning on create; archive/restore; smart Accounting-tab links (deep-linked, auto-run subledger) | 🟢 85% (Implemented/Tested/Live Demonstrated; **not yet Owner Accepted**) | `docs/project-progress.md` dated entry above; 9 new backend tests (192/192 total); migration `b2c4e6f8a1d3`; live-demonstrated full flow (Customer+Vendor+Employee partner, 3 addresses, 2 real contacts, cross-view/RTL/deep-link checks) | Sales/Purchasing document flows do not yet reference `partner_address` rows (deliberately deferred, table designed to be FK-able when they do); `partner.address` JSONB kept post-backfill, not yet dropped (deliberate, per Owner instruction); Module Settings for Address Book deferred; no relation tabs beyond Accounting smart links; no bulk import/export |
 | **Frontend — Design System** | Phase 17A | Real shared library: `ERPListView` (search/sort/paginate/column-picker), `FilterBar`, `FormView`, `RecordCard`, `Can`, empty/error/not-found states — genuinely functioning, not shells | 🟡 70% | `components/erp/*`; but **only Master Data + Sales Quotations actually use it** — Accounting/Inventory/Purchasing are bespoke `<Table>` reimplementations | `zod`+`react-hook-form` are installed but have **zero usage anywhere** — every form is hand-rolled `useState`, no schema validation; `coming-soon.tsx`/`permission-denied.tsx` are dead code |
 | **Frontend — Module UIs** | Phase 12, 17A/B | 24 routes; real i18n/RTL (228 parallel EN/AR keys, real `dir` flip on `<html>`, logical CSS properties, verified live this session) | 🟡 55% | frontend audit agent, per-module detail below | **no Sales Order or Sales Invoice list page exists at all** (only reachable via deep link from a quotation/order); Accounting/Inventory/Purchasing tabs have no search/filter/sort/pagination and **no `isError` handling** (fail silently blank); workflow-action buttons (confirm/post/reverse/approve) are gated by document status but **not by permission** anywhere outside Master Data's create buttons; no UI at all for user/role/branch/audit-log management despite backend support; vendor bills have no detail page |
 | **Testing** | Phase 11 | 130 integration tests, all against real Postgres/RLS, no mocks on security paths | 🟡 65% | this session's full-suite runs | 100% integration-level, no domain unit tests, no frontend tests |

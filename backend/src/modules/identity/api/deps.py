@@ -9,6 +9,7 @@ from src.modules.identity.infrastructure.repositories import (
     BranchRepository,
     CompanyRepository,
     CurrencyRepository,
+    PartnerAddressRepository,
     PartnerRepository,
     ProductCategoryRepository,
     ProductRepository,
@@ -42,6 +43,10 @@ def get_role_repo(db: AsyncSession = Depends(get_db)) -> RoleRepository:
 
 def get_partner_repo(db: AsyncSession = Depends(get_db)) -> PartnerRepository:
     return PartnerRepository(db)
+
+
+def get_partner_address_repo(db: AsyncSession = Depends(get_db)) -> PartnerAddressRepository:
+    return PartnerAddressRepository(db)
 
 
 def get_product_repo(db: AsyncSession = Depends(get_db)) -> ProductRepository:

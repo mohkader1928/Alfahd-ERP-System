@@ -458,6 +458,64 @@ disabled) and the backend independently still returns 403 — **Owner
 Accepted: pending**. Per the Owner's explicit instruction, no other
 Bundle or milestone was started in this pass.
 
+**Unified Address Book / Partner & Contacts (2026-08-04, same day,
+Owner-approved with 15 modification conditions)**: the Owner approved the
+proposed bundle subject to conditions that materially changed the
+original design in two places, both applied. First, the originally-
+proposed lightweight `partner_contact` table was replaced with a simpler,
+more scalable mechanism the Owner explicitly asked for if it existed: a
+contact person is just another `Partner` row (`is_company=false`,
+`parent_partner_id` pointing at its company), so it can gain Customer/
+Vendor/Employee roles or its own addresses later on the same row — no
+migration, no re-creation of identity data, and one fewer table than
+originally planned. Second, `partner.address` (JSONB) is backfilled into
+a new `partner_address` table but deliberately **not** dropped in this
+migration, per explicit Owner instruction overriding the original
+recommendation, to keep migration risk low; removal is deferred to a
+later migration once regression proves nothing depends on it.
+
+Delivered: `Partner` gains `is_company`, `parent_partner_id`,
+`is_employee`, `job_title`, `is_primary_contact`, `phone`/`mobile`/
+`email`/`website` (migration `b2c4e6f8a1d3`); new `partner_address` table
+(billing/shipping/other, per-type default, its own `company_isolation`
+RLS policy, a stable UUID PK deliberately FK-able by future Sales/
+Purchasing document fields without restructuring); the old "must be
+customer or vendor" validation was removed (a Contact Person or an
+undecided Partner is now a legitimate state); non-blocking client-side
+duplicate-detection (name/VAT/CR/email/phone) on the New Partner form;
+archive/restore (`POST /partners/{id}/archive|restore`, `include_archived`
+list filter); Address Book (`/master-data/address-book`) and Employees
+(`/master-data/employees`) as new nav entries — both, plus the existing
+Customers/Vendors screens, are the same `PartnerListView` filtered
+differently, per the Owner's "views, not separate databases" condition;
+the Partner detail page was rebuilt from a single-tab form into an
+8-tab profile (Overview/Identity, Contact Information, Addresses,
+Contacts, Roles, Tax & Legal, Accounting, Related Records) with inline
+Address/Contact CRUD and smart Accounting-tab links; the Accounting
+page gained a small, additive `?tab=&partner=` deep-link so those smart
+links land on the right tab with the right partner preselected and the
+report already run, without touching any Subledger calculation logic.
+**Implemented, Tested (192/192 backend, 9 new; `ruff`/`tsc`/`eslint`/
+production build all clean), Live Demonstrated**: a real Partner created
+via the UI as Customer + Vendor + Employee simultaneously, with 3
+addresses (correct per-type default handling) and 2 real contact-person
+Partners (one primary), verified via the raw API response to be exactly
+one record (no duplicate) and correctly visible in Address Book/
+Customers/Vendors/Employees; the Accounting smart link verified to
+auto-run a real (correct, zero) subledger report; the duplicate-warning
+verified to fire on a matching VAT and not otherwise; Arabic/RTL verified
+across the new nav entries and all 8 profile tabs — **Owner Accepted:
+pending**. Company-switch data-leak and live permission-gating for this
+bundle specifically were validated via new automated tests (cross-company
+404s, parent-must-be-same-company, 403 for a zero-role user) rather than
+a second manual browser session, since Bundle 3 already live-verified the
+identical `Can`/`require_permission`/RLS mechanism for other modules.
+Explicitly out of scope, per the Owner's own list: HR/Payroll/full
+Employee management, CRM, a full Tags system, Merge/Deduplication
+tooling, transaction aggregation beyond the existing Accounting smart
+links, Module Settings, Attachments, Audit Trail UI. Per the Owner's
+closing instruction, no new bundle or milestone was started in this pass.
+
 ---
 
 ## Global Roadmap Status
@@ -469,7 +527,7 @@ Evidence basis: direct repository inspection (modules, migrations, tests, fronte
 | Foundation / Architecture | 🟢 Strong | 90% | Modular monolith, one-way module dependencies, Docker, CI baseline all in place and stable across 7 completed phases. |
 | Security / RLS | 🟢 Complete | 100% | Verified: 3-tier DB roles, `FORCE ROW LEVEL SECURITY` on every business table, 24/24 RLS tests, no superuser in the runtime path. |
 | Identity / Users / RBAC | 🟢 Strong | 85% | Login, 2FA, roles/permissions enforced; Role Management UI now shipped (Settings Architecture Foundation) — roles can be created and their permissions edited live via `/settings/security`, closing the former "permissions only editable via seed data" gap; still missing per-user permission overrides and field-level permission UI (schema supports it, unused). |
-| Master Data | 🟢 Strong | 88% | Products, Categories, UOM, Customers/Vendors fully on the design system with CRUD + validation. |
+| Master Data / Address Book | 🟢 Strong | 85% | Products, Categories, UOM unchanged; Partner unified as the single master entity for Address Book/Customers/Vendors/Employees/Contacts (Unified Address Book bundle) — multi-address, real contact-as-Partner linkage, duplicate-detection, archive/restore, smart Accounting links; Sales/Purchasing document flows don't yet reference `partner_address` (deliberately deferred). |
 | Sales | 🟡 Partial | 55% | Full Quotation→Payment lifecycle works end-to-end; missing statement/history/report screens (Section D). |
 | Purchasing | 🟡 Partial | 58% | Mirrors Sales — PO→Payment lifecycle works; list screens now on `ERPListView` with real permission gating (Bundle 3); same statement/report gap remains. |
 | Inventory | 🟡 Partial | 58% | Warehouses/stock/transfers/cycle counts work and post correctly; list screens now on `ERPListView` with real permission gating (Bundle 3); missing valuation/low-stock/history reports. |

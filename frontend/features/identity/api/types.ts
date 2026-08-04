@@ -73,8 +73,17 @@ export interface Partner {
   company_id: string;
   name: string;
   name_ar: string | null;
+  is_company: boolean;
+  parent_partner_id: string | null;
   is_customer: boolean;
   is_vendor: boolean;
+  is_employee: boolean;
+  job_title: string | null;
+  is_primary_contact: boolean;
+  phone: string | null;
+  mobile: string | null;
+  email: string | null;
+  website: string | null;
   vat_number: string | null;
   cr_number: string | null;
   address: Address | null;
@@ -85,11 +94,43 @@ export interface Partner {
 export interface PartnerWriteInput {
   name: string;
   name_ar?: string | null;
+  is_company?: boolean;
+  parent_partner_id?: string | null;
   is_customer?: boolean;
   is_vendor?: boolean;
+  is_employee?: boolean;
+  job_title?: string | null;
+  is_primary_contact?: boolean;
+  phone?: string | null;
+  mobile?: string | null;
+  email?: string | null;
+  website?: string | null;
   vat_number?: string | null;
   cr_number?: string | null;
   address?: Address | null;
+}
+
+export interface PartnerAddress {
+  id: string;
+  company_id: string;
+  partner_id: string;
+  type: "billing" | "shipping" | "other";
+  is_default: boolean;
+  street: string | null;
+  city: string | null;
+  region: string | null;
+  postal_code: string | null;
+  country_code: string | null;
+}
+
+export interface PartnerAddressWriteInput {
+  type: "billing" | "shipping" | "other";
+  is_default?: boolean;
+  street?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postal_code?: string | null;
+  country_code?: string | null;
 }
 
 export interface Product {

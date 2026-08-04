@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.identity.infrastructure.master_data_models import (
     Partner,
+    PartnerAddress,
     Product,
     ProductCategory,
     UnitOfMeasure,
@@ -238,10 +239,11 @@ class PartnerRepository:
         await self.session.flush()
         return partner
 
-    async def get_by_id(self, partner_id: UUID) -> Partner | None:
-        result = await self.session.execute(
-            select(Partner).where(Partner.id == partner_id, Partner.deleted_at.is_(None))
-        )
+    async def get_by_id(self, partner_id: UUID, *, include_archived: bool = False) -> Partner | None:
+        stmt = select(Partner).where(Partner.id == partner_id)
+        if not include_archived:
+            stmt = stmt.where(Partner.deleted_at.is_(None))
+        result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_by_company(
@@ -250,13 +252,22 @@ class PartnerRepository:
         *,
         customers_only: bool = False,
         vendors_only: bool = False,
+        employees_only: bool = False,
+        parent_partner_id: UUID | None = None,
         search: str | None = None,
+        include_archived: bool = False,
     ) -> list[Partner]:
-        stmt = select(Partner).where(Partner.company_id == company_id, Partner.deleted_at.is_(None))
+        stmt = select(Partner).where(Partner.company_id == company_id)
+        if not include_archived:
+            stmt = stmt.where(Partner.deleted_at.is_(None))
         if customers_only:
             stmt = stmt.where(Partner.is_customer.is_(True))
         if vendors_only:
             stmt = stmt.where(Partner.is_vendor.is_(True))
+        if employees_only:
+            stmt = stmt.where(Partner.is_employee.is_(True))
+        if parent_partner_id is not None:
+            stmt = stmt.where(Partner.parent_partner_id == parent_partner_id)
         if search:
             needle = f"%{search}%"
             stmt = stmt.where(
@@ -264,9 +275,61 @@ class PartnerRepository:
                 | Partner.name_ar.ilike(needle)
                 | Partner.vat_number.ilike(needle)
                 | Partner.cr_number.ilike(needle)
+                | Partner.email.ilike(needle)
+                | Partner.phone.ilike(needle)
+                | Partner.mobile.ilike(needle)
             )
         result = await self.session.execute(stmt.order_by(Partner.name))
         return list(result.scalars().all())
+
+
+class PartnerAddressRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, address: PartnerAddress) -> PartnerAddress:
+        self.session.add(address)
+        await self.session.flush()
+        return address
+
+    async def get_by_id(self, company_id: UUID, address_id: UUID) -> PartnerAddress | None:
+        result = await self.session.execute(
+            select(PartnerAddress).where(PartnerAddress.id == address_id, PartnerAddress.company_id == company_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_partner(self, company_id: UUID, partner_id: UUID) -> list[PartnerAddress]:
+        result = await self.session.execute(
+            select(PartnerAddress)
+            .where(PartnerAddress.company_id == company_id, PartnerAddress.partner_id == partner_id)
+            .order_by(PartnerAddress.type, PartnerAddress.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def unset_other_defaults(
+        self, company_id: UUID, partner_id: UUID, type_: str, *, exclude_id: UUID | None = None
+    ) -> None:
+        """Enforces "at most one default per (partner, type)" at the
+        application layer rather than a DB constraint — keeps the migration
+        simple and matches how similar single-default invariants are
+        handled elsewhere in this codebase (e.g. Branch.is_main has no DB
+        constraint either)."""
+        stmt = select(PartnerAddress).where(
+            PartnerAddress.company_id == company_id,
+            PartnerAddress.partner_id == partner_id,
+            PartnerAddress.type == type_,
+            PartnerAddress.is_default.is_(True),
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(PartnerAddress.id != exclude_id)
+        result = await self.session.execute(stmt)
+        for row in result.scalars().all():
+            row.is_default = False
+        await self.session.flush()
+
+    async def delete(self, address: PartnerAddress) -> None:
+        await self.session.delete(address)
+        await self.session.flush()
 
 
 class ProductRepository:

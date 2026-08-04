@@ -1,11 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Banknote,
+  BookUser,
   Boxes,
   Building2,
   Calculator,
   FileText,
   FolderTree,
+  IdCard,
   LayoutDashboard,
   Package,
   Ruler,
@@ -68,8 +70,10 @@ export const NAV_CONFIG: NavEntry[] = [
       { type: "link", href: "/master-data/products", labelKey: "nav.master_data.products", icon: Package },
       { type: "link", href: "/master-data/categories", labelKey: "nav.master_data.categories", icon: FolderTree },
       { type: "link", href: "/master-data/uom", labelKey: "nav.master_data.uom", icon: Ruler },
+      { type: "link", href: "/master-data/address-book", labelKey: "nav.master_data.address_book", icon: BookUser },
       { type: "link", href: "/master-data/customers", labelKey: "nav.master_data.customers", icon: Users },
       { type: "link", href: "/master-data/vendors", labelKey: "nav.master_data.vendors", icon: Building2 },
+      { type: "link", href: "/master-data/employees", labelKey: "nav.master_data.employees", icon: IdCard },
     ],
   },
   {
