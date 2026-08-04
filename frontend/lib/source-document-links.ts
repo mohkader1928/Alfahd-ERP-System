@@ -28,6 +28,8 @@ const SOURCE_DOCUMENT_LABEL_KEY: Record<string, string> = {
   goods_receipt: "accounting.source.goods_receipt",
   goods_receipt_line: "accounting.source.goods_receipt",
   cycle_count_line: "accounting.source.cycle_count",
+  manual_receipt: "accounting.source.manual_receipt",
+  stock_transfer: "accounting.source.stock_transfer",
 };
 
 export function sourceDocumentLabelKey(sourceTable: string | null): string | null {

@@ -19,8 +19,11 @@ import { identityApi } from "@/features/identity/api/client";
 import { inventoryApi } from "@/features/inventory/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
+import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
 import { toastError, toastSuccess } from "@/lib/toast";
 import type { StockMove, StockQuant, Warehouse } from "@/features/inventory/api/types";
+import Link from "next/link";
 
 /**
  * Bundle 3 — Purchasing/Inventory List Consistency. All four tabs move
@@ -292,7 +295,7 @@ function StockTab() {
 }
 
 function MovesTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
   const { label: productLabel } = useProductLabel();
@@ -303,6 +306,13 @@ function MovesTab() {
   });
 
   const columns: ERPColumn<StockMove>[] = [
+    {
+      key: "moved_at",
+      header: t("inventory.moves.date"),
+      sortable: true,
+      sortValue: (r) => r.moved_at,
+      render: (r) => formatDate(r.moved_at, locale),
+    },
     { key: "product", header: t("inventory.stock.product"), sortable: true, sortValue: (r) => productLabel(r.product_id), render: (r) => productLabel(r.product_id) },
     { key: "move_type", header: t("inventory.moves.type"), render: (r) => <Badge variant="secondary">{r.move_type}</Badge> },
     { key: "qty", header: t("inventory.moves.qty"), align: "end", sortable: true, sortValue: (r) => Number(r.qty), render: (r) => r.qty },
@@ -313,6 +323,22 @@ function MovesTab() {
       sortable: true,
       sortValue: (r) => Number(r.unit_cost),
       render: (r) => formatCurrency(r.unit_cost),
+    },
+    {
+      key: "source",
+      header: t("inventory.moves.source"),
+      render: (r) => {
+        const href = sourceDocumentHref(r.source_table, r.source_id);
+        const labelKey = sourceDocumentLabelKey(r.source_table);
+        const label = labelKey ? t(labelKey) : r.source_table;
+        return href ? (
+          <Link href={href} className="underline-offset-4 hover:underline">
+            {label}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">{label}</span>
+        );
+      },
     },
   ];
 

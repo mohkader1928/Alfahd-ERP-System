@@ -32,4 +32,7 @@ export interface StockMove {
   qty: string;
   unit_cost: string;
   move_type: string;
+  source_table: string;
+  source_id: string;
+  moved_at: string;
 }

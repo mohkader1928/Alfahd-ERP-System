@@ -1,6 +1,6 @@
 """Pydantic schemas for Inventory, per Phase 10 §6.4."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -60,6 +60,9 @@ class StockMoveOut(BaseModel):
     qty: Decimal
     unit_cost: Decimal
     move_type: str
+    source_table: str
+    source_id: UUID
+    moved_at: datetime
 
     model_config = {"from_attributes": True}
 

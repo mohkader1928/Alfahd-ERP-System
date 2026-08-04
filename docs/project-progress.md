@@ -108,6 +108,36 @@ v4 uses the CSS `rotate` property here, not `transform`, which is why a
 naive `transform` check would have wrongly read "not applied"). **Owner
 Accepted: pending.**
 
+**Bundle A — closing slice (Inventory Moves date/source + inline-form
+audit)**: `StockMove` already tracked `moved_at`/`source_table`/`source_id`
+on every row (existing ORM columns) but never exposed them — closed by
+extending `StockMoveOut` (backend, purely additive, no migration needed)
+and adding a Date column (`formatDate`) and a Source column to the
+Inventory → Moves tab, reusing the exact same `sourceDocumentHref`/
+`sourceDocumentLabelKey` drill-down pattern already proven on GL/
+Subledger/AR-Aging: Sales Invoice-sourced moves link to the real invoice,
+Goods Receipt/Stock Transfer-sourced moves (no detail page yet) render as
+correctly-localized plain-text labels, never a raw `source_table` string.
+Separately, a focused audit of Purchasing/Inventory's inline quick-create
+mutation surfaces (Warehouse create, Stock Receive, Transfer, Vendor Bill
+Approve) against the Owner's 4-point checklist (permission-gated, toast
+feedback, drill-down where applicable, no raw IDs/dates/currency) found
+zero defects — all four were already built to standard. 193/193 backend
+tests, `ruff check src tests` clean, `tsc`/`eslint`/production build all
+clean. Live Demonstrated: Moves tab shows real formatted dates
+("Aug 03, 2026" / "03 أغسطس 2026" — Western digits enforced in both
+locales); a Sales Invoice source link opened the real invoice detail page
+(confirmed via `window.location.pathname`); Goods Receipt/Stock Transfer
+rows render as "Goods Receipt"/"Stock Transfer" (English) and
+"إشعار استلام بضاعة"/"تحويل مخزون" (Arabic) plain text, not raw source-table
+strings. **Owner Accepted: pending.**
+
+**Bundle A is now formally closed** (Implemented, Tested, Live
+Demonstrated across all 4 slices above; Owner Acceptance still pending as
+always — never assumed). Work proceeds directly to **Bundle B — Address
+Book + Images** per the Owner's explicit "no stopping between Bundles"
+directive.
+
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
 `5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff

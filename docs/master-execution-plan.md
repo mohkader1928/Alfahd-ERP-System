@@ -530,7 +530,7 @@ Evidence basis: direct repository inspection (modules, migrations, tests, fronte
 | Master Data / Address Book | 🟢 Strong | 85% | Products, Categories, UOM unchanged; Partner unified as the single master entity for Address Book/Customers/Vendors/Employees/Contacts (Unified Address Book bundle) — multi-address, real contact-as-Partner linkage, duplicate-detection, archive/restore, smart Accounting links; Sales/Purchasing document flows don't yet reference `partner_address` (deliberately deferred). |
 | Sales | 🟡 Partial | 58% | Full Quotation→Payment lifecycle works end-to-end; **Sales Orders and Sales Invoices now have real list screens** (`/sales/orders`, `/sales/invoices` — previously only reachable via deep link, a gap the UI/UX audit found), on the same `ERPListView` pattern; still missing Customer Statement/history/report screens beyond what Accounting's Subledger already covers (Section D). |
 | Purchasing | 🟡 Partial | 58% | Mirrors Sales — PO→Payment lifecycle works; list screens now on `ERPListView` with real permission gating (Bundle 3); same statement/report gap remains. |
-| Inventory | 🟡 Partial | 58% | Warehouses/stock/transfers/cycle counts work and post correctly; list screens now on `ERPListView` with real permission gating (Bundle 3); missing valuation/low-stock/history reports. |
+| Inventory | 🟡 Partial | 60% | Warehouses/stock/transfers/cycle counts work and post correctly; list screens now on `ERPListView` with real permission gating (Bundle 3); Stock Moves now shows a real Date column and a Source drill-down (Sales Invoice-sourced moves link to the invoice; Goods Receipt/Stock Transfer render as localized labels, no detail page yet); missing valuation/low-stock/history reports, Stock Card screen (Bundle D). |
 | Accounting | 🟢 Strong | 85% | CoA, Journal Entries, Trial Balance, correct auto-posting from every module, General Ledger, Income Statement, Balance Sheet (M1a), plus **Customer/Vendor Subledgers, AR/AP Aging, JE source-document drill-down (Milestone 1b)**; **UI/UX Professional pass (2026-08-04)**: all 10 tabs now on `ERPListView`/`ReportView`, every report has a real print header (logo+name), mutation buttons `<Can>`-gated, AR Aging rows drill down to their invoice; missing period-closing, Vendor Bill's own detail page (AP Aging/Subledger rows still not clickable), and the Trial Balance's Opening/Period/Closing column redesign (deliberately deferred to Bundle E so this pass's shell work isn't redone). |
 | Payments | 🟢 Strong (pending commit) | 85% | Full customer/vendor payment lifecycle, real allocation with concurrency protection, live-verified; refund/credit-application flow deliberately deferred. |
 | Reports | 🔴 Minimal | 15% | A handful of flat CSV exports; no interactive filters, no drill-down yet. |
@@ -545,6 +545,33 @@ Evidence basis: direct repository inspection (modules, migrations, tests, fronte
 | UX / UI Design System | 🟡 Partial (est.) | 75% | Phase 17A/17B established shared list/form/table components and i18n+RTL; Company Context + Entity Media Foundation (logos/images for Company/Customer/Vendor/Product) now shipped; Purchasing/Inventory list-consistency pass (Bundle 3) still needed (Section E). |
 | Testing / QA | 🟡 Good, uneven coverage | 65% (est.) | ~141 backend tests, strong on Payments/Sales/RLS; Reports and several UI paths have little to no automated coverage. |
 | Deployment / DevOps | 🟢 Strong | 95% | Docker Compose, role bootstrap, migration discipline, health checks all working and repeatedly verified across phases. |
+
+---
+
+## Owner Directive: ERP Professional UI/UX + Functional Completeness (2026-08-04)
+
+Current phase, executed as 6 interconnected bundles in order: **A** (UI/UX
+Core — shared list/report components, permission gating, double-click
+convention) → **B** (Address Book + Images) → **C** (Traceability) → **D**
+(Inventory Operational Completeness) → **E** (Accounting/Reporting
+Quality) → **F** (Multi-Currency, gated on its own short audit first).
+Execution rhythm per bundle: small audit → full implementation → tests →
+live browser verification → commit → update this file and
+`docs/project-progress.md` → move directly to the next bundle, with no
+long analytical reports during execution and no pausing for a new
+decision unless a real architectural/schema-changing blocker appears.
+
+**Bundle A — closed.** Full detail (4 slices: Accounting module
+consistency, Sales Order/Invoice lists, shared double-click convention,
+Inventory Moves date/source + inline-form audit) is in
+`docs/project-progress.md`. Implemented, Tested, Live Demonstrated across
+all 4 slices; Owner Accepted still pending as always.
+
+**Bundle B — Address Book + Images.** In progress. Starts with an audit
+of the existing Entity Media Foundation (already wired for Company logo,
+Partner image, Product image) to find real gaps before writing any new
+code, per the Owner's explicit "do not rebuild existing infrastructure"
+instruction.
 
 ---
 
