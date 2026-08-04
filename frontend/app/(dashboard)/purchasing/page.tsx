@@ -3,77 +3,102 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { identityApi } from "@/features/identity/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
+import type { PurchaseOrder, VendorBill } from "@/features/purchasing/api/types";
+
+/**
+ * Bundle 3 — Purchasing/Inventory List Consistency. Both tabs now sit on
+ * the same `ERPListView` every other list screen in the app uses (search,
+ * sort, pagination, permission-gated actions, shared empty/error states)
+ * instead of a hand-rolled <Table> — closing the "two different UI
+ * qualities in the same app" finding from docs/18-ui-ux-audit.md (A1/A5/A6).
+ * No business logic changed: same endpoints, same fields, same workflow.
+ */
+function useVendorLabel() {
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const branchId = useAuthStore((s) => s.activeBranchId);
+  const vendorsQuery = useQuery({
+    queryKey: ["partners", companyId, "vendor"],
+    queryFn: () => identityApi.listPartners(companyId, branchId, { vendorsOnly: true }),
+  });
+  return {
+    isLoading: vendorsQuery.isLoading,
+    label: (partnerId: string) => vendorsQuery.data?.find((p) => p.id === partnerId)?.name ?? partnerId,
+  };
+}
 
 function OrdersTab() {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const queryClient = useQueryClient();
+  const { label: vendorLabel } = useVendorLabel();
 
   const ordersQuery = useQuery({
     queryKey: ["purchase-orders", companyId],
     queryFn: () => purchasingApi.listOrders(companyId),
   });
 
+  const columns: ERPColumn<PurchaseOrder>[] = [
+    {
+      key: "number",
+      header: t("purchasing.orders.number"),
+      sortable: true,
+      sortValue: (r) => r.number,
+      render: (r) => (
+        <Link href={`/purchasing/orders/${r.id}`} className="font-medium underline-offset-4 hover:underline">
+          {r.number}
+        </Link>
+      ),
+    },
+    { key: "vendor", header: t("purchasing.orders.vendor"), render: (r) => vendorLabel(r.partner_id) },
+    { key: "order_date", header: t("purchasing.orders.date"), sortable: true, sortValue: (r) => r.order_date, render: (r) => r.order_date },
+    {
+      key: "status",
+      header: t("purchasing.orders.status"),
+      render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge>,
+    },
+    {
+      key: "total_amount",
+      header: t("purchasing.orders.total"),
+      align: "end",
+      sortable: true,
+      sortValue: (r) => Number(r.total_amount),
+      render: (r) => formatCurrency(r.total_amount),
+    },
+  ];
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>{t("purchasing.orders.title")}</CardTitle>
-          <Button size="sm" render={<Link href="/purchasing/orders/new" />}>
-            <Plus className="h-4 w-4" />
-            {t("purchasing.orders.new")}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("purchasing.orders.number")}</TableHead>
-              <TableHead>{t("purchasing.orders.date")}</TableHead>
-              <TableHead>{t("purchasing.orders.status")}</TableHead>
-              <TableHead className="text-end">{t("purchasing.orders.total")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!ordersQuery.isLoading && ordersQuery.data?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t("common.empty")}
-                </TableCell>
-              </TableRow>
-            )}
-            {ordersQuery.data?.map((o) => (
-              <TableRow key={o.id}>
-                <TableCell>
-                  <Link href={`/purchasing/orders/${o.id}`} className="font-medium underline-offset-4 hover:underline">
-                    {o.number}
-                  </Link>
-                </TableCell>
-                <TableCell>{o.order_date}</TableCell>
-                <TableCell>
-                  <Badge variant={statusVariant(o.status)}>{o.status}</Badge>
-                </TableCell>
-                <TableCell className="text-end">{formatCurrency(o.total_amount)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+    <ERPListView
+      title={t("purchasing.orders.title")}
+      columns={columns}
+      rows={ordersQuery.data}
+      rowKey={(r) => r.id}
+      isLoading={ordersQuery.isLoading}
+      isError={ordersQuery.isError}
+      errorMessage={ordersQuery.error instanceof ApiError ? ordersQuery.error.detail : undefined}
+      onRetry={() => ordersQuery.refetch()}
+      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["purchase-orders", companyId] })}
+      searchText={(r) => `${r.number} ${vendorLabel(r.partner_id)}`}
+      searchPlaceholder={t("list.search_placeholder")}
+      emptyDescription={t("purchasing.orders.empty_description")}
+      createAction={{
+        label: t("purchasing.orders.new"),
+        href: "/purchasing/orders/new",
+        permission: "purchasing.order.create",
+      }}
+    />
   );
 }
 
@@ -81,6 +106,7 @@ function VendorBillsTab() {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
+  const { label: vendorLabel } = useVendorLabel();
 
   const billsQuery = useQuery({
     queryKey: ["vendor-bills", companyId],
@@ -96,62 +122,53 @@ function VendorBillsTab() {
     onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
-  if (billsQuery.isLoading) return <Skeleton className="h-40 w-full" />;
+  const columns: ERPColumn<VendorBill>[] = [
+    { key: "number", header: t("purchasing.orders.number"), sortable: true, sortValue: (r) => r.number, render: (r) => r.number },
+    { key: "vendor", header: t("purchasing.orders.vendor"), render: (r) => vendorLabel(r.partner_id) },
+    {
+      key: "status",
+      header: t("purchasing.orders.status"),
+      render: (r) => (
+        <div className="flex gap-1">
+          <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
+          {r.mismatch_reasons && <Badge variant="destructive">{t("purchasing.vendor_bills.mismatch")}</Badge>}
+        </div>
+      ),
+    },
+    {
+      key: "total_amount",
+      header: t("purchasing.orders.total"),
+      align: "end",
+      sortable: true,
+      sortValue: (r) => Number(r.total_amount),
+      render: (r) => formatCurrency(r.total_amount),
+    },
+  ];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("purchasing.vendor_bills.title")}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("purchasing.orders.number")}</TableHead>
-              <TableHead>{t("purchasing.orders.status")}</TableHead>
-              <TableHead className="text-end">{t("purchasing.orders.total")}</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {billsQuery.data?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t("common.empty")}
-                </TableCell>
-              </TableRow>
-            )}
-            {billsQuery.data?.map((b) => (
-              <TableRow key={b.id}>
-                <TableCell>{b.number}</TableCell>
-                <TableCell className="space-x-1">
-                  <Badge variant={statusVariant(b.status)}>{b.status}</Badge>
-                  {b.mismatch_reasons && <Badge variant="destructive">{t("purchasing.vendor_bills.mismatch")}</Badge>}
-                </TableCell>
-                <TableCell className="text-end">{formatCurrency(b.total_amount)}</TableCell>
-                <TableCell className="text-end">
-                  {b.status !== "posted" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => approveMutation.mutate(b.id)}
-                      disabled={approveMutation.isPending}
-                    >
-                      {t("purchasing.vendor_bills.approve")}
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        {approveMutation.isError && (
-          <p className="mt-2 text-sm text-destructive">
-            {approveMutation.error instanceof ApiError ? approveMutation.error.detail : t("common.error")}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+    <ERPListView
+      title={t("purchasing.vendor_bills.title")}
+      columns={columns}
+      rows={billsQuery.data}
+      rowKey={(r) => r.id}
+      isLoading={billsQuery.isLoading}
+      isError={billsQuery.isError}
+      errorMessage={billsQuery.error instanceof ApiError ? billsQuery.error.detail : undefined}
+      onRetry={() => billsQuery.refetch()}
+      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] })}
+      searchText={(r) => `${r.number} ${vendorLabel(r.partner_id)}`}
+      searchPlaceholder={t("list.search_placeholder")}
+      emptyDescription={t("purchasing.vendor_bills.empty_description")}
+      rowActions={(r) =>
+        r.status !== "posted" && (
+          <Can permission="purchasing.vendor_bill.approve">
+            <Button size="sm" variant="outline" onClick={() => approveMutation.mutate(r.id)} disabled={approveMutation.isPending}>
+              {t("purchasing.vendor_bills.approve")}
+            </Button>
+          </Can>
+        )
+      }
+    />
   );
 }
 

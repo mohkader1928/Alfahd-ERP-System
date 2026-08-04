@@ -8,16 +8,18 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-04, on top of committed `d37661a` (`main`) —
-the **Settings Architecture Foundation (Company Settings + Security/
-Roles & Permissions)** milestone, uncommitted at time of writing —
-183/183 backend tests, `ruff`/`tsc`/`eslint`/frontend production build
-all clean, full live browser verification against a freshly-bootstrapped
-company (real grant/revoke of a permission on an already-existing role,
-confirmed to take effect immediately with no logout). See the dated
-entry below for full detail. The paragraphs further below (2026-08-03
-Entity Media Foundation and earlier) are kept verbatim as the historical
-record and were not re-verified as part of this pass.
+**Last verified**: 2026-08-04, on top of committed `686c873` (`main`) —
+**Bundle 3 — Purchasing/Inventory List & Form Consistency**, uncommitted
+at time of writing — 183/183 backend tests (unchanged, no backend code
+touched), `ruff`/`tsc`/`eslint`/frontend production build all clean, a
+full real business flow live-demonstrated end to end (Purchase Order →
+Confirm → Goods Receipt → Vendor Bill → Approve → Stock → Transfer), plus
+a second live pass as a permissions-limited user confirming every gated
+action correctly disappears (not just disables) and the backend still
+returns 403 independently. See the dated entry below for full detail.
+The paragraphs further below (2026-08-04 Settings Architecture Foundation
+and earlier) are kept verbatim as the historical record and were not
+re-verified as part of this pass.
 
 **Historical — last verified 2026-08-02**, against commit `3684edd`
 (`main`) plus uncommitted Phase 17D (Payments) work — implemented, then
@@ -336,6 +338,60 @@ a deliberate scope boundary, not a bug) and mobile-responsive behavior
 (the section nav collapses to a horizontal scroll row below the `sm`
 breakpoint). **Owner Accepted: not yet — pending the Owner personally
 trying it.**
+
+**Committed as `686c873`.**
+
+**Bundle 3 — Purchasing/Inventory List & Form Consistency (2026-08-04,
+same day, Owner-approved scope)**: Implemented and Tested. Closes the
+original UI/UX audit's (`docs/18-ui-ux-audit.md`, finding A1) core
+"two different UI qualities in the same app" problem — Purchasing's two
+tabs (Orders, Vendor Bills) and all four Inventory tabs (Warehouses,
+Stock, Moves, Transfer) previously used a hand-rolled `<Table>` inside
+`<Tabs>` with no search, sort, or pagination, ad hoc empty-row markup
+instead of the shared `EmptyState`/`ErrorState`, and no permission gating
+on the Create/Approve buttons at all — every mutating action was visible
+and clickable regardless of the logged-in user's actual permissions.
+
+- **Purchasing**: both tabs rebuilt on `ERPListView` — real search/sort/
+  pagination, `<Can>`-gated "New purchase order" and "Approve" actions,
+  shared empty states with real guidance copy. A genuine "buried
+  information" gap found and fixed along the way: the Orders and Vendor
+  Bills lists never showed *which vendor* a document was for at all —
+  added a `usePartnerLabel()`-style resolver (mirrors Inventory's existing
+  `useProductLabel()` pattern) so the Vendor column now shows the real
+  name, not just a number.
+- **Inventory**: all four tabs rebuilt the same way. The three inline
+  quick-create forms (Warehouse, Receive Stock, Transfer) deliberately
+  stay inline rather than becoming full `FormView` pages — moving them
+  would add clicks for no UX benefit, the opposite of this project's
+  "minimum clicks" standard — but each is now wrapped in `<Can>`, closing
+  the same permission-visibility gap Purchasing had.
+- **A dead shared component activated, not reinvented**: `PermissionDenied`
+  (`components/erp/states/permission-denied.tsx`) existed in the codebase
+  since Phase 17A but had **zero real call sites** anywhere in the app
+  until this milestone — now used for Inventory's Transfer tab when the
+  caller lacks `inventory.transfer.create`, instead of inventing new
+  fallback markup.
+
+**Verified**: 183/183 backend tests (unchanged — this milestone is
+frontend-only, confirmed no backend file was touched), `ruff`/`tsc`/
+`eslint`/frontend production build all clean. **Live Demonstrated**: a
+complete real business flow end to end on a freshly-bootstrapped company —
+created a real Vendor and Product, created Purchase Order PO-000001
+(3,000.00 SAR), confirmed it, received the goods, registered and approved
+Vendor Bill BILL-000001 (3,450.00 SAR with VAT), confirmed Stock Levels
+showed 10 units at the correct average cost, created a second warehouse,
+transferred 4 units between warehouses, and confirmed the transfer
+appears correctly in Stock Moves — every number correct at every step, no
+business-logic drift from the UI changes. Separately logged in as a
+freshly-created, deliberately permission-limited user (view-only role)
+and confirmed live that every gated action (New Order, Approve, New
+Warehouse, Receive Stock, Transfer) is genuinely **absent**, not just
+disabled, and that a direct API call from that same user still gets a
+real `403` from the backend independently of the UI (defense-in-depth,
+not just a client-side hide). Confirmed Arabic/RTL rendering (`dir="rtl"`,
+full label translation) on both Purchasing and Inventory. **Owner
+Accepted: not yet — pending the Owner personally trying it.**
 
 **Not yet committed** — see the milestone's checkpoint report for exact
 file list and status.

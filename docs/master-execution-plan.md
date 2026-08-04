@@ -436,6 +436,28 @@ on Partner), Audit Trail UI (backend infrastructure already exists,
 barely wired), Attachments/Documents, Bundle 3 — these remain candidates
 for future milestones, not decided here.
 
+**Bundle 3 — Purchasing/Inventory List & Form Consistency (2026-08-04,
+same day, Owner-approved scope)**: full detail in
+`docs/project-progress.md`'s dated entry. Summary: Purchasing's two tabs
+and Inventory's four tabs moved from a hand-rolled `<Table>` (no search/
+sort/pagination/permission-gating, per `docs/18-ui-ux-audit.md` finding
+A1) onto the same `ERPListView` every other list screen already uses —
+frontend-only, no backend or database change. A genuine "buried
+information" gap (Purchasing lists never showed the vendor name, only
+implicitly) was fixed along the way by reusing the exact resolver pattern
+Inventory already had for products. The three inline quick-create forms
+in Inventory deliberately stayed inline (not `FormView` pages) to avoid
+adding clicks, but gained the same `<Can>` gating every mutating action
+elsewhere in the app already has. **Implemented, Tested (183/183 backend
+— unchanged, confirmed no backend file touched), Verified, Live
+Demonstrated**: a complete real flow (Purchase Order → Confirm → Goods
+Receipt → Vendor Bill → Approve → Stock → Transfer) end to end with
+correct numbers at every step, plus a second pass as a genuinely
+permission-limited user confirming gated actions are absent (not
+disabled) and the backend independently still returns 403 — **Owner
+Accepted: pending**. Per the Owner's explicit instruction, no other
+Bundle or milestone was started in this pass.
+
 ---
 
 ## Global Roadmap Status
@@ -449,8 +471,8 @@ Evidence basis: direct repository inspection (modules, migrations, tests, fronte
 | Identity / Users / RBAC | 🟢 Strong | 85% | Login, 2FA, roles/permissions enforced; Role Management UI now shipped (Settings Architecture Foundation) — roles can be created and their permissions edited live via `/settings/security`, closing the former "permissions only editable via seed data" gap; still missing per-user permission overrides and field-level permission UI (schema supports it, unused). |
 | Master Data | 🟢 Strong | 88% | Products, Categories, UOM, Customers/Vendors fully on the design system with CRUD + validation. |
 | Sales | 🟡 Partial | 55% | Full Quotation→Payment lifecycle works end-to-end; missing statement/history/report screens (Section D). |
-| Purchasing | 🟡 Partial | 55% | Mirrors Sales — PO→Payment lifecycle works; same statement/report gap. |
-| Inventory | 🟡 Partial | 55% | Warehouses/stock/transfers/cycle counts work and post correctly; missing valuation/low-stock/history reports. |
+| Purchasing | 🟡 Partial | 58% | Mirrors Sales — PO→Payment lifecycle works; list screens now on `ERPListView` with real permission gating (Bundle 3); same statement/report gap remains. |
+| Inventory | 🟡 Partial | 58% | Warehouses/stock/transfers/cycle counts work and post correctly; list screens now on `ERPListView` with real permission gating (Bundle 3); missing valuation/low-stock/history reports. |
 | Accounting | 🟢 Strong (pending commit) | 85% | CoA, Journal Entries, Trial Balance, correct auto-posting from every module, General Ledger, Income Statement, Balance Sheet (M1a), plus **Customer/Vendor Subledgers, AR/AP Aging, JE source-document drill-down (Milestone 1b — new, live-verified)**; missing period-closing and Vendor Bill's own detail page (Subledger row not clickable). |
 | Payments | 🟢 Strong (pending commit) | 85% | Full customer/vendor payment lifecycle, real allocation with concurrency protection, live-verified; refund/credit-application flow deliberately deferred. |
 | Reports | 🔴 Minimal | 15% | A handful of flat CSV exports; no interactive filters, no drill-down yet. |
