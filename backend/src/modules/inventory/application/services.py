@@ -49,12 +49,22 @@ class WarehouseService:
     async def create_warehouse_with_default_location(
         self, *, company_id: UUID, branch_id: UUID, name: str, is_default: bool = False
     ) -> tuple[Warehouse, Location]:
+        if is_default:
+            await self.warehouse_repo.clear_default_for_company(company_id)
         warehouse = Warehouse(id=uuid.uuid4(), company_id=company_id, branch_id=branch_id, name=name, is_default=is_default)
         await self.warehouse_repo.add(warehouse)
 
         location = Location(id=uuid.uuid4(), company_id=company_id, warehouse_id=warehouse.id, name=f"{name} - Stock")
         await self.location_repo.add(location)
         return warehouse, location
+
+    async def set_default_warehouse(self, *, company_id: UUID, warehouse_id: UUID) -> Warehouse:
+        warehouse = await self.warehouse_repo.get_by_id(warehouse_id)
+        if warehouse is None or warehouse.company_id != company_id:
+            raise ValueError("Warehouse not found")
+        await self.warehouse_repo.clear_default_for_company(company_id)
+        warehouse.is_default = True
+        return warehouse
 
 
 class InventoryValuationService:

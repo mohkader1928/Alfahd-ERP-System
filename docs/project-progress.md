@@ -232,6 +232,36 @@ reorder-point/min-qty field exists anywhere in the schema), so building
 it now would mean inventing a new data model outside this bundle's scope.
 **Owner Accepted: pending.**
 
+**Out-of-cycle fix (2026-08-04) — no default warehouse recovery**: the
+Owner reported a real company ("شركة الفا التجارية") blocked on Purchase
+Order goods receipt with "No default warehouse configured for this
+company." Root cause, confirmed by code: `is_default` could only ever be
+set at warehouse creation time — there was no way to promote an existing
+warehouse to default afterward, so any company that created a warehouse
+without checking the box (or later needed to switch its default) had no
+recovery path except creating a brand-new warehouse. A related, more
+serious latent bug was found in the same code path: creating a second
+warehouse with `is_default=True` never unset the first, so a company
+could silently end up with two default warehouses — the next
+default-lookup query (`scalar_one_or_none()`) would then raise instead of
+returning cleanly, a real correctness/availability risk, not just this
+one company's immediate problem. Fixed both: `POST
+/inventory/warehouses/{id}:set-default` (reuses the existing
+`inventory.warehouse.manage` permission) now clears any other default for
+that company before promoting the target one — the same clearing logic
+was also added to warehouse creation, closing the underlying
+multi-default bug at its source, not just its symptom. Frontend: a "Set
+as default" row action appears on any non-default warehouse in the
+Warehouses tab, permission-gated, with toast feedback. 199/199 backend
+tests (4 new: single-default-enforced-at-creation regression, set-default
+switches correctly and unblocks a real goods-receipt flow end-to-end,
+cross-company 404), `ruff`/`tsc`/`eslint`/build clean. Live Demonstrated:
+promoted "Secondary Warehouse" to default, confirmed "Main Warehouse"
+lost the badge and gained its own "Set as default" button in the same
+action, confirmed toast feedback fired, then reverted back to "Main
+Warehouse" to leave the demo company unchanged. **Owner Accepted:
+pending.**
+
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
 `5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff

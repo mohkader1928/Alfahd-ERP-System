@@ -75,6 +75,92 @@ async def test_receive_stock_and_query_quant(client):
     assert quants[0]["moving_avg_cost"] == "10.0000"
 
 
+async def test_creating_second_default_warehouse_clears_previous_default(client):
+    """Regression: nothing previously unset the old default when a second
+    warehouse was created with is_default=True, so a company could end up
+    with two default warehouses -- and WarehouseRepository.get_default_for_company's
+    scalar_one_or_none() would then raise instead of returning cleanly."""
+    _, headers = await _bootstrap_and_login(client)
+    await _create_warehouse(client, headers)  # "Main Warehouse", is_default=True
+
+    resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Second Warehouse", "is_default": True}
+    )
+    assert resp.status_code == 201
+
+    list_resp = await client.get("/api/v1/inventory/warehouses", headers=headers)
+    defaults = [w for w in list_resp.json() if w["is_default"]]
+    assert len(defaults) == 1
+    assert defaults[0]["name"] == "Second Warehouse"
+
+
+async def test_set_default_warehouse_switches_default_and_unblocks_receipt(client):
+    _, headers = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers)
+    wh1 = await _create_warehouse(client, headers)  # default
+
+    wh2_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Secondary Warehouse", "is_default": False}
+    )
+    wh2 = wh2_resp.json()
+
+    set_default_resp = await client.post(
+        f"/api/v1/inventory/warehouses/{wh2['warehouse']['id']}:set-default", headers=headers
+    )
+    assert set_default_resp.status_code == 200
+    assert set_default_resp.json()["is_default"] is True
+
+    list_resp = await client.get("/api/v1/inventory/warehouses", headers=headers)
+    warehouses = {w["id"]: w for w in list_resp.json()}
+    assert warehouses[wh1["warehouse"]["id"]]["is_default"] is False
+    assert warehouses[wh2["warehouse"]["id"]]["is_default"] is True
+
+    # A purchasing goods-receipt flow (which requires a default warehouse)
+    # now resolves against the newly-promoted warehouse's location.
+    vendor_resp = await client.post(
+        "/api/v1/identity/partners", headers=headers, json={"name": "Set-Default Vendor", "is_vendor": True}
+    )
+    vendor_id = vendor_resp.json()["id"]
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [
+                {
+                    "product_id": product_id,
+                    "qty": "1",
+                    "unit_price": "10.00",
+                    "tax_rate_id": "00000000-0000-0000-0000-000000000001",
+                }
+            ],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_line_id = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()["lines"][0]["id"]
+
+    receipt_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "1"}]},
+    )
+    assert receipt_resp.status_code == 201
+    assert receipt_resp.json()["warehouse_id"] == wh2["warehouse"]["id"]
+
+
+async def test_set_default_warehouse_cross_company_404(client):
+    _, headers_a = await _bootstrap_and_login(client)
+    wh = await _create_warehouse(client, headers_a)
+
+    _, headers_b = await _bootstrap_and_login(client)
+    resp = await client.post(
+        f"/api/v1/inventory/warehouses/{wh['warehouse']['id']}:set-default", headers=headers_b
+    )
+    assert resp.status_code == 404
+
+
 async def test_transfer_moves_stock_between_locations(client):
     _, headers = await _bootstrap_and_login(client)
     product_id = await _create_product(client, headers)

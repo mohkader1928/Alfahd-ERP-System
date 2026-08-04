@@ -18,6 +18,9 @@ export const inventoryApi = {
   createWarehouse: (companyId: string, branchId: string, payload: { name: string; is_default?: boolean }) =>
     apiClient.post<WarehouseCreateResult>(`${BASE}/warehouses`, payload, { companyId, branchId }),
 
+  setDefaultWarehouse: (companyId: string, id: string) =>
+    apiClient.post<Warehouse>(`${BASE}/warehouses/${id}:set-default`, undefined, { companyId }),
+
   listLocations: (companyId: string, warehouseId: string) =>
     apiClient.get<Location[]>(`${BASE}/warehouses/${warehouseId}/locations`, { companyId }),
 

@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.inventory.infrastructure.models import (
@@ -38,6 +38,15 @@ class WarehouseRepository:
     async def list_by_company(self, company_id: UUID) -> list[Warehouse]:
         result = await self.session.execute(select(Warehouse).where(Warehouse.company_id == company_id))
         return list(result.scalars().all())
+
+    async def clear_default_for_company(self, company_id: UUID) -> None:
+        """Ensures at most one warehouse per company has is_default=True —
+        called before setting a new default (creation or promotion), since
+        no DB constraint enforces this (Phase 8 §7 keeps it nullable/plain
+        boolean, application-level invariant only)."""
+        await self.session.execute(
+            update(Warehouse).where(Warehouse.company_id == company_id, Warehouse.is_default.is_(True)).values(is_default=False)
+        )
 
 
 class LocationRepository:

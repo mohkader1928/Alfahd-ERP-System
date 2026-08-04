@@ -82,6 +82,23 @@ async def create_warehouse(
     return WarehouseCreateResponse(warehouse=warehouse, default_location=location)
 
 
+@router.post("/warehouses/{warehouse_id}:set-default", response_model=WarehouseOut)
+async def set_default_warehouse(
+    warehouse_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("inventory.warehouse.manage")),
+    warehouse_repo: WarehouseRepository = Depends(get_warehouse_repo),
+    location_repo: LocationRepository = Depends(get_location_repo),
+):
+    service = WarehouseService(warehouse_repo, location_repo)
+    try:
+        warehouse = await service.set_default_warehouse(company_id=ctx.company_id, warehouse_id=warehouse_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    await db.commit()
+    return warehouse
+
+
 @router.get("/warehouses", response_model=list[WarehouseOut])
 async def list_warehouses(
     ctx: AuthContext = Depends(require_permission("inventory.warehouse.view")),

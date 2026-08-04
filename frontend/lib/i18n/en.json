@@ -232,6 +232,7 @@
   "inventory.warehouses.create_title": "New Warehouse",
   "inventory.warehouses.save": "Save warehouse",
   "inventory.warehouses.empty_description": "Create your first warehouse to start tracking stock.",
+  "inventory.warehouses.set_default": "Set as default",
   "inventory.stock.product": "Product",
   "inventory.stock.location": "Location",
   "inventory.stock.qty_on_hand": "Qty on hand",

@@ -80,6 +80,15 @@ function WarehousesTab() {
     },
   });
 
+  const setDefaultMutation = useMutation({
+    mutationFn: (warehouseId: string) => inventoryApi.setDefaultWarehouse(companyId, warehouseId),
+    onSuccess: (warehouse) => {
+      queryClient.invalidateQueries({ queryKey: ["warehouses", companyId] });
+      toastSuccess(t("toast.success_title"), warehouse.name);
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+  });
+
   const columns: ERPColumn<Warehouse>[] = [
     { key: "name", header: t("inventory.warehouses.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
     {
@@ -136,6 +145,20 @@ function WarehousesTab() {
         searchText={(r) => r.name}
         searchPlaceholder={t("list.search_placeholder")}
         emptyDescription={t("inventory.warehouses.empty_description")}
+        rowActions={(r) =>
+          !r.is_default && (
+            <Can permission="inventory.warehouse.manage">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setDefaultMutation.mutate(r.id)}
+                disabled={setDefaultMutation.isPending}
+              >
+                {t("inventory.warehouses.set_default")}
+              </Button>
+            </Can>
+          )
+        }
       />
     </div>
   );

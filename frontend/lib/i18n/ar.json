@@ -232,6 +232,7 @@
   "inventory.warehouses.create_title": "مستودع جديد",
   "inventory.warehouses.save": "حفظ المستودع",
   "inventory.warehouses.empty_description": "أنشئ أول مستودع لبدء تتبع المخزون.",
+  "inventory.warehouses.set_default": "تعيين كافتراضي",
   "inventory.stock.product": "الصنف",
   "inventory.stock.location": "الموقع",
   "inventory.stock.qty_on_hand": "الكمية المتاحة",
