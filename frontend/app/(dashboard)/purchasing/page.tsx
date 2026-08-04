@@ -161,6 +161,7 @@ function VendorBillsTab() {
       searchText={(r) => `${r.number} ${vendorLabel(r.partner_id)}`}
       searchPlaceholder={t("list.search_placeholder")}
       emptyDescription={t("purchasing.vendor_bills.empty_description")}
+      getRowHref={(r) => `/purchasing/bills/${r.id}`}
       rowActions={(r) =>
         r.status !== "posted" && (
           <Can permission="purchasing.vendor_bill.approve">

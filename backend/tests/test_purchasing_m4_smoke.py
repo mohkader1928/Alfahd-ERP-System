@@ -287,6 +287,47 @@ async def test_list_purchase_orders_and_vendor_bills(client):
     assert bills_resp.status_code == 200
     assert any(b["id"] == bill_id for b in bills_resp.json())
 
+    detail_resp = await client.get(f"/api/v1/purchasing/vendor-bills/{bill_id}", headers=headers)
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["bill"]["id"] == bill_id
+    assert detail["bill"]["purchase_order_id"] == order_id
+    assert len(detail["lines"]) == 1
+    assert detail["lines"][0]["product_id"] == product_id
+
+
+async def test_vendor_bill_not_visible_across_companies(client):
+    _, headers_a = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers_a)
+    product_id = await _create_product(client, headers_a)
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers_a,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [{"product_id": product_id, "qty": "5", "unit_price": "10.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers_a)
+    po_line_id = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers_a)).json()["lines"][0]["id"]
+    await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers_a,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "5"}]},
+    )
+    bill_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers_a,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "5", "unit_price": "10.00"}]},
+    )
+    bill_id = bill_resp.json()["id"]
+
+    _, headers_b = await _bootstrap_and_login(client)
+    detail_resp = await client.get(f"/api/v1/purchasing/vendor-bills/{bill_id}", headers=headers_b)
+    assert detail_resp.status_code == 404
+
 
 async def test_purchase_orders_not_visible_across_companies(client):
     _, headers_a = await _bootstrap_and_login(client)

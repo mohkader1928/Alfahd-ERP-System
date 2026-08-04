@@ -21,6 +21,7 @@ from src.modules.purchasing.api.schemas import (
     PurchaseOrderDetailResponse,
     PurchaseOrderOut,
     VendorBillCreateRequest,
+    VendorBillDetailResponse,
     VendorBillOut,
 )
 from src.modules.purchasing.application.services import (
@@ -54,6 +55,19 @@ async def list_vendor_bills(
     bill_repo: VendorBillRepository = Depends(get_vendor_bill_repo),
 ):
     return await bill_repo.list_by_company(ctx.company_id, partner_id=partner_id)
+
+
+@router.get("/vendor-bills/{bill_id}", response_model=VendorBillDetailResponse)
+async def get_vendor_bill(
+    bill_id: UUID,
+    ctx: AuthContext = Depends(require_permission("purchasing.vendor_bill.view")),
+    bill_repo: VendorBillRepository = Depends(get_vendor_bill_repo),
+):
+    bill = await bill_repo.get_by_id(bill_id)
+    if bill is None or bill.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Vendor bill not found")
+    lines = await bill_repo.get_lines(bill_id)
+    return VendorBillDetailResponse(bill=bill, lines=lines)
 
 
 @router.post("/orders", response_model=PurchaseOrderOut, status_code=status.HTTP_201_CREATED)

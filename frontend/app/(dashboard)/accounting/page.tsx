@@ -930,7 +930,7 @@ function AgingTable({
   partnerLabel: string;
   /** Resolves each row's document number to a source-document link, where
    * that document type already has a real detail page (see
-   * lib/source-document-links.ts) — currently only sales_invoice does. */
+   * lib/source-document-links.ts) — sales_invoice and vendor_bill do. */
   documentSourceTable?: string;
 }) {
   const { t, locale } = useI18n();
@@ -1053,7 +1053,7 @@ function ApAgingTab() {
       {ranAt && reportQuery.data && (
         <>
           <ReportPrintHeader reportTitle={t("accounting.tabs.ap_aging")} dateRangeLabel={reportQuery.data.as_of_date} />
-          <AgingTable rows={reportQuery.data.rows} partnerLabel={t("accounting.aging.vendor")} />
+          <AgingTable rows={reportQuery.data.rows} partnerLabel={t("accounting.aging.vendor")} documentSourceTable="vendor_bill" />
         </>
       )}
     </ReportView>

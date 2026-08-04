@@ -44,9 +44,28 @@ export interface VendorBill {
   partner_id: string;
   purchase_order_id: string;
   number: string;
+  vendor_reference: string | null;
   status: string;
+  bill_date: string;
+  due_date: string | null;
   subtotal_amount: string;
   tax_amount: string;
   total_amount: string;
   mismatch_reasons: string | null;
+}
+
+export interface VendorBillLine {
+  id: string;
+  product_id: string;
+  purchase_order_line_id: string;
+  qty: string;
+  unit_price: string;
+  tax_rate_percent: string;
+  line_total: string;
+  tax_amount: string;
+}
+
+export interface VendorBillDetail {
+  bill: VendorBill;
+  lines: VendorBillLine[];
 }

@@ -567,11 +567,18 @@ Inventory Moves date/source + inline-form audit) is in
 `docs/project-progress.md`. Implemented, Tested, Live Demonstrated across
 all 4 slices; Owner Accepted still pending as always.
 
-**Bundle B — Address Book + Images.** In progress. Starts with an audit
-of the existing Entity Media Foundation (already wired for Company logo,
-Partner image, Product image) to find real gaps before writing any new
-code, per the Owner's explicit "do not rebuild existing infrastructure"
-instruction.
+**Bundle B — Address Book + Images — closed.** Audit found the existing
+Entity Media Foundation already covered Company logo, Partner image, and
+Product image everywhere the directive asked for; closed the one real gap
+(customer/vendor/product `Select` pickers had no thumbnail). Full detail
+in `docs/project-progress.md`.
+
+**Bundle C — Traceability — closed.** Audit found GL→JE→Source and
+Subledger drill-down already working (Milestone 1b). Closed two real
+gaps: AP Aging drill-down (new Vendor Bill detail page,
+`GET /purchasing/vendor-bills/{id}`) and Stock Card (per-product move
+history, `product_id` filter on the existing stock-moves endpoint). Full
+detail in `docs/project-progress.md`.
 
 ---
 

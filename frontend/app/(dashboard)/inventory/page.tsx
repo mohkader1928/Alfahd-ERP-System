@@ -289,6 +289,7 @@ function StockTab() {
         searchText={(r) => productLabel(r.product_id)}
         searchPlaceholder={t("list.search_placeholder")}
         emptyDescription={t("inventory.stock.empty_description")}
+        getRowHref={(r) => `/inventory/stock-card/${r.product_id}`}
       />
     </div>
   );

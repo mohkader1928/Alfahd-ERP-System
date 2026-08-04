@@ -5,6 +5,7 @@ import type {
   PurchaseOrderDetail,
   PurchaseOrderLineIn,
   VendorBill,
+  VendorBillDetail,
 } from "./types";
 
 const BASE = "/api/v1/purchasing";
@@ -43,4 +44,7 @@ export const purchasingApi = {
 
   approveVendorBill: (companyId: string, id: string) =>
     apiClient.post<VendorBill>(`${BASE}/vendor-bills/${id}:approve`, undefined, { companyId }),
+
+  getVendorBill: (companyId: string, id: string) =>
+    apiClient.get<VendorBillDetail>(`${BASE}/vendor-bills/${id}`, { companyId }),
 };

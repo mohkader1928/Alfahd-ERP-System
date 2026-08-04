@@ -3,16 +3,17 @@
  * (already stored on every posted entry since the earliest modules, just
  * never surfaced until now) to a real page, where one exists today.
  *
- * Only `sales_invoice` and `payment` have a real detail screen right now.
- * Everything else (vendor_bill, goods_receipt, goods_receipt_line,
+ * `sales_invoice`, `payment`, and (Bundle C) `vendor_bill` have a real
+ * detail screen. Everything else (goods_receipt, goods_receipt_line,
  * cycle_count_line, ...) returns no href — callers must show the source
  * type as plain text in that case rather than a broken link. Extending
  * this map is the only change needed once a module gains its own detail
- * page (e.g. a future Vendor Bill screen).
+ * page.
  */
 const SOURCE_DOCUMENT_HREF: Record<string, (id: string) => string> = {
   sales_invoice: (id) => `/sales/invoices/${id}`,
   payment: (id) => `/payments/${id}`,
+  vendor_bill: (id) => `/purchasing/bills/${id}`,
 };
 
 export function sourceDocumentHref(sourceTable: string | null, sourceId: string | null): string | null {

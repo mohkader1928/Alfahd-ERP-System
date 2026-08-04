@@ -119,10 +119,11 @@ class StockMoveRepository:
         result = await self.session.execute(select(StockMove).where(StockMove.id == move_id))
         return result.scalar_one_or_none()
 
-    async def list_by_company(self, company_id: UUID) -> list[StockMove]:
-        result = await self.session.execute(
-            select(StockMove).where(StockMove.company_id == company_id).order_by(StockMove.moved_at.desc())
-        )
+    async def list_by_company(self, company_id: UUID, *, product_id: UUID | None = None) -> list[StockMove]:
+        query = select(StockMove).where(StockMove.company_id == company_id)
+        if product_id is not None:
+            query = query.where(StockMove.product_id == product_id)
+        result = await self.session.execute(query.order_by(StockMove.moved_at.desc()))
         return list(result.scalars().all())
 
 

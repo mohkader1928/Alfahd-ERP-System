@@ -161,6 +161,42 @@ did confirm the dropdown correctly renders an avatar per option. Full
 interactive click-through re-verification is still owed and will be
 completed opportunistically. **Owner Accepted: pending.**
 
+**Bundle B — closed.** Implemented and Tested (`tsc`/`eslint`/production
+build clean, no backend changes); Live Demonstrated via DOM inspection of
+the open customer picker on the Sales Quotation form, confirming a real
+avatar element renders next to every option, in Arabic — a full
+click-to-select + screenshot pass is still owed and will be completed
+opportunistically alongside other pending polish. Owner Accepted: pending.
+
+**Bundle C — Traceability**: audit found GL→JE→Source drill-down and
+Customer/Vendor Subledger reference links already fully working (existing
+`sourceDocumentHref` pattern, Milestone 1b). Two real, bounded gaps closed:
+(1) **AP Aging drill-down** — Vendor Bill never had a detail page, so AP
+Aging rows showed plain text while AR Aging rows already linked out. Added
+`GET /purchasing/vendor-bills/{id}` (reusing the existing
+`purchasing.vendor_bill.view` permission and `VendorBillRepository.get_by_id`/
+`get_lines` — no new backend mechanism), a new
+`/purchasing/bills/[id]` detail page mirroring the existing Purchase Order
+detail page exactly (vendor/date/subtotal/tax/total, lines table, gated
+Approve action), wired into the double-click convention, and extended
+`source-document-links.ts` with a real `vendor_bill` href. AP Aging now
+drills down identically to AR Aging. (2) **Stock Card** — Stock Levels had
+no per-product move history at all. Added an optional `product_id` filter
+to the existing `GET /inventory/stock/moves` endpoint (mirroring the
+`partner_id` filter already on vendor-bills list) and a new
+`/inventory/stock-card/[productId]` page reusing the exact Stock Moves
+tab's column definitions (Date/Type/Qty/Unit cost/Source), wired from a
+double-click on any Stock Levels row. 195/195 backend tests (2 new:
+vendor bill detail — success + cross-company 404; stock moves product
+filter), `ruff` clean, `tsc`/`eslint`/production build all clean. Live
+Demonstrated in both languages: double-clicking a Stock Levels row
+(confirmed via `window.location.pathname`) opened the correct product's
+Stock Card showing only its own 6 moves, with a real Sales Invoice
+drill-down link among them; double-clicking a Vendor Bill row opened its
+real detail page in both Arabic and English (no raw i18n keys, correct
+`formatDate`/`formatCurrency`); AP Aging's BILL-000002 row linked to the
+same real detail page. **Owner Accepted: pending.**
+
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
 `5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff

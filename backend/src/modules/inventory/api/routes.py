@@ -138,10 +138,11 @@ async def list_stock_quants(
 
 @router.get("/stock/moves", response_model=list[StockMoveOut])
 async def list_stock_moves(
+    product_id: UUID | None = None,
     ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
     move_repo: StockMoveRepository = Depends(get_stock_move_repo),
 ):
-    return await move_repo.list_by_company(ctx.company_id)
+    return await move_repo.list_by_company(ctx.company_id, product_id=product_id)
 
 
 @router.post("/transfers", response_model=list[StockMoveOut], status_code=status.HTTP_201_CREATED)

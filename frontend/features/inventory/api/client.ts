@@ -14,7 +14,8 @@ export const inventoryApi = {
 
   listStockQuants: (companyId: string) => apiClient.get<StockQuant[]>(`${BASE}/stock/quants`, { companyId }),
 
-  listStockMoves: (companyId: string) => apiClient.get<StockMove[]>(`${BASE}/stock/moves`, { companyId }),
+  listStockMoves: (companyId: string, productId?: string) =>
+    apiClient.get<StockMove[]>(`${BASE}/stock/moves${productId ? `?product_id=${productId}` : ""}`, { companyId }),
 
   receiveStock: (
     companyId: string,

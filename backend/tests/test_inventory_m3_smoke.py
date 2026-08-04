@@ -313,3 +313,30 @@ async def test_list_stock_moves(client):
     receipt = next(m for m in moves if m["id"] == move_id)
     assert receipt["move_type"] == "receipt"
     assert receipt["qty"] == "30.000000"
+
+
+async def test_list_stock_moves_filtered_by_product(client):
+    _, headers = await _bootstrap_and_login(client)
+    product_a = await _create_product(client, headers)
+    product_b = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_a, "location_id": location_id, "qty": "10", "unit_cost": "4.00"},
+    )
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_b, "location_id": location_id, "qty": "5", "unit_cost": "2.00"},
+    )
+
+    moves_resp = await client.get(
+        "/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_a}
+    )
+    assert moves_resp.status_code == 200
+    moves = moves_resp.json()
+    assert len(moves) == 1
+    assert moves[0]["product_id"] == product_a

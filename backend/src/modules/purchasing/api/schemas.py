@@ -85,10 +85,31 @@ class VendorBillOut(BaseModel):
     partner_id: UUID
     purchase_order_id: UUID
     number: str
+    vendor_reference: str | None
     status: str
+    bill_date: date
+    due_date: date | None
     subtotal_amount: Decimal
     tax_amount: Decimal
     total_amount: Decimal
     mismatch_reasons: str | None
 
     model_config = {"from_attributes": True}
+
+
+class VendorBillLineOut(BaseModel):
+    id: UUID
+    product_id: UUID
+    purchase_order_line_id: UUID
+    qty: Decimal
+    unit_price: Decimal
+    tax_rate_percent: Decimal
+    line_total: Decimal
+    tax_amount: Decimal
+
+    model_config = {"from_attributes": True}
+
+
+class VendorBillDetailResponse(BaseModel):
+    bill: VendorBillOut
+    lines: list[VendorBillLineOut]
