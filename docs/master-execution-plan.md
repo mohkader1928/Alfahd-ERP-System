@@ -530,7 +530,7 @@ Evidence basis: direct repository inspection (modules, migrations, tests, fronte
 | Master Data / Address Book | 🟢 Strong | 85% | Products, Categories, UOM unchanged; Partner unified as the single master entity for Address Book/Customers/Vendors/Employees/Contacts (Unified Address Book bundle) — multi-address, real contact-as-Partner linkage, duplicate-detection, archive/restore, smart Accounting links; Sales/Purchasing document flows don't yet reference `partner_address` (deliberately deferred). |
 | Sales | 🟡 Partial | 58% | Full Quotation→Payment lifecycle works end-to-end; **Sales Orders and Sales Invoices now have real list screens** (`/sales/orders`, `/sales/invoices` — previously only reachable via deep link, a gap the UI/UX audit found), on the same `ERPListView` pattern; still missing Customer Statement/history/report screens beyond what Accounting's Subledger already covers (Section D). |
 | Purchasing | 🟡 Partial | 58% | Mirrors Sales — PO→Payment lifecycle works; list screens now on `ERPListView` with real permission gating (Bundle 3); same statement/report gap remains. |
-| Inventory | 🟡 Partial | 60% | Warehouses/stock/transfers/cycle counts work and post correctly; list screens now on `ERPListView` with real permission gating (Bundle 3); Stock Moves now shows a real Date column and a Source drill-down (Sales Invoice-sourced moves link to the invoice; Goods Receipt/Stock Transfer render as localized labels, no detail page yet); missing valuation/low-stock/history reports, Stock Card screen (Bundle D). |
+| Inventory | 🟢 Strong | 72% | Warehouses/stock/transfers/cycle counts work and post correctly, now with a full Cycle Count UI (list/create/detail/variance/approve, Bundle D) and a Stock Card per-product move-history screen (Bundle C); Stock Moves shows a real Date column and Source drill-down; missing valuation/low-stock reports (deferred to Bundle E — low-stock has no reorder-point data source yet). |
 | Accounting | 🟢 Strong | 85% | CoA, Journal Entries, Trial Balance, correct auto-posting from every module, General Ledger, Income Statement, Balance Sheet (M1a), plus **Customer/Vendor Subledgers, AR/AP Aging, JE source-document drill-down (Milestone 1b)**; **UI/UX Professional pass (2026-08-04)**: all 10 tabs now on `ERPListView`/`ReportView`, every report has a real print header (logo+name), mutation buttons `<Can>`-gated, AR Aging rows drill down to their invoice; missing period-closing, Vendor Bill's own detail page (AP Aging/Subledger rows still not clickable), and the Trial Balance's Opening/Period/Closing column redesign (deliberately deferred to Bundle E so this pass's shell work isn't redone). |
 | Payments | 🟢 Strong (pending commit) | 85% | Full customer/vendor payment lifecycle, real allocation with concurrency protection, live-verified; refund/credit-application flow deliberately deferred. |
 | Reports | 🔴 Minimal | 15% | A handful of flat CSV exports; no interactive filters, no drill-down yet. |
@@ -579,6 +579,18 @@ gaps: AP Aging drill-down (new Vendor Bill detail page,
 `GET /purchasing/vendor-bills/{id}`) and Stock Card (per-product move
 history, `product_id` filter on the existing stock-moves endpoint). Full
 detail in `docs/project-progress.md`.
+
+**Bundle D — Inventory Operational Completeness — closed.** Audit found
+the cycle-count/stocktake backend fully built (create + approve, real GL
+posting) but with zero frontend and no list/detail API endpoints. Closed
+by adding the two missing endpoints and a full Cycle Count tab (list,
+create, detail with variance display, gated approve). A real bug was
+caught and fixed during live verification (Approve required
+`X-Branch-Id`, not wired through). Two inventory reports named in the
+original directive (valuation, low-stock) are deliberately deferred to
+Bundle E, which already owns the reports expansion — low-stock has no
+data source yet (no reorder-point field exists). Full detail in
+`docs/project-progress.md`.
 
 ---
 

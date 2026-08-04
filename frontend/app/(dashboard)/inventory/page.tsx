@@ -21,8 +21,9 @@ import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
+import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
-import type { StockMove, StockQuant, Warehouse } from "@/features/inventory/api/types";
+import type { CycleCount, StockMove, StockQuant, Warehouse } from "@/features/inventory/api/types";
 import Link from "next/link";
 
 /**
@@ -486,6 +487,71 @@ function TransferTab() {
   );
 }
 
+function useWarehouseLabel() {
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", companyId],
+    queryFn: () => inventoryApi.listWarehouses(companyId),
+  });
+  return {
+    warehouses: warehousesQuery.data ?? [],
+    label: (warehouseId: string) => warehousesQuery.data?.find((w) => w.id === warehouseId)?.name ?? warehouseId,
+  };
+}
+
+function CycleCountsTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const queryClient = useQueryClient();
+  const { label: warehouseLabel } = useWarehouseLabel();
+
+  const cycleCountsQuery = useQuery({
+    queryKey: ["cycle-counts", companyId],
+    queryFn: () => inventoryApi.listCycleCounts(companyId),
+  });
+
+  const columns: ERPColumn<CycleCount>[] = [
+    {
+      key: "warehouse",
+      header: t("inventory.stock.warehouse"),
+      sortable: true,
+      sortValue: (r) => warehouseLabel(r.warehouse_id),
+      render: (r) => warehouseLabel(r.warehouse_id),
+    },
+    {
+      key: "scheduled_date",
+      header: t("inventory.cycle_counts.scheduled_date"),
+      sortable: true,
+      sortValue: (r) => r.scheduled_date,
+      render: (r) => formatDate(r.scheduled_date, locale),
+    },
+    { key: "status", header: t("purchasing.orders.status"), render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge> },
+  ];
+
+  return (
+    <ERPListView
+      title={t("inventory.cycle_counts.title")}
+      columns={columns}
+      rows={cycleCountsQuery.data}
+      rowKey={(r) => r.id}
+      isLoading={cycleCountsQuery.isLoading}
+      isError={cycleCountsQuery.isError}
+      errorMessage={cycleCountsQuery.error instanceof ApiError ? cycleCountsQuery.error.detail : undefined}
+      onRetry={() => cycleCountsQuery.refetch()}
+      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["cycle-counts", companyId] })}
+      searchText={(r) => `${warehouseLabel(r.warehouse_id)} ${r.status}`}
+      searchPlaceholder={t("list.search_placeholder")}
+      emptyDescription={t("inventory.cycle_counts.empty_description")}
+      getRowHref={(r) => `/inventory/cycle-counts/${r.id}`}
+      createAction={{
+        label: t("inventory.cycle_counts.new"),
+        href: "/inventory/cycle-counts/new",
+        permission: "inventory.cycle_count.manage",
+      }}
+    />
+  );
+}
+
 export default function InventoryPage() {
   const { t } = useI18n();
   // See the same note in accounting/page.tsx — Base UI's Tabs.Panel doesn't
@@ -501,11 +567,13 @@ export default function InventoryPage() {
           <TabsTrigger value="stock">{t("inventory.tabs.stock")}</TabsTrigger>
           <TabsTrigger value="moves">{t("inventory.tabs.moves")}</TabsTrigger>
           <TabsTrigger value="transfer">{t("inventory.tabs.transfer")}</TabsTrigger>
+          <TabsTrigger value="cycle-counts">{t("inventory.tabs.cycle_counts")}</TabsTrigger>
         </TabsList>
         <TabsContent value="warehouses">{tab === "warehouses" && <WarehousesTab />}</TabsContent>
         <TabsContent value="stock">{tab === "stock" && <StockTab />}</TabsContent>
         <TabsContent value="moves">{tab === "moves" && <MovesTab />}</TabsContent>
         <TabsContent value="transfer">{tab === "transfer" && <TransferTab />}</TabsContent>
+        <TabsContent value="cycle-counts">{tab === "cycle-counts" && <CycleCountsTab />}</TabsContent>
       </Tabs>
     </div>
   );

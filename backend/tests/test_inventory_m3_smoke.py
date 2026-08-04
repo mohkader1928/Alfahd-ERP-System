@@ -175,6 +175,41 @@ async def test_cycle_count_posts_adjustment_and_journal_entry(client):
     rows = {row["account_code"]: row for row in trial_balance.json()}
     assert rows["1300"]["total_credit"] == "60.0000"  # 3 units * 20.00 written off
 
+    list_resp = await client.get("/api/v1/inventory/cycle-counts", headers=headers)
+    assert list_resp.status_code == 200
+    assert any(c["id"] == cycle_count_id for c in list_resp.json())
+
+    detail_resp = await client.get(f"/api/v1/inventory/cycle-counts/{cycle_count_id}", headers=headers)
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["cycle_count"]["status"] == "approved"
+    assert detail["lines"][0]["counted_qty"] == "7.000000"
+    assert detail["lines"][0]["stock_move_id"] is not None
+
+
+async def test_cycle_count_not_visible_across_companies(client):
+    _, headers_a = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers_a)
+    wh = await _create_warehouse(client, headers_a)
+    location_id = wh["default_location"]["id"]
+
+    create_resp = await client.post(
+        "/api/v1/inventory/cycle-counts",
+        headers=headers_a,
+        json={
+            "warehouse_id": wh["warehouse"]["id"],
+            "scheduled_date": "2026-04-01",
+            "lines": [{"product_id": product_id, "location_id": location_id, "counted_qty": "5"}],
+        },
+    )
+    cycle_count_id = create_resp.json()["cycle_count"]["id"]
+
+    _, headers_b = await _bootstrap_and_login(client)
+    list_resp = await client.get("/api/v1/inventory/cycle-counts", headers=headers_b)
+    assert all(c["id"] != cycle_count_id for c in list_resp.json())
+    detail_resp = await client.get(f"/api/v1/inventory/cycle-counts/{cycle_count_id}", headers=headers_b)
+    assert detail_resp.status_code == 404
+
 
 async def test_sales_invoice_deducts_stock_when_warehouse_configured(client):
     _, headers = await _bootstrap_and_login(client)

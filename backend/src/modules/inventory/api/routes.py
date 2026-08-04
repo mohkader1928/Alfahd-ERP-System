@@ -34,6 +34,7 @@ from src.modules.inventory.api.deps import (
 from src.modules.inventory.api.schemas import (
     CycleCountCreateRequest,
     CycleCountDetailResponse,
+    CycleCountOut,
     StockMoveOut,
     StockQuantOut,
     StockReceiveRequest,
@@ -189,6 +190,27 @@ async def create_transfer(
 
     await db.commit()
     return [issue_move, receive_move]
+
+
+@router.get("/cycle-counts", response_model=list[CycleCountOut])
+async def list_cycle_counts(
+    ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
+    cycle_count_repo: CycleCountRepository = Depends(get_cycle_count_repo),
+):
+    return await cycle_count_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/cycle-counts/{cycle_count_id}", response_model=CycleCountDetailResponse)
+async def get_cycle_count(
+    cycle_count_id: UUID,
+    ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
+    cycle_count_repo: CycleCountRepository = Depends(get_cycle_count_repo),
+):
+    cycle_count = await cycle_count_repo.get_by_id(cycle_count_id)
+    if cycle_count is None or cycle_count.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cycle count not found")
+    lines = await cycle_count_repo.get_lines(cycle_count_id)
+    return CycleCountDetailResponse(cycle_count=cycle_count, lines=lines)
 
 
 @router.post("/cycle-counts", response_model=CycleCountDetailResponse, status_code=status.HTTP_201_CREATED)

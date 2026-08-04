@@ -149,3 +149,9 @@ class CycleCountRepository:
             select(CycleCountLine).where(CycleCountLine.cycle_count_id == cycle_count_id)
         )
         return list(result.scalars().all())
+
+    async def list_by_company(self, company_id: UUID) -> list[CycleCount]:
+        result = await self.session.execute(
+            select(CycleCount).where(CycleCount.company_id == company_id).order_by(CycleCount.scheduled_date.desc())
+        )
+        return list(result.scalars().all())

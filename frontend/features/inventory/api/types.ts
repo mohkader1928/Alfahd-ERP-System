@@ -36,3 +36,31 @@ export interface StockMove {
   source_id: string;
   moved_at: string;
 }
+
+export interface CycleCount {
+  id: string;
+  company_id: string;
+  warehouse_id: string;
+  status: "draft" | "counted" | "approved";
+  scheduled_date: string;
+}
+
+export interface CycleCountLine {
+  id: string;
+  product_id: string;
+  location_id: string;
+  system_qty: string;
+  counted_qty: string;
+  stock_move_id: string | null;
+}
+
+export interface CycleCountDetail {
+  cycle_count: CycleCount;
+  lines: CycleCountLine[];
+}
+
+export interface CycleCountLineIn {
+  product_id: string;
+  location_id: string;
+  counted_qty: string;
+}

@@ -197,6 +197,41 @@ real detail page in both Arabic and English (no raw i18n keys, correct
 `formatDate`/`formatCurrency`); AP Aging's BILL-000002 row linked to the
 same real detail page. **Owner Accepted: pending.**
 
+**Bundle D — Inventory Operational Completeness**: audit found the
+cycle-count/stocktake backend already fully built (create with a real
+`system_qty` snapshot, approve posts a balanced GL adjustment entry per
+line via the same `InventoryValuationService`/`JournalEntryService`
+pipeline every other module uses) but with **zero frontend** — no list,
+no detail, no list/detail API endpoints even existed (only create and
+approve). Closed by adding `GET /inventory/cycle-counts` and
+`GET /inventory/cycle-counts/{id}` (reusing the existing
+`inventory.stock.view` permission, no new permission), exposing the
+previously-hidden `id`/`stock_move_id` fields on each line, and a new
+"Cycle Counts" tab (5th tab, `ERPListView`, double-click convention) plus
+`/inventory/cycle-counts/new` (multi-line create form matching the
+existing Sales Quotation/PO pattern) and `/inventory/cycle-counts/[id]`
+(variance display — counted minus system, color-coded, Approve button
+gated by `inventory.cycle_count.manage`). 196/196 backend tests (2 new:
+list/detail, cross-company 404), `ruff`/`tsc`/`eslint`/build all clean.
+Live Demonstrated end to end, including a real bug caught and fixed live:
+the Approve button initially failed with a 400 ("X-Branch-Id header is
+required") because the approve endpoint's existing `require_branch=True`
+guard wasn't wired through the new frontend client call — fixed by
+passing `branchId`, re-verified working (200 OK, status flips to
+`approved`). Full chain re-verified real: created a count for A4 Paper
+Ream (system 2, counted 5), approved it, confirmed the resulting `+3`
+adjustment move now appears on that product's Stock Card (Bundle C) with
+Source correctly labeled "Cycle Count", and confirmed the Trial Balance's
+account 5200 shows the matching 45.00 SAR (3 × 15.00) GL entry. Verified
+in Arabic and English (no raw i18n keys, Western digits enforced). Two
+inventory reports named in the original directive (valuation, low-stock)
+are deliberately deferred to Bundle E, which already owns "the full
+standard-reports expansion across every module" per the Bundle A closure
+notes — a low-stock report specifically has no data source yet (no
+reorder-point/min-qty field exists anywhere in the schema), so building
+it now would mean inventing a new data model outside this bundle's scope.
+**Owner Accepted: pending.**
+
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
 `5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff

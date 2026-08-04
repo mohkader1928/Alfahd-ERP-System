@@ -1,5 +1,14 @@
 import { apiClient } from "@/lib/api-client";
-import type { Location, StockMove, StockQuant, Warehouse, WarehouseCreateResult } from "./types";
+import type {
+  CycleCount,
+  CycleCountDetail,
+  CycleCountLineIn,
+  Location,
+  StockMove,
+  StockQuant,
+  Warehouse,
+  WarehouseCreateResult,
+} from "./types";
 
 const BASE = "/api/v1/inventory";
 
@@ -26,4 +35,17 @@ export const inventoryApi = {
     companyId: string,
     payload: { product_id: string; source_location_id: string; dest_location_id: string; qty: string }
   ) => apiClient.post<StockMove[]>(`${BASE}/transfers`, payload, { companyId }),
+
+  listCycleCounts: (companyId: string) => apiClient.get<CycleCount[]>(`${BASE}/cycle-counts`, { companyId }),
+
+  getCycleCount: (companyId: string, id: string) =>
+    apiClient.get<CycleCountDetail>(`${BASE}/cycle-counts/${id}`, { companyId }),
+
+  createCycleCount: (
+    companyId: string,
+    payload: { warehouse_id: string; scheduled_date: string; lines: CycleCountLineIn[] }
+  ) => apiClient.post<CycleCountDetail>(`${BASE}/cycle-counts`, payload, { companyId }),
+
+  approveCycleCount: (companyId: string, branchId: string | null, id: string) =>
+    apiClient.post<CycleCountDetail>(`${BASE}/cycle-counts/${id}:approve`, undefined, { companyId, branchId }),
 };

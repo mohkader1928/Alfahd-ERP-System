@@ -87,16 +87,19 @@ class CycleCountCreateRequest(BaseModel):
 
 
 class CycleCountLineOut(BaseModel):
+    id: UUID
     product_id: UUID
     location_id: UUID
     system_qty: Decimal
     counted_qty: Decimal
+    stock_move_id: UUID | None
 
     model_config = {"from_attributes": True}
 
 
 class CycleCountOut(BaseModel):
     id: UUID
+    company_id: UUID
     warehouse_id: UUID
     status: str
     scheduled_date: date
