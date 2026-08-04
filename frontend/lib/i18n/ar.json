@@ -208,6 +208,7 @@
   "accounting.tb.date_from": "من",
   "accounting.tb.date_to": "إلى",
   "accounting.tb.run": "تشغيل التقرير",
+  "accounting.tb.total": "الإجمالي",
   "accounting.tb.total_debit": "إجمالي المدين",
   "accounting.tb.total_credit": "إجمالي الدائن",
   "inventory.tabs.warehouses": "المستودعات",

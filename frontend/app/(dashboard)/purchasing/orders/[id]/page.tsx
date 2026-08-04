@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -139,23 +140,29 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
           </Table>
           <div className="flex flex-wrap gap-2">
             {order.status === "draft" && (
-              <Button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending}>
-                {confirmMutation.isPending ? t("common.loading") : t("purchasing.orders.confirm")}
-              </Button>
+              <Can permission="purchasing.order.confirm">
+                <Button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending}>
+                  {confirmMutation.isPending ? t("common.loading") : t("purchasing.orders.confirm")}
+                </Button>
+              </Can>
             )}
             {order.status === "confirmed" && hasRemainingToReceive && (
-              <Button onClick={() => receiveMutation.mutate()} disabled={receiveMutation.isPending}>
-                {receiveMutation.isPending ? t("common.loading") : t("purchasing.orders.receive_all")}
-              </Button>
+              <Can permission="purchasing.goods_receipt.create">
+                <Button onClick={() => receiveMutation.mutate()} disabled={receiveMutation.isPending}>
+                  {receiveMutation.isPending ? t("common.loading") : t("purchasing.orders.receive_all")}
+                </Button>
+              </Can>
             )}
             {order.status === "confirmed" && hasReceivedUnbilled && (
-              <Button
-                variant="outline"
-                onClick={() => billMutation.mutate()}
-                disabled={billMutation.isPending}
-              >
-                {billMutation.isPending ? t("common.loading") : t("purchasing.orders.bill_all")}
-              </Button>
+              <Can permission="purchasing.vendor_bill.create">
+                <Button
+                  variant="outline"
+                  onClick={() => billMutation.mutate()}
+                  disabled={billMutation.isPending}
+                >
+                  {billMutation.isPending ? t("common.loading") : t("purchasing.orders.bill_all")}
+                </Button>
+              </Can>
             )}
           </div>
           {actionError && <p className="text-sm text-destructive">{actionError}</p>}

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
@@ -84,25 +85,27 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           </div>
 
           {invoice.invoice_type !== "credit_note" && invoice.invoice_type !== "debit_note" && (
-            <div className="space-y-2 border-t pt-4">
-              <Input
-                placeholder="Reason for credit note"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-              />
-              <Button
-                variant="outline"
-                onClick={() => creditNoteMutation.mutate()}
-                disabled={!reason || creditNoteMutation.isPending}
-              >
-                {creditNoteMutation.isPending ? t("common.loading") : t("sales.invoice.credit_note")}
-              </Button>
-              {creditNoteMutation.isError && (
-                <p className="text-sm text-destructive">
-                  {creditNoteMutation.error instanceof ApiError ? creditNoteMutation.error.detail : t("common.error")}
-                </p>
-              )}
-            </div>
+            <Can permission="sales.invoice.credit_note">
+              <div className="space-y-2 border-t pt-4">
+                <Input
+                  placeholder="Reason for credit note"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => creditNoteMutation.mutate()}
+                  disabled={!reason || creditNoteMutation.isPending}
+                >
+                  {creditNoteMutation.isPending ? t("common.loading") : t("sales.invoice.credit_note")}
+                </Button>
+                {creditNoteMutation.isError && (
+                  <p className="text-sm text-destructive">
+                    {creditNoteMutation.error instanceof ApiError ? creditNoteMutation.error.detail : t("common.error")}
+                  </p>
+                )}
+              </div>
+            </Can>
           )}
         </CardContent>
       </Card>

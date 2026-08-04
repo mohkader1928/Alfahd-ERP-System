@@ -8,9 +8,64 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-04, on top of committed `89949ec` (`main`) —
-**Unified Address Book / Partner & Contacts**, uncommitted at time of
-writing — Implemented and Tested (192/192 backend tests, 9 new; `ruff
+**Last verified**: 2026-08-04, on top of committed `5aee470` (`main`) —
+**UI/UX Professional pass, Bundle A (first slice — Accounting module),
+Owner directive "ERP Professional UI/UX + Functional Completeness"** —
+uncommitted at time of writing. Scope of this slice, chosen because the
+Owner's own audit request surfaced Accounting as the one module that never
+adopted the shared list/report components everyone else already uses:
+Chart of Accounts and Journal Entries tabs migrated from hand-rolled
+`<Table>` to `ERPListView` (search/sort/pagination/loading/error states,
+gained for free); Trial Balance, General Ledger, Income Statement, Balance
+Sheet, Customer/Vendor Subledger, AR/AP Aging all migrated to the
+previously-built-but-never-used `ReportView` shell, each gaining an
+explicit `isError` state it never had; a new shared `ReportPrintHeader`
+component (company logo + name + report title + date range) now renders
+on every report's print output — before this pass only the two Subledger
+tabs had a print header at all; account-creation, JE-creation, and
+post/reverse actions gated with `<Can>` for the first time (the whole
+1103-line file previously had zero `<Can>` imports); the same
+permission-gating gap fixed on 4 more bespoke detail pages (Sales
+Quotation confirm, Sales Order invoice-issue, Sales Invoice credit-note,
+Purchase Order confirm/receive/bill) that had ungated mutation buttons; AR
+Aging rows now drill down to their real Sales Invoice (via the existing
+`sourceDocumentHref` map — AP Aging rows still can't, because Vendor Bill
+has no detail page yet, a real gap flagged for Bundle C/D, not solved
+here); a new shared `lib/format-date.ts` closes the "no date formatter
+exists anywhere" gap found by audit, applied so far to Accounting's date
+columns only; the Trial Balance's raw `toFixed()` total and the Products
+list's unformatted price column were fixed to use the existing
+`formatCurrency`. **Implemented, Tested (`tsc`/`eslint`/production build
+all clean; zero backend files touched, so the existing 192/192 backend
+suite is unaffected), Live Demonstrated**: real browser session confirmed
+Chart of Accounts/Journal Entries render on the new list component with
+real data; Trial Balance's totals row is genuinely balanced
+(361,274.90 SAR both sides against real demo-company data) with a working
+print header (company logo confirmed rendered); AR Aging row click opened
+the real underlying Sales Invoice detail page; a real bug was found live
+(the Trial Balance totals-row label rendered the literal untranslated key
+`accounting.tb.total` — a missing i18n entry) and fixed on the spot, then
+re-verified. **Owner Accepted: pending — never assumed.** Explicitly
+**not** done in this slice, remaining for later passes of the same
+directive: the rest of Bundle A (Sales/Purchasing/Inventory list/detail
+screens were already largely on the shared components per the audit, but
+weren't re-verified this pass; Sales Order/Invoice have **no list page at
+all**, a real structural gap the audit found, not yet addressed);
+`format-date.ts` rollout beyond Accounting; Bundle B (Employee
+photo/Company-logo-everywhere consistency pass — most of the underlying
+infrastructure already exists from Entity Media Foundation and just needs
+a systematic audit, not new plumbing); Bundle C (Stock Card drill-down,
+GL/Trial-Balance-row drill-down beyond what shipped here); Bundle D
+(Inventory Count/Stocktake UI — no frontend exists yet despite a
+Owner-stated backend workflow, unverified whether that backend workflow
+is actually complete); Bundle E (Trial Balance's actual Opening/Period/
+Closing column redesign — deliberately deferred so this pass's `ReportView`
+shell work isn't re-done); Bundle F (Multi-Currency — explicitly gated on
+a short audit first, not started).
+
+**Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
+**Unified Address Book / Partner & Contacts**, then committed as
+`5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff
 check src tests` and `tsc`/`eslint`/frontend production build all clean)
 and Live Demonstrated end to end in a real browser session: created one
 real Partner ("Ahmed Trading Co.") simultaneously Customer + Vendor +

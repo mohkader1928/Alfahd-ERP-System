@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
@@ -61,9 +62,11 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
             <dd>{formatCurrency(order.total_amount)}</dd>
           </dl>
           {order.status === "confirmed" && (
-            <Button onClick={() => invoiceMutation.mutate()} disabled={invoiceMutation.isPending}>
-              {invoiceMutation.isPending ? t("common.loading") : t("sales.orders.invoice")}
-            </Button>
+            <Can permission="sales.invoice.create">
+              <Button onClick={() => invoiceMutation.mutate()} disabled={invoiceMutation.isPending}>
+                {invoiceMutation.isPending ? t("common.loading") : t("sales.orders.invoice")}
+              </Button>
+            </Can>
           )}
           {invoiceMutation.isError && (
             <p className="text-sm text-destructive">

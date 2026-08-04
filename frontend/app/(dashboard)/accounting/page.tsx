@@ -13,14 +13,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EntityImage } from "@/components/erp/entity-image/entity-image";
+import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { ReportView } from "@/components/erp/report-view/report-view";
+import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
+import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
-import type { JournalEntryLineIn } from "@/features/accounting/api/types";
+import type { Account, JournalEntry, JournalEntryLineIn } from "@/features/accounting/api/types";
 import { identityApi } from "@/features/identity/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 import type { AgingRow, SubledgerLine } from "@/features/payments/api/types";
@@ -60,83 +64,84 @@ function ChartOfAccountsTab() {
     },
   });
 
+  const columns: ERPColumn<Account>[] = [
+    { key: "code", header: t("accounting.accounts.code"), sortable: true, sortValue: (r) => r.code, render: (r) => <span className="font-mono">{r.code}</span> },
+    { key: "name", header: t("accounting.accounts.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
+    { key: "name_ar", header: t("master_data.partners.name_ar"), render: (r) => r.name_ar ?? "—" },
+    {
+      key: "is_active",
+      header: t("accounting.accounts.active"),
+      render: (r) => <Badge variant={r.is_active ? "default" : "secondary"}>{r.is_active ? t("common.active") : t("common.inactive")}</Badge>,
+    },
+  ];
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accounting.tabs.accounts")}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs">{t("accounting.accounts.code")}</Label>
-            <Input value={code} onChange={(e) => setCode(e.target.value)} className="w-28" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">{t("accounting.accounts.name")}</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">{t("accounting.accounts.type")}</Label>
-            <Select value={accountTypeCode} onValueChange={(v) => setAccountTypeCode(v ?? "asset")}>
-              <SelectTrigger className="w-36">
-                <SelectValue>{(value: string) => value}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {ACCOUNT_TYPE_CODES.map((code) => (
-                  <SelectItem key={code} value={code}>
-                    {code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            size="sm"
-            onClick={() => {
-              setError(null);
-              createMutation.mutate();
-            }}
-            disabled={!code || !name || createMutation.isPending}
-          >
-            <Plus className="h-4 w-4" />
-            {t("accounting.accounts.save")}
-          </Button>
-        </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("accounting.accounts.code")}</TableHead>
-              <TableHead>{t("accounting.accounts.name")}</TableHead>
-              <TableHead>{t("accounting.accounts.active")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!accountsQuery.isLoading && accountsQuery.data?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={3} className="text-center text-muted-foreground">
-                  {t("common.empty")}
-                </TableCell>
-              </TableRow>
-            )}
-            {accountsQuery.data?.map((a) => (
-              <TableRow key={a.id}>
-                <TableCell className="font-mono">{a.code}</TableCell>
-                <TableCell>{a.name}</TableCell>
-                <TableCell>
-                  <Badge variant={a.is_active ? "default" : "secondary"}>{String(a.is_active)}</Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      <Can permission="accounting.chart_of_accounts.manage">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("accounting.accounts.new")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.accounts.code")}</Label>
+                <Input value={code} onChange={(e) => setCode(e.target.value)} className="w-28" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.accounts.name")}</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.accounts.type")}</Label>
+                <Select value={accountTypeCode} onValueChange={(v) => setAccountTypeCode(v ?? "asset")}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue>{(value: string) => value}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACCOUNT_TYPE_CODES.map((code) => (
+                      <SelectItem key={code} value={code}>
+                        {code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  createMutation.mutate();
+                }}
+                disabled={!code || !name || createMutation.isPending}
+              >
+                <Plus className="h-4 w-4" />
+                {t("accounting.accounts.save")}
+              </Button>
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </CardContent>
+        </Card>
+      </Can>
+      <ERPListView
+        title={t("accounting.tabs.accounts")}
+        columns={columns}
+        rows={accountsQuery.data}
+        rowKey={(r) => r.id}
+        isLoading={accountsQuery.isLoading}
+        isError={accountsQuery.isError}
+        onRetry={() => accountsQuery.refetch()}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["accounts", companyId] })}
+        searchText={(r) => `${r.code} ${r.name} ${r.name_ar ?? ""}`}
+        searchPlaceholder={t("list.search_placeholder")}
+        emptyDescription={t("common.empty")}
+      />
+    </div>
   );
 }
 
 function JournalEntriesTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
   const queryClient = useQueryClient();
@@ -191,135 +196,136 @@ function JournalEntriesTab() {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
   }
 
+  const columns: ERPColumn<JournalEntry>[] = [
+    { key: "entry_date", header: t("accounting.je.date"), sortable: true, sortValue: (r) => r.entry_date, render: (r) => formatDate(r.entry_date, locale) },
+    {
+      key: "reference",
+      header: t("accounting.je.reference"),
+      sortable: true,
+      sortValue: (r) => r.reference ?? "",
+      render: (r) => (
+        <Link href={`/accounting/journal-entries/${r.id}`} className="font-medium underline-offset-4 hover:underline">
+          {r.reference ?? r.id.slice(0, 8)}
+        </Link>
+      ),
+    },
+    {
+      key: "status",
+      header: t("accounting.je.status"),
+      render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge>,
+    },
+  ];
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accounting.tabs.journal_entries")}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-3 rounded-md border p-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <Label className="text-xs">{t("accounting.je.journal_code")}</Label>
-              <Select value={journalCode} onValueChange={(v) => setJournalCode(v ?? "GEN")}>
-                <SelectTrigger className="w-32">
-                  <SelectValue>{(value: string) => value}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {JOURNAL_CODES.map((code) => (
-                    <SelectItem key={code} value={code}>
-                      {code}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">{t("accounting.je.date")}</Label>
-              <Input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="w-40" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">{t("accounting.je.reference")}</Label>
-              <Input value={reference} onChange={(e) => setReference(e.target.value)} className="w-48" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            {lines.map((line, index) => (
-              <div key={index} className="flex items-end gap-2">
-                <div className="flex-1 space-y-1">
-                  <Label className="text-xs">{t("accounting.je.account")}</Label>
-                  <Select value={line.account_id} onValueChange={(v) => updateLine(index, { account_id: v ?? "" })}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t("accounting.je.account")}>
-                        {(value: string) => {
-                          const acc = accountsQuery.data?.find((a) => a.id === value);
-                          return acc ? `${acc.code} — ${acc.name}` : value;
-                        }}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accountsQuery.data?.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.code} — {a.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="w-28 space-y-1">
-                  <Label className="text-xs">{t("accounting.je.debit")}</Label>
-                  <Input value={line.debit} onChange={(e) => updateLine(index, { debit: e.target.value })} />
-                </div>
-                <div className="w-28 space-y-1">
-                  <Label className="text-xs">{t("accounting.je.credit")}</Label>
-                  <Input value={line.credit} onChange={(e) => updateLine(index, { credit: e.target.value })} />
-                </div>
+    <div className="space-y-4">
+      <Can permission="accounting.journal_entry.create">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("accounting.je.new")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.je.journal_code")}</Label>
+                <Select value={journalCode} onValueChange={(v) => setJournalCode(v ?? "GEN")}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue>{(value: string) => value}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {JOURNAL_CODES.map((code) => (
+                      <SelectItem key={code} value={code}>
+                        {code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setLines((prev) => [...prev, { account_id: "", debit: "0", credit: "0" }])}
-            >
-              <Plus className="h-4 w-4" />
-              {t("accounting.je.add_line")}
-            </Button>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className={balanced ? "text-muted-foreground" : "text-destructive"}>
-              {totalDebit.toFixed(2)} / {totalCredit.toFixed(2)}
-              {!balanced && ` — ${t("accounting.je.unbalanced")}`}
-            </span>
-            <Button
-              size="sm"
-              onClick={() => {
-                setError(null);
-                createMutation.mutate();
-              }}
-              disabled={!balanced || lines.some((l) => !l.account_id) || createMutation.isPending}
-            >
-              {createMutation.isPending ? t("common.loading") : t("accounting.je.save")}
-            </Button>
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-        </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("accounting.je.date")}</TableHead>
-              <TableHead>{t("accounting.je.reference")}</TableHead>
-              <TableHead>{t("accounting.je.status")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!entriesQuery.isLoading && entriesQuery.data?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={3} className="text-center text-muted-foreground">
-                  {t("common.empty")}
-                </TableCell>
-              </TableRow>
-            )}
-            {entriesQuery.data?.map((e) => (
-              <TableRow key={e.id}>
-                <TableCell>{e.entry_date}</TableCell>
-                <TableCell>
-                  <Link
-                    href={`/accounting/journal-entries/${e.id}`}
-                    className="font-medium underline-offset-4 hover:underline"
-                  >
-                    {e.reference ?? e.id.slice(0, 8)}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={statusVariant(e.status)}>{e.status}</Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.je.date")}</Label>
+                <Input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="w-40" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.je.reference")}</Label>
+                <Input value={reference} onChange={(e) => setReference(e.target.value)} className="w-48" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              {lines.map((line, index) => (
+                <div key={index} className="flex items-end gap-2">
+                  <div className="flex-1 space-y-1">
+                    <Label className="text-xs">{t("accounting.je.account")}</Label>
+                    <Select value={line.account_id} onValueChange={(v) => updateLine(index, { account_id: v ?? "" })}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={t("accounting.je.account")}>
+                          {(value: string) => {
+                            const acc = accountsQuery.data?.find((a) => a.id === value);
+                            return acc ? `${acc.code} — ${acc.name}` : value;
+                          }}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {accountsQuery.data?.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.code} — {a.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-28 space-y-1">
+                    <Label className="text-xs">{t("accounting.je.debit")}</Label>
+                    <Input value={line.debit} onChange={(e) => updateLine(index, { debit: e.target.value })} />
+                  </div>
+                  <div className="w-28 space-y-1">
+                    <Label className="text-xs">{t("accounting.je.credit")}</Label>
+                    <Input value={line.credit} onChange={(e) => updateLine(index, { credit: e.target.value })} />
+                  </div>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setLines((prev) => [...prev, { account_id: "", debit: "0", credit: "0" }])}
+              >
+                <Plus className="h-4 w-4" />
+                {t("accounting.je.add_line")}
+              </Button>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className={balanced ? "text-muted-foreground" : "text-destructive"}>
+                {formatCurrency(totalDebit)} / {formatCurrency(totalCredit)}
+                {!balanced && ` — ${t("accounting.je.unbalanced")}`}
+              </span>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  createMutation.mutate();
+                }}
+                disabled={!balanced || lines.some((l) => !l.account_id) || createMutation.isPending}
+              >
+                {createMutation.isPending ? t("common.loading") : t("accounting.je.save")}
+              </Button>
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </CardContent>
+        </Card>
+      </Can>
+      <ERPListView
+        title={t("accounting.tabs.journal_entries")}
+        columns={columns}
+        rows={entriesQuery.data}
+        rowKey={(r) => r.id}
+        isLoading={entriesQuery.isLoading}
+        isError={entriesQuery.isError}
+        onRetry={() => entriesQuery.refetch()}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["journal-entries", companyId] })}
+        searchText={(r) => `${r.reference ?? ""} ${r.entry_date} ${r.status}`}
+        searchPlaceholder={t("list.search_placeholder")}
+        emptyDescription={t("common.empty")}
+      />
+    </div>
   );
 }
 
@@ -337,13 +343,14 @@ function TrialBalanceTab() {
     enabled: !!ranAt,
   });
 
+  const totalDebit = reportQuery.data?.reduce((sum, r) => sum + Number(r.total_debit), 0) ?? 0;
+  const totalCredit = reportQuery.data?.reduce((sum, r) => sum + Number(r.total_credit), 0) ?? 0;
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accounting.tabs.trial_balance")}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2">
+    <ReportView
+      title={t("accounting.tabs.trial_balance")}
+      filterArea={
+        <>
           <div className="space-y-1">
             <Label className="text-xs">{t("accounting.tb.date_from")}</Label>
             <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
@@ -352,11 +359,20 @@ function TrialBalanceTab() {
             <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
-          <Button size="sm" onClick={() => setRanAt({ from: dateFrom, to: dateTo })}>
-            {t("accounting.tb.run")}
-          </Button>
-        </div>
-        <Table>
+        </>
+      }
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      isEmpty={!!ranAt && !reportQuery.isLoading && reportQuery.data?.length === 0}
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.sub.select_partner_hint")}</p>}
+      {ranAt && reportQuery.data && (
+        <>
+          <ReportPrintHeader reportTitle={t("accounting.tabs.trial_balance")} dateRangeLabel={`${ranAt.from} – ${ranAt.to}`} />
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead>{t("accounting.accounts.code")}</TableHead>
@@ -366,14 +382,7 @@ function TrialBalanceTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {ranAt && !reportQuery.isLoading && reportQuery.data?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  {t("common.empty")}
-                </TableCell>
-              </TableRow>
-            )}
-            {reportQuery.data?.map((row) => (
+            {reportQuery.data.map((row) => (
               <TableRow key={row.account_id}>
                 <TableCell className="font-mono">{row.account_code}</TableCell>
                 <TableCell>{row.account_name}</TableCell>
@@ -381,15 +390,21 @@ function TrialBalanceTab() {
                 <TableCell className="text-end">{formatCurrency(row.total_credit)}</TableCell>
               </TableRow>
             ))}
+            <TableRow className="font-semibold">
+              <TableCell colSpan={2}>{t("accounting.tb.total")}</TableCell>
+              <TableCell className="text-end">{formatCurrency(totalDebit)}</TableCell>
+              <TableCell className="text-end">{formatCurrency(totalCredit)}</TableCell>
+            </TableRow>
           </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+          </Table>
+        </>
+      )}
+    </ReportView>
   );
 }
 
 function GeneralLedgerTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
   const [accountId, setAccountId] = useState("");
@@ -408,12 +423,10 @@ function GeneralLedgerTab() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accounting.tabs.general_ledger")}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2">
+    <ReportView
+      title={t("accounting.tabs.general_ledger")}
+      filterArea={
+        <>
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.gl.select_account")}</Label>
             <Select value={accountId} onValueChange={(v) => setAccountId(v ?? "")}>
@@ -442,87 +455,77 @@ function GeneralLedgerTab() {
             <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
-          <Button
-            size="sm"
-            disabled={!accountId}
-            onClick={() => setRanAt({ account: accountId, from: dateFrom, to: dateTo })}
-          >
-            {t("accounting.gl.run")}
-          </Button>
-        </div>
-
-        {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
-
-        {ranAt && reportQuery.data && (
-          <>
-            <div className="flex gap-6 text-sm">
-              <span>
-                {t("accounting.gl.opening_balance")}:{" "}
-                <span className="font-mono">{formatCurrency(reportQuery.data.opening_balance)}</span>
-              </span>
-              <span>
-                {t("accounting.gl.closing_balance")}:{" "}
-                <span className="font-mono">{formatCurrency(reportQuery.data.closing_balance)}</span>
-              </span>
-            </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("accounting.gl.date")}</TableHead>
-                  <TableHead>{t("accounting.gl.reference")}</TableHead>
-                  <TableHead>{t("accounting.sub.source")}</TableHead>
-                  <TableHead className="text-end">{t("accounting.je.debit")}</TableHead>
-                  <TableHead className="text-end">{t("accounting.je.credit")}</TableHead>
-                  <TableHead className="text-end">{t("accounting.gl.running_balance")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {reportQuery.data.lines.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
-                      {t("common.empty")}
-                    </TableCell>
-                  </TableRow>
-                )}
-                {reportQuery.data.lines.map((line, i) => {
-                  const sourceHref = sourceDocumentHref(line.source_table, line.source_id);
-                  const sourceLabelKey = sourceDocumentLabelKey(line.source_table);
-                  return (
-                    <TableRow key={i}>
-                      <TableCell>{line.entry_date}</TableCell>
-                      <TableCell>
-                        <Link
-                          href={`/accounting/journal-entries/${line.journal_entry_id}`}
-                          className="underline-offset-4 hover:underline"
-                        >
-                          {line.reference ?? line.journal_entry_id.slice(0, 8)}
+        </>
+      }
+      onApply={accountId ? () => setRanAt({ account: accountId, from: dateFrom, to: dateTo }) : undefined}
+      onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      isEmpty={!!ranAt && !!reportQuery.data && reportQuery.data.lines.length === 0}
+      kpis={
+        ranAt && reportQuery.data
+          ? [
+              { label: t("accounting.gl.opening_balance"), value: formatCurrency(reportQuery.data.opening_balance) },
+              { label: t("accounting.gl.closing_balance"), value: formatCurrency(reportQuery.data.closing_balance) },
+            ]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
+      {ranAt && reportQuery.data && (
+        <>
+        <ReportPrintHeader reportTitle={t("accounting.tabs.general_ledger")} dateRangeLabel={`${ranAt.from} – ${ranAt.to}`} />
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("accounting.gl.date")}</TableHead>
+              <TableHead>{t("accounting.gl.reference")}</TableHead>
+              <TableHead>{t("accounting.sub.source")}</TableHead>
+              <TableHead className="text-end">{t("accounting.je.debit")}</TableHead>
+              <TableHead className="text-end">{t("accounting.je.credit")}</TableHead>
+              <TableHead className="text-end">{t("accounting.gl.running_balance")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {reportQuery.data.lines.map((line, i) => {
+              const sourceHref = sourceDocumentHref(line.source_table, line.source_id);
+              const sourceLabelKey = sourceDocumentLabelKey(line.source_table);
+              return (
+                <TableRow key={i}>
+                  <TableCell>{formatDate(line.entry_date, locale)}</TableCell>
+                  <TableCell>
+                    <Link
+                      href={`/accounting/journal-entries/${line.journal_entry_id}`}
+                      className="underline-offset-4 hover:underline"
+                    >
+                      {line.reference ?? line.journal_entry_id.slice(0, 8)}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    {sourceLabelKey ? (
+                      sourceHref ? (
+                        <Link href={sourceHref} className="underline-offset-4 hover:underline">
+                          {t(sourceLabelKey)}
                         </Link>
-                      </TableCell>
-                      <TableCell>
-                        {sourceLabelKey ? (
-                          sourceHref ? (
-                            <Link href={sourceHref} className="underline-offset-4 hover:underline">
-                              {t(sourceLabelKey)}
-                            </Link>
-                          ) : (
-                            <span className="text-muted-foreground">{t(sourceLabelKey)}</span>
-                          )
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-end font-mono">{formatCurrency(line.debit)}</TableCell>
-                      <TableCell className="text-end font-mono">{formatCurrency(line.credit)}</TableCell>
-                      <TableCell className="text-end font-mono">{formatCurrency(line.running_balance)}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </>
-        )}
-      </CardContent>
-    </Card>
+                      ) : (
+                        <span className="text-muted-foreground">{t(sourceLabelKey)}</span>
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-end font-mono">{formatCurrency(line.debit)}</TableCell>
+                  <TableCell className="text-end font-mono">{formatCurrency(line.credit)}</TableCell>
+                  <TableCell className="text-end font-mono">{formatCurrency(line.running_balance)}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+        </>
+      )}
+    </ReportView>
   );
 }
 
@@ -542,12 +545,10 @@ function IncomeStatementTab() {
   const r = reportQuery.data;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accounting.tabs.income_statement")}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2">
+    <ReportView
+      title={t("accounting.tabs.income_statement")}
+      filterArea={
+        <>
           <div className="space-y-1">
             <Label className="text-xs">{t("accounting.is.date_from")}</Label>
             <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
@@ -556,41 +557,45 @@ function IncomeStatementTab() {
             <Label className="text-xs">{t("accounting.is.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
-          <Button size="sm" onClick={() => setRanAt({ from: dateFrom, to: dateTo })}>
-            {t("accounting.is.run")}
-          </Button>
-        </div>
-
-        {r && (
-          <div className="max-w-md space-y-1 font-mono text-sm">
-            <div className="flex justify-between">
-              <span className="font-sans">{t("accounting.is.revenue")}</span>
-              <span>{formatCurrency(r.revenue_total)}</span>
-            </div>
-            <div className="flex justify-between text-muted-foreground">
-              <span className="font-sans">{t("accounting.is.cogs")}</span>
-              <span>({formatCurrency(r.cogs_total)})</span>
-            </div>
-            <div className="flex justify-between border-t pt-1 font-semibold">
-              <span className="font-sans">{t("accounting.is.gross_profit")}</span>
-              <span>{formatCurrency(r.gross_profit)}</span>
-            </div>
-            <div className="flex justify-between text-muted-foreground">
-              <span className="font-sans">{t("accounting.is.opex")}</span>
-              <span>({formatCurrency(r.opex_total)})</span>
-            </div>
-            <div className="flex justify-between border-t pt-1 font-semibold">
-              <span className="font-sans">{t("accounting.is.operating_income")}</span>
-              <span>{formatCurrency(r.operating_income)}</span>
-            </div>
-            <div className="flex justify-between border-t-2 pt-1 text-base font-bold">
-              <span className="font-sans">{t("accounting.is.net_income")}</span>
-              <span>{formatCurrency(r.net_income)}</span>
-            </div>
+        </>
+      }
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onPrint={r ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+    >
+      {!r && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
+      {r && (
+        <div className="max-w-md space-y-1 font-mono text-sm">
+          <ReportPrintHeader reportTitle={t("accounting.tabs.income_statement")} dateRangeLabel={ranAt ? `${ranAt.from} – ${ranAt.to}` : undefined} />
+          <div className="flex justify-between">
+            <span className="font-sans">{t("accounting.is.revenue")}</span>
+            <span>{formatCurrency(r.revenue_total)}</span>
           </div>
-        )}
-      </CardContent>
-    </Card>
+          <div className="flex justify-between text-muted-foreground">
+            <span className="font-sans">{t("accounting.is.cogs")}</span>
+            <span>({formatCurrency(r.cogs_total)})</span>
+          </div>
+          <div className="flex justify-between border-t pt-1 font-semibold">
+            <span className="font-sans">{t("accounting.is.gross_profit")}</span>
+            <span>{formatCurrency(r.gross_profit)}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span className="font-sans">{t("accounting.is.opex")}</span>
+            <span>({formatCurrency(r.opex_total)})</span>
+          </div>
+          <div className="flex justify-between border-t pt-1 font-semibold">
+            <span className="font-sans">{t("accounting.is.operating_income")}</span>
+            <span>{formatCurrency(r.operating_income)}</span>
+          </div>
+          <div className="flex justify-between border-t-2 pt-1 text-base font-bold">
+            <span className="font-sans">{t("accounting.is.net_income")}</span>
+            <span>{formatCurrency(r.net_income)}</span>
+          </div>
+        </div>
+      )}
+    </ReportView>
   );
 }
 
@@ -637,67 +642,69 @@ function BalanceSheetTab() {
   const r = reportQuery.data;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accounting.tabs.balance_sheet")}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs">{t("accounting.bs.as_of_date")}</Label>
-            <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
-          </div>
-          <Button size="sm" onClick={() => setRanAt(asOfDate)}>
-            {t("accounting.bs.run")}
-          </Button>
+    <ReportView
+      title={t("accounting.tabs.balance_sheet")}
+      filterArea={
+        <div className="space-y-1">
+          <Label className="text-xs">{t("accounting.bs.as_of_date")}</Label>
+          <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
         </div>
-
-        {r && (
-          <div className="grid max-w-2xl grid-cols-1 gap-6 sm:grid-cols-2">
+      }
+      onApply={() => setRanAt(asOfDate)}
+      onPrint={r ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+    >
+      {!r && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
+      {r && (
+        <div className="grid max-w-2xl grid-cols-1 gap-6 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <ReportPrintHeader reportTitle={t("accounting.tabs.balance_sheet")} dateRangeLabel={ranAt ?? undefined} />
+          </div>
+          <BalanceSheetSection
+            title={t("accounting.bs.assets")}
+            totalLabel={t("accounting.bs.total_assets")}
+            rows={r.assets}
+            total={r.assets_total}
+          />
+          <div className="space-y-4">
             <BalanceSheetSection
-              title={t("accounting.bs.assets")}
-              totalLabel={t("accounting.bs.total_assets")}
-              rows={r.assets}
-              total={r.assets_total}
+              title={t("accounting.bs.liabilities")}
+              totalLabel={t("accounting.bs.total_liabilities")}
+              rows={r.liabilities}
+              total={r.liabilities_total}
             />
-            <div className="space-y-4">
-              <BalanceSheetSection
-                title={t("accounting.bs.liabilities")}
-                totalLabel={t("accounting.bs.total_liabilities")}
-                rows={r.liabilities}
-                total={r.liabilities_total}
-              />
-              <div className="space-y-1 font-mono text-sm">
-                <p className="font-sans font-semibold">{t("accounting.bs.equity")}</p>
-                {r.equity.map((row, i) => (
-                  <div key={i} className="flex justify-between ps-4">
-                    <span className="font-sans text-muted-foreground">{row.account_name}</span>
-                    <span>{formatCurrency(row.amount)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between ps-4">
-                  <span className="font-sans text-muted-foreground">{t("accounting.bs.current_earnings")}</span>
-                  <span>{formatCurrency(r.current_earnings)}</span>
+            <div className="space-y-1 font-mono text-sm">
+              <p className="font-sans font-semibold">{t("accounting.bs.equity")}</p>
+              {r.equity.map((row, i) => (
+                <div key={i} className="flex justify-between ps-4">
+                  <span className="font-sans text-muted-foreground">{row.account_name}</span>
+                  <span>{formatCurrency(row.amount)}</span>
                 </div>
-                <div className="flex justify-between border-t pt-1 font-semibold">
-                  <span className="font-sans">{t("accounting.bs.total_equity")}</span>
-                  <span>{formatCurrency(r.equity_total)}</span>
-                </div>
+              ))}
+              <div className="flex justify-between ps-4">
+                <span className="font-sans text-muted-foreground">{t("accounting.bs.current_earnings")}</span>
+                <span>{formatCurrency(r.current_earnings)}</span>
               </div>
-              <div className="flex justify-between border-t-2 pt-1 font-mono text-sm font-bold">
-                <span className="font-sans">{t("accounting.bs.total_liabilities_and_equity")}</span>
-                <span>{formatCurrency(r.total_liabilities_and_equity)}</span>
+              <div className="flex justify-between border-t pt-1 font-semibold">
+                <span className="font-sans">{t("accounting.bs.total_equity")}</span>
+                <span>{formatCurrency(r.equity_total)}</span>
               </div>
             </div>
+            <div className="flex justify-between border-t-2 pt-1 font-mono text-sm font-bold">
+              <span className="font-sans">{t("accounting.bs.total_liabilities_and_equity")}</span>
+              <span>{formatCurrency(r.total_liabilities_and_equity)}</span>
+            </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </ReportView>
   );
 }
 
 function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <Table>
       <TableHeader>
@@ -721,7 +728,7 @@ function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
           const href = sourceDocumentHref(line.document_type, line.document_id);
           return (
             <TableRow key={i}>
-              <TableCell>{line.date}</TableCell>
+              <TableCell>{formatDate(line.date, locale)}</TableCell>
               <TableCell>
                 {href ? (
                   <Link href={href} className="underline-offset-4 hover:underline">
@@ -763,10 +770,6 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
     queryKey: ["partners", companyId, "customers"],
     queryFn: () => identityApi.listPartners(companyId, branchId, { customersOnly: true }),
   });
-  const companyQuery = useQuery({
-    queryKey: ["company", companyId],
-    queryFn: () => identityApi.getCompany(companyId),
-  });
   const reportQuery = useQuery({
     queryKey: ["customer-subledger", companyId, ranAt?.partner, ranAt?.from, ranAt?.to],
     queryFn: () => paymentsApi.customerSubledger(companyId, ranAt!.partner, ranAt!.from, ranAt!.to),
@@ -774,19 +777,10 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          {t("accounting.tabs.customer_subledger")}
-          {ranAt && reportQuery.data && (
-            <Button variant="outline" size="sm" onClick={() => window.print()} className="print:hidden">
-              {t("accounting.sub.print")}
-            </Button>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2 print:hidden">
+    <ReportView
+      title={t("accounting.tabs.customer_subledger")}
+      filterArea={
+        <>
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.sub.select_customer")}</Label>
             <Select value={partnerId} onValueChange={(v) => setPartnerId(v ?? "")}>
@@ -812,40 +806,34 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
             <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
-          <Button size="sm" disabled={!partnerId} onClick={() => setRanAt({ partner: partnerId, from: dateFrom, to: dateTo })}>
-            {t("accounting.sub.run")}
-          </Button>
-        </div>
-
-        {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.sub.select_partner_hint")}</p>}
-
-        {ranAt && reportQuery.data && (
-          <>
-            <div className="hidden print:block">
-              <div className="flex items-center gap-2">
-                <EntityImage src={companyQuery.data?.logo_path} name={companyQuery.data?.legal_name ?? ""} shape="square" size="sm" />
-                <p className="text-base font-semibold">{companyQuery.data?.legal_name}</p>
-              </div>
-              <h2 className="text-lg font-semibold">{t("accounting.sub.statement_title")} — {reportQuery.data.partner_name}</h2>
-              <p className="text-sm text-muted-foreground">
-                {reportQuery.data.date_from} – {reportQuery.data.date_to}
-              </p>
-            </div>
-            <div className="flex gap-6 text-sm">
-              <span>
-                {t("accounting.sub.opening_balance")}:{" "}
-                <span className="font-mono">{formatCurrency(reportQuery.data.opening_balance)}</span>
-              </span>
-              <span>
-                {t("accounting.sub.closing_balance")}:{" "}
-                <span className="font-mono">{formatCurrency(reportQuery.data.closing_balance)}</span>
-              </span>
-            </div>
-            <SubledgerLinesTable lines={reportQuery.data.lines} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      }
+      onApply={partnerId ? () => setRanAt({ partner: partnerId, from: dateFrom, to: dateTo }) : undefined}
+      onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      kpis={
+        ranAt && reportQuery.data
+          ? [
+              { label: t("accounting.sub.opening_balance"), value: formatCurrency(reportQuery.data.opening_balance) },
+              { label: t("accounting.sub.closing_balance"), value: formatCurrency(reportQuery.data.closing_balance) },
+            ]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.sub.select_partner_hint")}</p>}
+      {ranAt && reportQuery.data && (
+        <>
+          <ReportPrintHeader
+            reportTitle={t("accounting.sub.statement_title")}
+            subtitle={reportQuery.data.partner_name}
+            dateRangeLabel={`${reportQuery.data.date_from} – ${reportQuery.data.date_to}`}
+          />
+          <SubledgerLinesTable lines={reportQuery.data.lines} />
+        </>
+      )}
+    </ReportView>
   );
 }
 
@@ -865,10 +853,6 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
     queryKey: ["partners", companyId, "vendors"],
     queryFn: () => identityApi.listPartners(companyId, branchId, { vendorsOnly: true }),
   });
-  const companyQuery = useQuery({
-    queryKey: ["company", companyId],
-    queryFn: () => identityApi.getCompany(companyId),
-  });
   const reportQuery = useQuery({
     queryKey: ["vendor-subledger", companyId, ranAt?.partner, ranAt?.from, ranAt?.to],
     queryFn: () => paymentsApi.vendorSubledger(companyId, ranAt!.partner, ranAt!.from, ranAt!.to),
@@ -876,19 +860,10 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          {t("accounting.tabs.vendor_subledger")}
-          {ranAt && reportQuery.data && (
-            <Button variant="outline" size="sm" onClick={() => window.print()} className="print:hidden">
-              {t("accounting.sub.print")}
-            </Button>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2 print:hidden">
+    <ReportView
+      title={t("accounting.tabs.vendor_subledger")}
+      filterArea={
+        <>
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.sub.select_vendor")}</Label>
             <Select value={partnerId} onValueChange={(v) => setPartnerId(v ?? "")}>
@@ -914,45 +889,50 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
             <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
-          <Button size="sm" disabled={!partnerId} onClick={() => setRanAt({ partner: partnerId, from: dateFrom, to: dateTo })}>
-            {t("accounting.sub.run")}
-          </Button>
-        </div>
-
-        {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.sub.select_partner_hint")}</p>}
-
-        {ranAt && reportQuery.data && (
-          <>
-            <div className="hidden print:block">
-              <div className="flex items-center gap-2">
-                <EntityImage src={companyQuery.data?.logo_path} name={companyQuery.data?.legal_name ?? ""} shape="square" size="sm" />
-                <p className="text-base font-semibold">{companyQuery.data?.legal_name}</p>
-              </div>
-              <h2 className="text-lg font-semibold">{t("accounting.sub.statement_title")} — {reportQuery.data.partner_name}</h2>
-              <p className="text-sm text-muted-foreground">
-                {reportQuery.data.date_from} – {reportQuery.data.date_to}
-              </p>
-            </div>
-            <div className="flex gap-6 text-sm">
-              <span>
-                {t("accounting.sub.opening_balance")}:{" "}
-                <span className="font-mono">{formatCurrency(reportQuery.data.opening_balance)}</span>
-              </span>
-              <span>
-                {t("accounting.sub.closing_balance")}:{" "}
-                <span className="font-mono">{formatCurrency(reportQuery.data.closing_balance)}</span>
-              </span>
-            </div>
-            <SubledgerLinesTable lines={reportQuery.data.lines} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      }
+      onApply={partnerId ? () => setRanAt({ partner: partnerId, from: dateFrom, to: dateTo }) : undefined}
+      onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      kpis={
+        ranAt && reportQuery.data
+          ? [
+              { label: t("accounting.sub.opening_balance"), value: formatCurrency(reportQuery.data.opening_balance) },
+              { label: t("accounting.sub.closing_balance"), value: formatCurrency(reportQuery.data.closing_balance) },
+            ]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.sub.select_partner_hint")}</p>}
+      {ranAt && reportQuery.data && (
+        <>
+          <ReportPrintHeader
+            reportTitle={t("accounting.sub.statement_title")}
+            subtitle={reportQuery.data.partner_name}
+            dateRangeLabel={`${reportQuery.data.date_from} – ${reportQuery.data.date_to}`}
+          />
+          <SubledgerLinesTable lines={reportQuery.data.lines} />
+        </>
+      )}
+    </ReportView>
   );
 }
 
-function AgingTable({ rows, partnerLabel }: { rows: AgingRow[]; partnerLabel: string }) {
-  const { t } = useI18n();
+function AgingTable({
+  rows,
+  partnerLabel,
+  documentSourceTable,
+}: {
+  rows: AgingRow[];
+  partnerLabel: string;
+  /** Resolves each row's document number to a source-document link, where
+   * that document type already has a real detail page (see
+   * lib/source-document-links.ts) — currently only sales_invoice does. */
+  documentSourceTable?: string;
+}) {
+  const { t, locale } = useI18n();
   return (
     <Table>
       <TableHeader>
@@ -972,11 +952,21 @@ function AgingTable({ rows, partnerLabel }: { rows: AgingRow[]; partnerLabel: st
             </TableCell>
           </TableRow>
         )}
-        {rows.map((row, i) => (
+        {rows.map((row, i) => {
+          const href = documentSourceTable ? sourceDocumentHref(documentSourceTable, row.document_id) : null;
+          return (
           <TableRow key={i}>
             <TableCell>{row.partner_name}</TableCell>
-            <TableCell>{row.number}</TableCell>
-            <TableCell>{row.due_date}</TableCell>
+            <TableCell>
+              {href ? (
+                <Link href={href} className="underline-offset-4 hover:underline">
+                  {row.number}
+                </Link>
+              ) : (
+                row.number
+              )}
+            </TableCell>
+            <TableCell>{formatDate(row.due_date, locale)}</TableCell>
             <TableCell className="text-end font-mono">{formatCurrency(row.balance_due)}</TableCell>
             <TableCell>
               <Badge variant={statusVariant(row.bucket)}>
@@ -984,7 +974,8 @@ function AgingTable({ rows, partnerLabel }: { rows: AgingRow[]; partnerLabel: st
               </Badge>
             </TableCell>
           </TableRow>
-        ))}
+          );
+        })}
       </TableBody>
     </Table>
   );
@@ -1003,23 +994,29 @@ function ArAgingTab() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accounting.tabs.ar_aging")}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs">{t("accounting.aging.as_of_date")}</Label>
-            <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
-          </div>
-          <Button size="sm" onClick={() => setRanAt(asOfDate)}>
-            {t("accounting.aging.run")}
-          </Button>
+    <ReportView
+      title={t("accounting.tabs.ar_aging")}
+      filterArea={
+        <div className="space-y-1">
+          <Label className="text-xs">{t("accounting.aging.as_of_date")}</Label>
+          <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
         </div>
-        {reportQuery.data && <AgingTable rows={reportQuery.data.rows} partnerLabel={t("accounting.aging.partner")} />}
-      </CardContent>
-    </Card>
+      }
+      onApply={() => setRanAt(asOfDate)}
+      onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      isEmpty={!!ranAt && !!reportQuery.data && reportQuery.data.rows.length === 0}
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.sub.select_partner_hint")}</p>}
+      {ranAt && reportQuery.data && (
+        <>
+          <ReportPrintHeader reportTitle={t("accounting.tabs.ar_aging")} dateRangeLabel={reportQuery.data.as_of_date} />
+          <AgingTable rows={reportQuery.data.rows} partnerLabel={t("accounting.aging.partner")} documentSourceTable="sales_invoice" />
+        </>
+      )}
+    </ReportView>
   );
 }
 
@@ -1036,23 +1033,29 @@ function ApAgingTab() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("accounting.tabs.ap_aging")}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs">{t("accounting.aging.as_of_date")}</Label>
-            <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
-          </div>
-          <Button size="sm" onClick={() => setRanAt(asOfDate)}>
-            {t("accounting.aging.run")}
-          </Button>
+    <ReportView
+      title={t("accounting.tabs.ap_aging")}
+      filterArea={
+        <div className="space-y-1">
+          <Label className="text-xs">{t("accounting.aging.as_of_date")}</Label>
+          <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
         </div>
-        {reportQuery.data && <AgingTable rows={reportQuery.data.rows} partnerLabel={t("accounting.aging.vendor")} />}
-      </CardContent>
-    </Card>
+      }
+      onApply={() => setRanAt(asOfDate)}
+      onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      isEmpty={!!ranAt && !!reportQuery.data && reportQuery.data.rows.length === 0}
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.sub.select_partner_hint")}</p>}
+      {ranAt && reportQuery.data && (
+        <>
+          <ReportPrintHeader reportTitle={t("accounting.tabs.ap_aging")} dateRangeLabel={reportQuery.data.as_of_date} />
+          <AgingTable rows={reportQuery.data.rows} partnerLabel={t("accounting.aging.vendor")} />
+        </>
+      )}
+    </ReportView>
   );
 }
 

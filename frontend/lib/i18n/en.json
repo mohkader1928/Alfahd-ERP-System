@@ -208,6 +208,7 @@
   "accounting.tb.date_from": "From",
   "accounting.tb.date_to": "To",
   "accounting.tb.run": "Run report",
+  "accounting.tb.total": "Total",
   "accounting.tb.total_debit": "Total Debit",
   "accounting.tb.total_credit": "Total Credit",
   "inventory.tabs.warehouses": "Warehouses",

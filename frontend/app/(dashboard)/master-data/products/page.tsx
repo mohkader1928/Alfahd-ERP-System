@@ -13,6 +13,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import type { Product } from "@/features/identity/api/types";
 import { ApiError } from "@/lib/api-client";
+import { formatCurrency } from "@/lib/format-currency";
 
 export default function ProductsListPage() {
   const { t } = useI18n();
@@ -71,7 +72,7 @@ export default function ProductsListPage() {
       header: t("master_data.products.stockable"),
       render: (r) => <Badge variant={r.is_stockable ? "default" : "secondary"}>{r.is_stockable ? t("common.yes") : t("common.no")}</Badge>,
     },
-    { key: "sales_price", header: t("master_data.products.sales_price"), align: "end", sortable: true, sortValue: (r) => Number(r.sales_price), render: (r) => r.sales_price },
+    { key: "sales_price", header: t("master_data.products.sales_price"), align: "end", sortable: true, sortValue: (r) => Number(r.sales_price), render: (r) => formatCurrency(r.sales_price) },
   ];
 
   return (

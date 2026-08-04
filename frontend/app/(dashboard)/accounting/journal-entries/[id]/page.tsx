@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import Link from "next/link";
+import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
@@ -119,14 +120,18 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
             </TableBody>
           </Table>
           {entry.status === "draft" && (
-            <Button onClick={() => postMutation.mutate()} disabled={postMutation.isPending}>
-              {postMutation.isPending ? t("common.loading") : t("accounting.je.post")}
-            </Button>
+            <Can permission="accounting.journal_entry.post">
+              <Button onClick={() => postMutation.mutate()} disabled={postMutation.isPending}>
+                {postMutation.isPending ? t("common.loading") : t("accounting.je.post")}
+              </Button>
+            </Can>
           )}
           {entry.status === "posted" && (
-            <Button variant="outline" onClick={() => reverseMutation.mutate()} disabled={reverseMutation.isPending}>
-              {reverseMutation.isPending ? t("common.loading") : t("accounting.je.reverse")}
-            </Button>
+            <Can permission="accounting.journal_entry.reverse">
+              <Button variant="outline" onClick={() => reverseMutation.mutate()} disabled={reverseMutation.isPending}>
+                {reverseMutation.isPending ? t("common.loading") : t("accounting.je.reverse")}
+              </Button>
+            </Can>
           )}
           {(postMutation.isError || reverseMutation.isError) && (
             <p className="text-sm text-destructive">

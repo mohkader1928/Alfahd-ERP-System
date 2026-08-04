@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
@@ -63,9 +64,11 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
             <dd>{formatCurrency(quotation.total_amount)}</dd>
           </dl>
           {quotation.status === "draft" && (
-            <Button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending}>
-              {confirmMutation.isPending ? t("common.loading") : t("sales.quotations.confirm")}
-            </Button>
+            <Can permission="sales.quotation.confirm">
+              <Button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending}>
+                {confirmMutation.isPending ? t("common.loading") : t("sales.quotations.confirm")}
+              </Button>
+            </Can>
           )}
           {confirmMutation.isError && (
             <p className="text-sm text-destructive">
