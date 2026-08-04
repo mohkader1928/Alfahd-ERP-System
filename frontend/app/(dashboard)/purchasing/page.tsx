@@ -14,6 +14,7 @@ import { identityApi } from "@/features/identity/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 import type { PurchaseOrder, VendorBill } from "@/features/purchasing/api/types";
@@ -40,7 +41,7 @@ function useVendorLabel() {
 }
 
 function OrdersTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
   const { label: vendorLabel } = useVendorLabel();
@@ -63,7 +64,7 @@ function OrdersTab() {
       ),
     },
     { key: "vendor", header: t("purchasing.orders.vendor"), render: (r) => vendorLabel(r.partner_id) },
-    { key: "order_date", header: t("purchasing.orders.date"), sortable: true, sortValue: (r) => r.order_date, render: (r) => r.order_date },
+    { key: "order_date", header: t("purchasing.orders.date"), sortable: true, sortValue: (r) => r.order_date, render: (r) => formatDate(r.order_date, locale) },
     {
       key: "status",
       header: t("purchasing.orders.status"),
@@ -85,6 +86,7 @@ function OrdersTab() {
       columns={columns}
       rows={ordersQuery.data}
       rowKey={(r) => r.id}
+      getRowHref={(r) => `/purchasing/orders/${r.id}`}
       isLoading={ordersQuery.isLoading}
       isError={ordersQuery.isError}
       errorMessage={ordersQuery.error instanceof ApiError ? ordersQuery.error.detail : undefined}

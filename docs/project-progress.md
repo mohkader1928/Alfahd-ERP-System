@@ -81,6 +81,33 @@ real customer names, correctly formatted dates and currency), row links
 open the real detail pages, and both render correctly in Arabic
 ("أوامر البيع" / "فواتير المبيعات" in the nav). **Owner Accepted: pending.**
 
+**Third same-day slice — item 12 (double-click convention) + remaining
+raw-date cleanup**: `ERPListView` gained a shared `getRowHref` prop —
+whole-row double-click-to-open, Enter-to-open when keyboard-focused, and
+a trailing chevron as the discoverability cue (never the *only* way in —
+each list's primary column keeps its own `Link` too), per the directive's
+explicit "لا تعتمد على double-click وحده... يجب أن يكون هناك visual cue"
+requirement. Wired into every `ERPListView` screen with a real detail
+page: Quotations, Sales Orders, Sales Invoices, Purchase Orders, Payments,
+Journal Entries, Products, and Address Book/Customers/Vendors/Employees
+(Vendor Bills and Chart of Accounts intentionally excluded — neither has a
+detail page to open). Also closed 3 more raw-date renders the earlier
+audit missed (Purchasing Orders, Payments, Sales Quotations), added a
+missing Customer column to the Quotations list (previously showed no
+customer at all — a real "raw ID/no name" gap), and fixed the Payments
+list's Number column, which was plain text with no link to the payment's
+own detail page at all (every other list's Number/reference column
+already links out — this one silently didn't). `tsc`/`eslint`/production
+build all clean. Live Demonstrated: double-clicking a Quotations row
+(confirmed via `window.location.pathname` after the click, not just a
+visual check) navigated to the real quotation detail page; the chevron
+icon and `cursor: pointer` were confirmed present on every row with a
+target; the chevron's `rtl:rotate-180` was confirmed actually flipping
+(`getComputedStyle(...).rotate === "180deg"` in the Arabic UI — Tailwind
+v4 uses the CSS `rotate` property here, not `transform`, which is why a
+naive `transform` check would have wrongly read "not applied"). **Owner
+Accepted: pending.**
+
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
 `5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff

@@ -82,6 +82,7 @@ export default function SalesInvoicesPage() {
       columns={columns}
       rows={data}
       rowKey={(row) => row.id}
+      getRowHref={(row) => `/sales/invoices/${row.id}`}
       isLoading={isLoading}
       isError={isError}
       errorMessage={error instanceof ApiError ? error.detail : undefined}

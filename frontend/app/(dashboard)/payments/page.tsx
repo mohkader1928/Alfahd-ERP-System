@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
@@ -9,9 +10,10 @@ import { paymentsApi } from "@/features/payments/api/client";
 import type { Payment } from "@/features/payments/api/types";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
 
 export default function PaymentsPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
 
@@ -26,7 +28,11 @@ export default function PaymentsPage() {
       header: t("payments.number"),
       sortable: true,
       sortValue: (row) => row.number,
-      render: (row) => <span className="font-medium">{row.number}</span>,
+      render: (row) => (
+        <Link href={`/payments/${row.id}`} className="font-medium underline-offset-4 hover:underline">
+          {row.number}
+        </Link>
+      ),
     },
     {
       key: "payment_type",
@@ -44,7 +50,7 @@ export default function PaymentsPage() {
       header: t("payments.date"),
       sortable: true,
       sortValue: (row) => row.payment_date,
-      render: (row) => row.payment_date,
+      render: (row) => formatDate(row.payment_date, locale),
     },
     {
       key: "amount",
@@ -68,6 +74,7 @@ export default function PaymentsPage() {
       columns={columns}
       rows={data}
       rowKey={(row) => row.id}
+      getRowHref={(row) => `/payments/${row.id}`}
       isLoading={isLoading}
       isError={isError}
       errorMessage={error instanceof ApiError ? error.detail : undefined}

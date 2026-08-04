@@ -88,6 +88,7 @@ export default function SalesOrdersPage() {
       columns={columns}
       rows={data}
       rowKey={(row) => row.id}
+      getRowHref={(row) => `/sales/orders/${row.id}`}
       isLoading={isLoading}
       isError={isError}
       errorMessage={error instanceof ApiError ? error.detail : undefined}

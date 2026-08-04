@@ -82,6 +82,7 @@ export default function ProductsListPage() {
       columns={columns}
       rows={products}
       rowKey={(r) => r.id}
+      getRowHref={(r) => `/master-data/products/${r.id}`}
       isLoading={isLoading || categoriesQuery.isLoading}
       isError={isError}
       errorMessage={error instanceof ApiError ? error.detail : undefined}

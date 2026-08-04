@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Download, Plus, RefreshCw, Search, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Columns3, Download, Plus, RefreshCw, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -44,6 +45,13 @@ export interface ERPListViewProps<T> {
   columns: ERPColumn<T>[];
   rows: T[] | undefined;
   rowKey: (row: T) => string;
+  /** Shared drill-down convention (per the UI/UX Professional pass): when
+   * a row represents a document/record with a real detail page, pass its
+   * href here to get double-click-to-open + Enter-to-open (when the row
+   * is keyboard-focused) for free, plus a trailing chevron as the
+   * discoverability cue — on top of, not instead of, the primary column's
+   * own Link (double-click is never the *only* way in). */
+  getRowHref?: (row: T) => string | undefined;
   isLoading?: boolean;
   isError?: boolean;
   errorMessage?: string;
@@ -78,6 +86,7 @@ export function ERPListView<T>({
   columns,
   rows,
   rowKey,
+  getRowHref,
   isLoading,
   isError,
   errorMessage,
@@ -96,6 +105,7 @@ export function ERPListView<T>({
   pageSizeDefault = 25,
 }: ERPListViewProps<T>) {
   const { t } = useI18n();
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
   const [page, setPage] = useState(1);
@@ -296,13 +306,14 @@ export function ERPListView<T>({
                   </TableHead>
                 ))}
                 {rowActions && <TableHead className="w-8" />}
+                {getRowHref && <TableHead className="w-6" />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading &&
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0)}>
+                    <TableCell colSpan={visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0) + (getRowHref ? 1 : 0)}>
                       <Skeleton className="h-6 w-full" />
                     </TableCell>
                   </TableRow>
@@ -310,7 +321,7 @@ export function ERPListView<T>({
 
               {!isLoading && isError && (
                 <TableRow>
-                  <TableCell colSpan={visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0)}>
+                  <TableCell colSpan={visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0) + (getRowHref ? 1 : 0)}>
                     <ErrorState message={errorMessage} onRetry={onRetry} />
                   </TableCell>
                 </TableRow>
@@ -318,7 +329,7 @@ export function ERPListView<T>({
 
               {!isLoading && !isError && pagedRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0)}>
+                  <TableCell colSpan={visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0) + (getRowHref ? 1 : 0)}>
                     <EmptyState title={emptyTitle ?? t("list.empty_title")} description={emptyDescription} />
                   </TableCell>
                 </TableRow>
@@ -328,8 +339,21 @@ export function ERPListView<T>({
                 !isError &&
                 pagedRows.map((row) => {
                   const key = rowKey(row);
+                  const href = getRowHref?.(row);
                   return (
-                    <TableRow key={key}>
+                    <TableRow
+                      key={key}
+                      className={href ? "cursor-pointer" : undefined}
+                      tabIndex={href ? 0 : undefined}
+                      onDoubleClick={href ? () => router.push(href) : undefined}
+                      onKeyDown={
+                        href
+                          ? (e) => {
+                              if (e.key === "Enter") router.push(href);
+                            }
+                          : undefined
+                      }
+                    >
                       {selectable && (
                         <TableCell>
                           <input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelected(key)} />
@@ -341,6 +365,11 @@ export function ERPListView<T>({
                         </TableCell>
                       ))}
                       {rowActions && <TableCell className="text-end">{rowActions(row)}</TableCell>}
+                      {getRowHref && (
+                        <TableCell className="text-end">
+                          {href && <ChevronRight className="h-4 w-4 text-muted-foreground rtl:rotate-180" />}
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })}

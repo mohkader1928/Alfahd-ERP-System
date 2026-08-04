@@ -147,6 +147,7 @@ export function PartnerListView({ kind }: { kind: PartnerListKind }) {
       columns={columns}
       rows={rows}
       rowKey={(r) => r.id}
+      getRowHref={(r) => `/master-data/partners/${r.id}`}
       isLoading={isLoading}
       isError={isError}
       errorMessage={error instanceof ApiError ? error.detail : undefined}

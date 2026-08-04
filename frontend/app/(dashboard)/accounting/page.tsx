@@ -317,6 +317,7 @@ function JournalEntriesTab() {
         columns={columns}
         rows={entriesQuery.data}
         rowKey={(r) => r.id}
+        getRowHref={(r) => `/accounting/journal-entries/${r.id}`}
         isLoading={entriesQuery.isLoading}
         isError={entriesQuery.isError}
         onRetry={() => entriesQuery.refetch()}
