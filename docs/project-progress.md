@@ -138,6 +138,29 @@ always — never assumed). Work proceeds directly to **Bundle B — Address
 Book + Images** per the Owner's explicit "no stopping between Bundles"
 directive.
 
+**Bundle B — audit + first slice**: a full audit of the existing Entity
+Media Foundation found it already covers nearly everything the directive
+asks for — Company logo (Company Selection, Topbar, Dashboard, every
+Accounting print report), Partner image (Customer/Vendor/Employee — all
+three are views over the same Partner table, so Employee photo already
+works via the same detail page/upload as Customer/Vendor), and Product
+image, all already displayed in their List and Detail screens via the
+shared `EntityImage`/`EntityImageUpload` components — nothing here needed
+rebuilding. The one confirmed, bounded gap: the customer/vendor/product
+picker `Select` dropdowns on the Sales Quotation and Purchase Order "new"
+forms showed plain text only, no thumbnail — inconsistent with every
+other List/Select surface in the app. Closed by adding the same
+`EntityImage` (size `xs`) to both the selected-value display and each
+option row, in all 4 pickers (Sales Quotation customer/product, Purchase
+Order vendor/product) — zero new components, same fallback-to-initials
+behavior as everywhere else. No backend changes. `tsc`/`eslint` clean.
+Live verification of this slice was blocked by an in-session Browser-pane
+rendering issue (compositing failure unrelated to the code change,
+confirmed on two separate tabs); DOM inspection before the pane failure
+did confirm the dropdown correctly renders an avatar per option. Full
+interactive click-through re-verification is still owed and will be
+completed opportunistically. **Owner Accepted: pending.**
+
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
 `5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff

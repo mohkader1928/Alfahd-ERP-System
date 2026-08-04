@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -103,13 +104,26 @@ export default function NewQuotationPage() {
                     rendered children. A `children` render function is
                     required to display the label instead. */}
                 <SelectValue placeholder={t("sales.quotations.select_customer")}>
-                  {(value: string) => partnersQuery.data?.find((p) => p.id === value)?.name ?? value}
+                  {(value: string) => {
+                    const partner = partnersQuery.data?.find((p) => p.id === value);
+                    return partner ? (
+                      <span className="flex items-center gap-2">
+                        <EntityImage src={partner.image_path} name={partner.name} size="xs" />
+                        {partner.name}
+                      </span>
+                    ) : (
+                      value
+                    );
+                  }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {partnersQuery.data?.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.name}
+                    <span className="flex items-center gap-2">
+                      <EntityImage src={p.image_path} name={p.name} size="xs" />
+                      {p.name}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -127,13 +141,26 @@ export default function NewQuotationPage() {
                   <Select value={line.product_id} onValueChange={(v) => updateLine(index, { product_id: v ?? "" })}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder={t("sales.quotations.select_product")}>
-                        {(value: string) => productsQuery.data?.find((p) => p.id === value)?.name ?? value}
+                        {(value: string) => {
+                          const product = productsQuery.data?.find((p) => p.id === value);
+                          return product ? (
+                            <span className="flex items-center gap-2">
+                              <EntityImage src={product.image_path} name={product.name} size="xs" shape="square" />
+                              {product.name}
+                            </span>
+                          ) : (
+                            value
+                          );
+                        }}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {productsQuery.data?.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
-                          {p.name}
+                          <span className="flex items-center gap-2">
+                            <EntityImage src={p.image_path} name={p.name} size="xs" shape="square" />
+                            {p.name}
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
