@@ -43,7 +43,7 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="max-w-xl space-y-4">
-      <Button variant="ghost" size="sm" onClick={() => router.push("/sales/quotations")}>
+      <Button variant="ghost" size="sm" onClick={() => router.push("/sales/orders")}>
         <ArrowLeft className="h-4 w-4" />
         {t("common.back")}
       </Button>

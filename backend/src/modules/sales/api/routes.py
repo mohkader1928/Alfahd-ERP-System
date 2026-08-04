@@ -82,6 +82,14 @@ async def confirm_quotation(
     return order
 
 
+@router.get("/orders", response_model=list[SalesOrderOut])
+async def list_sales_orders(
+    ctx: AuthContext = Depends(require_permission("sales.order.view")),
+    order_repo: SalesOrderRepository = Depends(get_sales_order_repo),
+):
+    return await order_repo.list_by_company(ctx.company_id)
+
+
 @router.get("/orders/{order_id}", response_model=SalesOrderOut)
 async def get_sales_order(
     order_id: UUID,

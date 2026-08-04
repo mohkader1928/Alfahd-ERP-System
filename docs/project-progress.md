@@ -63,6 +63,24 @@ Closing column redesign — deliberately deferred so this pass's `ReportView`
 shell work isn't re-done); Bundle F (Multi-Currency — explicitly gated on
 a short audit first, not started).
 
+**Same-day addendum**: the "Sales Order/Invoice have no list page at all"
+gap flagged above was closed in the same pass, since it's a small,
+bounded, directly-in-scope fix for item 1's "every module needs a real
+list screen" requirement — not deferred. Backend: `GET /sales/orders`
+added (`SalesOrderRepository.list_by_company`, reusing the existing
+`sales.order.view` permission already gating the single-order endpoint —
+no new permission), 1 new test (193/193 backend total, `ruff` clean).
+Frontend: `/sales/orders` and `/sales/invoices` list pages built on the
+exact same `ERPListView` pattern as Quotations, with a customer-name
+resolver (never a raw partner UUID) matching the existing Purchasing
+`useVendorLabel`/Inventory `useProductLabel` convention, real
+`formatCurrency`/`formatDate`/`statusVariant` throughout, and both added
+to the Sales nav group. `tsc`/`eslint`/production build all clean. Live
+Demonstrated: both lists render real company data (order/invoice numbers,
+real customer names, correctly formatted dates and currency), row links
+open the real detail pages, and both render correctly in Arabic
+("أوامر البيع" / "فواتير المبيعات" in the nav). **Owner Accepted: pending.**
+
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
 `5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff

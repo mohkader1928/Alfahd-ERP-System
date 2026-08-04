@@ -56,7 +56,11 @@ export const NAV_CONFIG: NavEntry[] = [
     type: "group",
     labelKey: "nav.sales",
     icon: ShoppingCart,
-    children: [{ type: "link", href: "/sales/quotations", labelKey: "nav.sales.quotations", icon: FileText }],
+    children: [
+      { type: "link", href: "/sales/quotations", labelKey: "nav.sales.quotations", icon: FileText },
+      { type: "link", href: "/sales/orders", labelKey: "nav.sales.orders", icon: FileText },
+      { type: "link", href: "/sales/invoices", labelKey: "nav.sales.invoices", icon: FileText },
+    ],
   },
   { type: "link", href: "/accounting", labelKey: "nav.accounting", icon: Calculator },
   { type: "link", href: "/inventory", labelKey: "nav.inventory", icon: Boxes },

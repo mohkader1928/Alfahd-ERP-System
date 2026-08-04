@@ -18,6 +18,8 @@ export const salesApi = {
   confirmQuotation: (companyId: string, branchId: string, id: string) =>
     apiClient.post<SalesOrder>(`${BASE}/quotations/${id}:confirm`, undefined, { companyId, branchId }),
 
+  listOrders: (companyId: string) => apiClient.get<SalesOrder[]>(`${BASE}/orders`, { companyId }),
+
   getSalesOrder: (companyId: string, id: string) => apiClient.get<SalesOrder>(`${BASE}/orders/${id}`, { companyId }),
 
   issueInvoice: (companyId: string, branchId: string, orderId: string) =>

@@ -81,6 +81,12 @@ class SalesOrderRepository:
         count = result.scalar_one()
         return f"SO-{count + 1:06d}"
 
+    async def list_by_company(self, company_id: UUID, *, limit: int = 200) -> list[SalesOrder]:
+        result = await self.session.execute(
+            select(SalesOrder).where(SalesOrder.company_id == company_id).order_by(SalesOrder.order_date.desc()).limit(limit)
+        )
+        return list(result.scalars().all())
+
 
 class SalesInvoiceRepository:
     def __init__(self, session: AsyncSession):

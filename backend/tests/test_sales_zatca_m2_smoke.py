@@ -209,3 +209,26 @@ async def test_credit_note_reverses_the_original_invoice_journal_entry(client):
 async def test_sales_endpoints_require_permission(client):
     resp = await client.post("/api/v1/sales/quotations", json={})
     assert resp.status_code == 401
+
+
+async def test_list_sales_orders(client):
+    """UI/UX Professional pass: GET /sales/orders — Sales Orders had no
+    list endpoint at all until this pass, so the frontend list screen had
+    nowhere to fetch from."""
+    company_id, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    order_id = await _create_quotation_and_confirm(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+
+    list_resp = await client.get("/api/v1/sales/orders", headers=headers)
+    assert list_resp.status_code == 200
+    order_ids = [o["id"] for o in list_resp.json()]
+    assert order_id in order_ids
+
+    other_headers = (await _bootstrap_and_login(client))[1]
+    other_list_resp = await client.get("/api/v1/sales/orders", headers=other_headers)
+    assert order_id not in [o["id"] for o in other_list_resp.json()]

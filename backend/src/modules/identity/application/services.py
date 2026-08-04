@@ -351,7 +351,7 @@ class PartnerService:
             raise LookupError("Partner not found")
         # Naive UTC — `deleted_at` is TIMESTAMP WITHOUT TIME ZONE, matching
         # created_at/updated_at's server-side now() on this same table.
-        partner.deleted_at = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+        partner.deleted_at = _dt.datetime.now(_dt.UTC).replace(tzinfo=None)
         return partner
 
     async def restore_partner(self, *, company_id: UUID, partner_id: UUID) -> Partner:
