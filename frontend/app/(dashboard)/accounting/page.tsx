@@ -330,6 +330,30 @@ function JournalEntriesTab() {
   );
 }
 
+/** Returns the sign-adjusted closing balance for display.
+ * Debit-normal accounts (asset, expense): positive closing = debit balance → show in Dr column.
+ * Credit-normal accounts (liability, equity, revenue): positive closing = credit balance → show in Cr column.
+ * The raw `closing_balance` from the API is always debit-minus-credit (positive = net debit).
+ */
+function tbBalanceCells(row: { account_type_code: string; closing_balance: string }) {
+  const raw = Number(row.closing_balance); // debit-minus-credit; positive = net debit
+  const isDebitNormal = row.account_type_code === "asset" || row.account_type_code === "expense";
+  return {
+    // A trial balance always places an account's ACTUAL net position in the
+    // matching Dr/Cr column, regardless of the account type's expected
+    // normal side — a liability account can genuinely carry a debit balance
+    // (e.g. VAT Payable when input VAT from purchases exceeds output VAT
+    // from sales in the period). Gating display by the "expected" side
+    // silently dropped the balance for every such account and broke the
+    // fundamental total-Dr-equals-total-Cr invariant.
+    drBalance: raw > 0 ? raw : 0,
+    crBalance: raw < 0 ? -raw : 0,
+    /** true when the balance is on the "wrong" side for this account type —
+     * unusual but legitimate; the number is still shown, just flagged. */
+    isAbnormal: (isDebitNormal && raw < 0) || (!isDebitNormal && raw > 0),
+  };
+}
+
 function TrialBalanceTab() {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
@@ -344,8 +368,13 @@ function TrialBalanceTab() {
     enabled: !!ranAt,
   });
 
-  const totalDebit = reportQuery.data?.reduce((sum, r) => sum + Number(r.total_debit), 0) ?? 0;
-  const totalCredit = reportQuery.data?.reduce((sum, r) => sum + Number(r.total_credit), 0) ?? 0;
+  const rows = reportQuery.data ?? [];
+  const totalPeriodDebit = rows.reduce((s, r) => s + Number(r.period_debit), 0);
+  const totalPeriodCredit = rows.reduce((s, r) => s + Number(r.period_credit), 0);
+  const totalOpeningDr = rows.reduce((s, r) => s + Math.max(Number(r.opening_balance), 0), 0);
+  const totalOpeningCr = rows.reduce((s, r) => s + Math.max(-Number(r.opening_balance), 0), 0);
+  const totalClosingDr = rows.reduce((s, r) => s + tbBalanceCells(r).drBalance, 0);
+  const totalClosingCr = rows.reduce((s, r) => s + tbBalanceCells(r).crBalance, 0);
 
   return (
     <ReportView
@@ -367,51 +396,104 @@ function TrialBalanceTab() {
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
-      isEmpty={!!ranAt && !reportQuery.isLoading && reportQuery.data?.length === 0}
+      isEmpty={!!ranAt && !reportQuery.isLoading && rows.length === 0}
     >
-      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.sub.select_partner_hint")}</p>}
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.tb.run_hint")}</p>}
       {ranAt && reportQuery.data && (
         <>
           <ReportPrintHeader reportTitle={t("accounting.tabs.trial_balance")} dateRangeLabel={`${ranAt.from} – ${ranAt.to}`} />
+          <div className="overflow-x-auto">
           <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("accounting.accounts.code")}</TableHead>
-              <TableHead>{t("accounting.accounts.name")}</TableHead>
-              <TableHead className="text-end">{t("accounting.tb.total_debit")}</TableHead>
-              <TableHead className="text-end">{t("accounting.tb.total_credit")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {reportQuery.data.map((row) => (
-              <TableRow key={row.account_id}>
-                <TableCell className="font-mono">{row.account_code}</TableCell>
-                <TableCell>{row.account_name}</TableCell>
-                <TableCell className="text-end">{formatCurrency(row.total_debit)}</TableCell>
-                <TableCell className="text-end">{formatCurrency(row.total_credit)}</TableCell>
+            <TableHeader>
+              <TableRow>
+                {/* Account info */}
+                <TableHead rowSpan={2} className="align-bottom w-24">{t("accounting.accounts.code")}</TableHead>
+                <TableHead rowSpan={2} className="align-bottom">{t("accounting.accounts.name")}</TableHead>
+                {/* Opening balance group */}
+                <TableHead colSpan={2} className="text-center border-s">{t("accounting.tb.opening_balance")}</TableHead>
+                {/* Period movement group */}
+                <TableHead colSpan={2} className="text-center border-s">{t("accounting.tb.period_movement")}</TableHead>
+                {/* Closing balance group */}
+                <TableHead colSpan={2} className="text-center border-s">{t("accounting.tb.closing_balance")}</TableHead>
               </TableRow>
-            ))}
-            <TableRow className="font-semibold">
-              <TableCell colSpan={2}>{t("accounting.tb.total")}</TableCell>
-              <TableCell className="text-end">{formatCurrency(totalDebit)}</TableCell>
-              <TableCell className="text-end">{formatCurrency(totalCredit)}</TableCell>
-            </TableRow>
-          </TableBody>
+              <TableRow>
+                <TableHead className="text-end border-s">{t("accounting.tb.debit")}</TableHead>
+                <TableHead className="text-end">{t("accounting.tb.credit")}</TableHead>
+                <TableHead className="text-end border-s">{t("accounting.tb.debit")}</TableHead>
+                <TableHead className="text-end">{t("accounting.tb.credit")}</TableHead>
+                <TableHead className="text-end border-s">{t("accounting.tb.debit")}</TableHead>
+                <TableHead className="text-end">{t("accounting.tb.credit")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => {
+                const openRaw = Number(row.opening_balance);
+                const { drBalance, crBalance, isAbnormal } = tbBalanceCells(row);
+                return (
+                  <TableRow key={row.account_id} className={isAbnormal ? "bg-yellow-50 dark:bg-yellow-950/20" : ""}>
+                    <TableCell className="font-mono text-sm">{row.account_code}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/accounting?tab=general-ledger&account=${row.account_id}`}
+                        className="underline-offset-4 hover:underline"
+                        title={t("accounting.tb.drill_down_hint")}
+                      >
+                        {row.account_name}
+                      </Link>
+                    </TableCell>
+                    {/* Opening */}
+                    <TableCell className="text-end font-mono border-s">
+                      {openRaw > 0 ? formatCurrency(openRaw) : "—"}
+                    </TableCell>
+                    <TableCell className="text-end font-mono">
+                      {openRaw < 0 ? formatCurrency(-openRaw) : "—"}
+                    </TableCell>
+                    {/* Period */}
+                    <TableCell className="text-end font-mono border-s">
+                      {Number(row.period_debit) > 0 ? formatCurrency(row.period_debit) : "—"}
+                    </TableCell>
+                    <TableCell className="text-end font-mono">
+                      {Number(row.period_credit) > 0 ? formatCurrency(row.period_credit) : "—"}
+                    </TableCell>
+                    {/* Closing */}
+                    <TableCell className={`text-end font-mono border-s${isAbnormal ? " text-amber-600 dark:text-amber-400" : ""}`}>
+                      {drBalance > 0 ? formatCurrency(drBalance) : "—"}
+                    </TableCell>
+                    <TableCell className={`text-end font-mono${isAbnormal ? " text-amber-600 dark:text-amber-400" : ""}`}>
+                      {crBalance > 0 ? formatCurrency(crBalance) : "—"}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {/* Totals row */}
+              <TableRow className="font-semibold border-t-2">
+                <TableCell colSpan={2}>{t("accounting.tb.total")}</TableCell>
+                <TableCell className="text-end border-s">{formatCurrency(totalOpeningDr)}</TableCell>
+                <TableCell className="text-end">{formatCurrency(totalOpeningCr)}</TableCell>
+                <TableCell className="text-end border-s">{formatCurrency(totalPeriodDebit)}</TableCell>
+                <TableCell className="text-end">{formatCurrency(totalPeriodCredit)}</TableCell>
+                <TableCell className="text-end border-s">{formatCurrency(totalClosingDr)}</TableCell>
+                <TableCell className="text-end">{formatCurrency(totalClosingCr)}</TableCell>
+              </TableRow>
+            </TableBody>
           </Table>
+          </div>
         </>
       )}
     </ReportView>
   );
 }
 
-function GeneralLedgerTab() {
+function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
   const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
-  const [accountId, setAccountId] = useState("");
+  const [accountId, setAccountId] = useState(initialAccountId ?? "");
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [ranAt, setRanAt] = useState<{ account: string; from: string; to: string } | null>(null);
+  const [ranAt, setRanAt] = useState<{ account: string; from: string; to: string } | null>(() =>
+    initialAccountId ? { account: initialAccountId, from: new Date().toISOString().slice(0, 8) + "01", to: new Date().toISOString().slice(0, 10) } : null
+  );
 
   const accountsQuery = useQuery({
     queryKey: ["accounts", companyId],
@@ -530,6 +612,78 @@ function GeneralLedgerTab() {
   );
 }
 
+/**
+ * Shared component: a labelled section in a financial statement (Income
+ * Statement or Balance Sheet) — renders a group header, one row per
+ * account with code + name (drill-down link to GL) + amount, and a
+ * subtotal/total row.  The `sign` prop controls whether amounts in this
+ * section are displayed as-is (+1) or negated (-1) for presentation
+ * purposes (e.g. expenses shown as deductions are negated).
+ */
+function FinancialSection({
+  label,
+  rows,
+  total,
+  totalLabel,
+  sign = 1,
+  totalBorder = "single",
+}: {
+  label: string;
+  rows: { account_id: string; account_code: string; account_name: string; amount: string }[];
+  total: string;
+  totalLabel: string;
+  sign?: 1 | -1;
+  totalBorder?: "single" | "double";
+}) {
+  const { t } = useI18n();
+  const totalNum = Number(total) * sign;
+  return (
+    <tbody>
+      {/* Section header */}
+      <tr>
+        <td colSpan={3} className="pt-4 pb-1 font-semibold text-sm font-sans">
+          {label}
+        </td>
+      </tr>
+      {/* Account rows */}
+      {rows.map((row) => {
+        const amount = Number(row.amount) * sign;
+        return (
+          <tr key={row.account_id}>
+            <td className="ps-4 py-0.5 font-mono text-xs text-muted-foreground w-20 align-top">
+              {row.account_code}
+            </td>
+            <td className="ps-2 py-0.5 text-sm text-muted-foreground">
+              <Link
+                href={`/accounting?tab=general-ledger&account=${row.account_id}`}
+                className="underline-offset-4 hover:underline"
+                title={t("accounting.tb.drill_down_hint")}
+              >
+                {row.account_name}
+              </Link>
+            </td>
+            <td className="py-0.5 text-end font-mono text-sm tabular-nums text-muted-foreground">
+              {formatCurrency(Math.abs(amount))}
+            </td>
+          </tr>
+        );
+      })}
+      {/* Total row */}
+      <tr
+        className={
+          totalBorder === "double"
+            ? "border-t-2 border-double font-bold text-base"
+            : "border-t font-semibold"
+        }
+      >
+        <td className="py-1" />
+        <td className="py-1 text-sm font-sans">{totalLabel}</td>
+        <td className="py-1 text-end font-mono tabular-nums">{formatCurrency(Math.abs(totalNum))}</td>
+      </tr>
+    </tbody>
+  );
+}
+
 function IncomeStatementTab() {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
@@ -565,66 +719,72 @@ function IncomeStatementTab() {
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
+      kpis={
+        r
+          ? [
+              { label: t("accounting.is.gross_profit"), value: formatCurrency(r.gross_profit) },
+              { label: t("accounting.is.net_income"), value: formatCurrency(r.net_income) },
+            ]
+          : undefined
+      }
     >
       {!r && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
       {r && (
-        <div className="max-w-md space-y-1 font-mono text-sm">
-          <ReportPrintHeader reportTitle={t("accounting.tabs.income_statement")} dateRangeLabel={ranAt ? `${ranAt.from} – ${ranAt.to}` : undefined} />
-          <div className="flex justify-between">
-            <span className="font-sans">{t("accounting.is.revenue")}</span>
-            <span>{formatCurrency(r.revenue_total)}</span>
-          </div>
-          <div className="flex justify-between text-muted-foreground">
-            <span className="font-sans">{t("accounting.is.cogs")}</span>
-            <span>({formatCurrency(r.cogs_total)})</span>
-          </div>
-          <div className="flex justify-between border-t pt-1 font-semibold">
-            <span className="font-sans">{t("accounting.is.gross_profit")}</span>
-            <span>{formatCurrency(r.gross_profit)}</span>
-          </div>
-          <div className="flex justify-between text-muted-foreground">
-            <span className="font-sans">{t("accounting.is.opex")}</span>
-            <span>({formatCurrency(r.opex_total)})</span>
-          </div>
-          <div className="flex justify-between border-t pt-1 font-semibold">
-            <span className="font-sans">{t("accounting.is.operating_income")}</span>
-            <span>{formatCurrency(r.operating_income)}</span>
-          </div>
-          <div className="flex justify-between border-t-2 pt-1 text-base font-bold">
-            <span className="font-sans">{t("accounting.is.net_income")}</span>
-            <span>{formatCurrency(r.net_income)}</span>
-          </div>
+        <div className="max-w-lg">
+          <ReportPrintHeader
+            reportTitle={t("accounting.tabs.income_statement")}
+            dateRangeLabel={ranAt ? `${ranAt.from} – ${ranAt.to}` : undefined}
+          />
+          <table className="w-full border-collapse">
+            {/* Revenue */}
+            <FinancialSection
+              label={t("accounting.is.revenue")}
+              rows={r.revenue_accounts}
+              total={r.revenue_total}
+              totalLabel={t("accounting.is.total_revenue")}
+            />
+            {/* COGS — shown as a deduction (negated for display) */}
+            <FinancialSection
+              label={t("accounting.is.cogs")}
+              rows={r.cogs_accounts}
+              total={r.cogs_total}
+              totalLabel={t("accounting.is.total_cogs")}
+              sign={-1}
+            />
+            {/* Gross Profit subtotal */}
+            <tbody>
+              <tr className="border-t-2 font-bold">
+                <td className="py-1.5 w-20" />
+                <td className="py-1.5 font-sans">{t("accounting.is.gross_profit")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.gross_profit)}</td>
+              </tr>
+            </tbody>
+            {/* Operating Expenses — shown as deductions */}
+            <FinancialSection
+              label={t("accounting.is.opex")}
+              rows={r.opex_accounts}
+              total={r.opex_total}
+              totalLabel={t("accounting.is.total_opex")}
+              sign={-1}
+            />
+            {/* Operating Income */}
+            <tbody>
+              <tr className="border-t font-semibold">
+                <td className="py-1.5 w-20" />
+                <td className="py-1.5 font-sans">{t("accounting.is.operating_income")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.operating_income)}</td>
+              </tr>
+              {/* Net Income — double border */}
+              <tr className="border-t-2 border-double font-bold text-base">
+                <td className="py-2 w-20" />
+                <td className="py-2 font-sans">{t("accounting.is.net_income")}</td>
+                <td className="py-2 text-end font-mono tabular-nums">{formatCurrency(r.net_income)}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
     </ReportView>
-  );
-}
-
-function BalanceSheetSection({
-  title,
-  totalLabel,
-  rows,
-  total,
-}: {
-  title: string;
-  totalLabel: string;
-  rows: { account_name: string; amount: string }[];
-  total: string;
-}) {
-  return (
-    <div className="space-y-1 font-mono text-sm">
-      <p className="font-sans font-semibold">{title}</p>
-      {rows.map((row, i) => (
-        <div key={i} className="flex justify-between ps-4">
-          <span className="font-sans text-muted-foreground">{row.account_name}</span>
-          <span>{formatCurrency(row.amount)}</span>
-        </div>
-      ))}
-      <div className="flex justify-between border-t pt-1 font-semibold">
-        <span className="font-sans">{totalLabel}</span>
-        <span>{formatCurrency(total)}</span>
-      </div>
-    </div>
   );
 }
 
@@ -656,48 +816,90 @@ function BalanceSheetTab() {
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
+      kpis={
+        r
+          ? [
+              { label: t("accounting.bs.total_assets"), value: formatCurrency(r.assets_total) },
+              { label: t("accounting.bs.total_liabilities_and_equity"), value: formatCurrency(r.total_liabilities_and_equity) },
+            ]
+          : undefined
+      }
     >
       {!r && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
       {r && (
-        <div className="grid max-w-2xl grid-cols-1 gap-6 sm:grid-cols-2">
+        <div className="grid max-w-4xl grid-cols-1 gap-8 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <ReportPrintHeader reportTitle={t("accounting.tabs.balance_sheet")} dateRangeLabel={ranAt ?? undefined} />
           </div>
-          <BalanceSheetSection
-            title={t("accounting.bs.assets")}
-            totalLabel={t("accounting.bs.total_assets")}
-            rows={r.assets}
-            total={r.assets_total}
-          />
-          <div className="space-y-4">
-            <BalanceSheetSection
-              title={t("accounting.bs.liabilities")}
-              totalLabel={t("accounting.bs.total_liabilities")}
+
+          {/* ── Assets (left column) ── */}
+          <table className="w-full border-collapse text-sm">
+            <FinancialSection
+              label={t("accounting.bs.assets")}
+              rows={r.assets}
+              total={r.assets_total}
+              totalLabel={t("accounting.bs.total_assets")}
+              totalBorder="double"
+            />
+          </table>
+
+          {/* ── Liabilities + Equity (right column) ── */}
+          <table className="w-full border-collapse text-sm">
+            <FinancialSection
+              label={t("accounting.bs.liabilities")}
               rows={r.liabilities}
               total={r.liabilities_total}
+              totalLabel={t("accounting.bs.total_liabilities")}
             />
-            <div className="space-y-1 font-mono text-sm">
-              <p className="font-sans font-semibold">{t("accounting.bs.equity")}</p>
-              {r.equity.map((row, i) => (
-                <div key={i} className="flex justify-between ps-4">
-                  <span className="font-sans text-muted-foreground">{row.account_name}</span>
-                  <span>{formatCurrency(row.amount)}</span>
-                </div>
+            {/* Equity section — inline because it has the extra "Current Earnings" row */}
+            <tbody>
+              <tr>
+                <td colSpan={3} className="pt-4 pb-1 font-semibold font-sans">
+                  {t("accounting.bs.equity")}
+                </td>
+              </tr>
+              {r.equity.map((row) => (
+                <tr key={row.account_id}>
+                  <td className="ps-4 py-0.5 font-mono text-xs text-muted-foreground w-20">
+                    {row.account_code}
+                  </td>
+                  <td className="ps-2 py-0.5 text-muted-foreground">
+                    <Link
+                      href={`/accounting?tab=general-ledger&account=${row.account_id}`}
+                      className="underline-offset-4 hover:underline"
+                      title={t("accounting.tb.drill_down_hint")}
+                    >
+                      {row.account_name}
+                    </Link>
+                  </td>
+                  <td className="py-0.5 text-end font-mono tabular-nums text-muted-foreground">
+                    {formatCurrency(row.amount)}
+                  </td>
+                </tr>
               ))}
-              <div className="flex justify-between ps-4">
-                <span className="font-sans text-muted-foreground">{t("accounting.bs.current_earnings")}</span>
-                <span>{formatCurrency(r.current_earnings)}</span>
-              </div>
-              <div className="flex justify-between border-t pt-1 font-semibold">
-                <span className="font-sans">{t("accounting.bs.total_equity")}</span>
-                <span>{formatCurrency(r.equity_total)}</span>
-              </div>
-            </div>
-            <div className="flex justify-between border-t-2 pt-1 font-mono text-sm font-bold">
-              <span className="font-sans">{t("accounting.bs.total_liabilities_and_equity")}</span>
-              <span>{formatCurrency(r.total_liabilities_and_equity)}</span>
-            </div>
-          </div>
+              {/* Current Earnings — auto-computed, no account id */}
+              <tr>
+                <td className="ps-4 py-0.5 font-mono text-xs text-muted-foreground w-20">—</td>
+                <td className="ps-2 py-0.5 text-muted-foreground italic">{t("accounting.bs.current_earnings")}</td>
+                <td className="py-0.5 text-end font-mono tabular-nums text-muted-foreground">
+                  {formatCurrency(r.current_earnings)}
+                </td>
+              </tr>
+              <tr className="border-t font-semibold">
+                <td className="py-1 w-20" />
+                <td className="py-1 font-sans">{t("accounting.bs.total_equity")}</td>
+                <td className="py-1 text-end font-mono tabular-nums">{formatCurrency(r.equity_total)}</td>
+              </tr>
+              {/* Grand total: Liabilities + Equity */}
+              <tr className="border-t-2 border-double font-bold text-base">
+                <td className="py-2 w-20" />
+                <td className="py-2 font-sans">{t("accounting.bs.total_liabilities_and_equity")}</td>
+                <td className="py-2 text-end font-mono tabular-nums">
+                  {formatCurrency(r.total_liabilities_and_equity)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
     </ReportView>
@@ -1069,8 +1271,24 @@ export default function AccountingPage() {
   // set) — confirmed by inspecting the live DOM. Controlling the active tab
   // ourselves and gating each panel's content on it sidesteps the bug
   // regardless of its root cause.
-  const [tab, setTab] = useState(() => searchParams.get("tab") ?? "accounts");
+  const urlTab = searchParams.get("tab");
+  const [tab, setTab] = useState(() => urlTab ?? "accounts");
+  // A drill-down link (e.g. Trial Balance row -> General Ledger) is a
+  // same-route client-side navigation, so this component never remounts —
+  // the useState initializer above only runs once and never sees a later
+  // ?tab= value on its own. Tracking the last-observed URL value (same
+  // derived-state-during-render pattern as EntityImage's src-change
+  // handling) and only forcing a sync when THAT changes — rather than
+  // whenever it merely differs from `tab` — is what makes this safe:
+  // manually clicking a TabsTrigger doesn't touch the URL, so `urlTab`
+  // stays constant and this deliberately leaves that local switch alone.
+  const [lastUrlTab, setLastUrlTab] = useState(urlTab);
+  if (urlTab && urlTab !== lastUrlTab) {
+    setLastUrlTab(urlTab);
+    setTab(urlTab);
+  }
   const deepLinkPartnerId = searchParams.get("partner") ?? undefined;
+  const deepLinkAccountId = searchParams.get("account") ?? undefined;
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">{t("nav.accounting")}</h1>
@@ -1090,7 +1308,7 @@ export default function AccountingPage() {
         <TabsContent value="accounts">{tab === "accounts" && <ChartOfAccountsTab />}</TabsContent>
         <TabsContent value="journal-entries">{tab === "journal-entries" && <JournalEntriesTab />}</TabsContent>
         <TabsContent value="trial-balance">{tab === "trial-balance" && <TrialBalanceTab />}</TabsContent>
-        <TabsContent value="general-ledger">{tab === "general-ledger" && <GeneralLedgerTab />}</TabsContent>
+        <TabsContent value="general-ledger">{tab === "general-ledger" && <GeneralLedgerTab initialAccountId={deepLinkAccountId} />}</TabsContent>
         <TabsContent value="income-statement">{tab === "income-statement" && <IncomeStatementTab />}</TabsContent>
         <TabsContent value="balance-sheet">{tab === "balance-sheet" && <BalanceSheetTab />}</TabsContent>
         <TabsContent value="customer-subledger">

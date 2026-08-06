@@ -82,6 +82,12 @@ class TrialBalanceRow(BaseModel):
     account_id: UUID
     account_code: str
     account_name: str
+    account_type_code: str
+    opening_balance: Decimal
+    period_debit: Decimal
+    period_credit: Decimal
+    closing_balance: Decimal
+    # Legacy aliases — kept for backward compatibility with any existing callers
     total_debit: Decimal
     total_credit: Decimal
 

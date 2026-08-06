@@ -44,7 +44,14 @@ export interface TrialBalanceRow {
   account_id: string;
   account_code: string;
   account_name: string;
+  account_type_code: "asset" | "liability" | "equity" | "revenue" | "expense";
+  opening_balance: string;
+  period_debit: string;
+  period_credit: string;
+  closing_balance: string;
+  /** @deprecated use period_debit */
   total_debit: string;
+  /** @deprecated use period_credit */
   total_credit: string;
 }
 

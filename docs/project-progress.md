@@ -262,6 +262,93 @@ action, confirmed toast feedback fired, then reverted back to "Main
 Warehouse" to leave the demo company unchanged. **Owner Accepted:
 pending.**
 
+**Bundle E — Accounting/Reporting Quality, first slice (2026-08-05/07)**:
+scope was set by the Owner after direct testing found the shipped Trial
+Balance showed Debit/Credit but no Balance — rejected as "not a
+professional trial balance." Redesigned per the Owner's explicit spec
+(Opening/Period Debit/Period Credit/Closing, with Dr/Cr nature) and built
+as the first, reusable slice of the wider Accounting/Reporting Quality
+effort (GL/Income Statement/Balance Sheet/Cash Flow/AR-AP/Aging/Statements/
+Sales & Purchasing & Inventory reports), not "just add a column":
+
+- **Trial Balance**: `AccountingRepository.trial_balance` now returns
+  `opening_balance` (all posted activity strictly before `date_from`,
+  computed the same way General Ledger's opening balance already was —
+  extended to a grouped-by-account query, not a new mechanism),
+  `period_debit`/`period_credit` (same query as before, relabeled),
+  `closing_balance` = opening + period net, all signed debit-minus-credit.
+  Frontend: 6-column Opening/Period/Closing × Dr/Cr layout, GL drill-down
+  link on every account, abnormal-balance highlighting.
+- **Real bug caught during this same testing pass and fixed**: the
+  closing-balance display logic gated which column showed a number by the
+  account's *expected* normal side — so a liability account with a
+  genuine net debit balance (e.g. VAT Payable when input VAT from
+  purchases exceeds output VAT from sales in the period — confirmed via
+  raw SQL on the Owner's real "Almahmoud Trading Co." company: 14,700
+  debit vs 10,380 credit) showed **blank in both Dr and Cr columns**,
+  silently dropping a real 4,320+ SAR balance from the report and
+  breaking the fundamental total-Dr-equals-total-Cr invariant. Fixed by
+  always placing the actual signed balance in its true column (Dr if net
+  debit, Cr if net credit) regardless of account type, keeping the
+  type-mismatch only as a visual flag, not a display gate. Re-verified
+  live against real data: VAT Payable's real 51,872.40 SAR closing
+  balance now shows correctly, and the grand-total row's Closing Dr and
+  Closing Cr now match exactly (1,668,858.78 SAR both sides) — they did
+  not before the fix.
+- **Second real bug found and fixed in the same pass**: the Trial
+  Balance → General Ledger drill-down link updated the URL but silently
+  left the visible tab on Trial Balance — because `AccountingPage`'s tab
+  state was seeded once from `searchParams` and never re-read on a
+  same-route client-side navigation (a hard page reload masked this,
+  which is why it wasn't caught earlier). Fixed with the same
+  derived-state-during-render pattern already used by `EntityImage`
+  (track the last-*observed* URL value, not "does state differ from
+  URL" — the naive version would fight a user manually clicking a
+  different tab). Live-verified both directions: drill-down now switches
+  tabs correctly without a reload, and manual tab-clicking still works
+  unaffected.
+- **Sales Reports** (`/sales/reports`, new nav entry): By Customer / By
+  Product / By Period, backend cross-module queries in a new
+  `SalesReportingService` (Reporting module reading Sales+Identity
+  directly, the same cross-module-read pattern `DashboardService` already
+  used — not a new architecture), reusing `ReportView`/`ReportPrintHeader`.
+  New permission `reporting.sales.view`, backfilled to every existing
+  Admin role via migration `c1d2e3f4a5b6` (RLS-safe: targets roles
+  indirectly through `reporting.dashboard.view`, since `role` has FORCE
+  RLS and no company context exists at migration time) and kept in sync
+  going forward by a new Admin-role permission-sync step in
+  `seed_core_data` (runs at every API startup, `SET LOCAL row_security =
+  off`, silently no-ops if the DB user lacks BYPASSRLS).
+- **Cycle Count accounting, fixed on Owner request**: stock moves were
+  already correctly per-line with a distinct `move_type="adjustment"`
+  and `source_table="cycle_count_line"` (confirmed, not changed), but the
+  journal entry was posted **once per line** instead of once for the
+  whole count. Consolidated into a single net journal entry per cycle
+  count (`source_table="cycle_count"`, now with its own GL drill-down
+  link straight through to the Cycle Count detail page — closing the
+  Report→Account→Entry→Source-Document chain for stocktakes the same way
+  it already worked for invoices/bills/payments); a net-zero count (equal
+  offsetting increases/decreases) now correctly posts no entry at all
+  rather than a meaningless zero-amount one. Stock moves are unaffected
+  and still post per line, since physical quantity movements can't be
+  netted across different products.
+- **Tests**: 2 new Trial Balance tests (opening/period/closing columns
+  computed correctly across periods; a liability account's true signed
+  closing balance is reported, not clamped), 5 new Sales Reporting tests
+  (per-report aggregation correctness, date-range exclusion, permission
+  gating), 2 new Cycle Count tests (multi-line net consolidation posts
+  exactly one entry sized to the net value; net-zero posts none). 208/208
+  backend tests, `ruff`/`tsc`/`eslint`/`next build` all clean.
+- **Explicitly not done in this slice** (per the Owner's own "don't
+  build everything at once" instruction): GL/Income Statement/Balance
+  Sheet/Aging/Statements already had drill-down and print headers from
+  Bundle A/M1b and were left alone; Cash Flow, VAT/Tax reporting, and the
+  Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
+  vendor, etc.) are still open and are the next priority items, not
+  silently dropped.
+
+**Owner Accepted: pending.**
+
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
 `5aee470` — Implemented and Tested (192/192 backend tests, 9 new; `ruff

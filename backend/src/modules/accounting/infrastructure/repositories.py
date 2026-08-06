@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.modules.accounting.infrastructure.models import (
     Account,
@@ -164,46 +165,124 @@ class JournalEntryRepository:
         self, company_id: UUID, date_from: date, date_to: date, branch_id: UUID | None = None
     ) -> list[dict]:
         """FR-ACC-009: aggregated debit/credit per account for posted entries
-        within the date range."""
-        stmt = (
+        within the date range, plus opening balance (all activity before
+        date_from) so callers get: Opening | Period Debit | Period Credit |
+        Closing Balance — the standard four-column trial balance layout."""
+
+        # --- Opening balance sub-query (everything BEFORE the period) ----------
+        # Computes net debit-minus-credit per account for all posted activity
+        # strictly before date_from.  Aliased so the main join can reference it.
+        JEL_open = aliased(JournalEntryLine)
+        JE_open = aliased(JournalEntry)
+
+        opening_sub = (
             select(
-                Account.id,
-                Account.code,
-                Account.name,
-                func.coalesce(func.sum(JournalEntryLine.debit), 0).label("total_debit"),
-                func.coalesce(func.sum(JournalEntryLine.credit), 0).label("total_credit"),
+                JEL_open.account_id.label("account_id"),
+                func.coalesce(func.sum(JEL_open.debit), 0).label("open_debit"),
+                func.coalesce(func.sum(JEL_open.credit), 0).label("open_credit"),
             )
-            .join(JournalEntryLine, JournalEntryLine.account_id == Account.id)
-            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(JE_open, JE_open.id == JEL_open.journal_entry_id)
             .where(
-                JournalEntry.company_id == company_id,
+                JE_open.company_id == company_id,
+                JE_open.status.in_(["posted", "reversed"]),
+                JE_open.entry_date < date_from,
+            )
+            .group_by(JEL_open.account_id)
+        )
+        if branch_id is not None:
+            opening_sub = opening_sub.where(JE_open.branch_id == branch_id)
+        opening_sub = opening_sub.subquery("opening")
+
+        # --- Period activity sub-query (within [date_from, date_to]) -----------
+        JEL_period = aliased(JournalEntryLine)
+        JE_period = aliased(JournalEntry)
+
+        period_sub = (
+            select(
+                JEL_period.account_id.label("account_id"),
+                func.coalesce(func.sum(JEL_period.debit), 0).label("period_debit"),
+                func.coalesce(func.sum(JEL_period.credit), 0).label("period_credit"),
+            )
+            .join(JE_period, JE_period.id == JEL_period.journal_entry_id)
+            .where(
+                JE_period.company_id == company_id,
                 # "reversed" entries were genuinely posted to the ledger at
                 # the time — only their *current* status changed to flag that
                 # an offsetting reversal exists (FR-ACC-004: the original is
                 # never edited or unposted). Excluding them here would break
                 # the trial balance: original + reversal must net to zero,
                 # not silently drop the original's half of the pair.
-                JournalEntry.status.in_(["posted", "reversed"]),
-                JournalEntry.entry_date >= date_from,
-                JournalEntry.entry_date <= date_to,
+                JE_period.status.in_(["posted", "reversed"]),
+                JE_period.entry_date >= date_from,
+                JE_period.entry_date <= date_to,
             )
-            .group_by(Account.id, Account.code, Account.name)
-            .order_by(Account.code)
+            .group_by(JEL_period.account_id)
         )
         if branch_id is not None:
-            stmt = stmt.where(JournalEntry.branch_id == branch_id)
+            period_sub = period_sub.where(JE_period.branch_id == branch_id)
+        period_sub = period_sub.subquery("period")
+
+        # --- Main query: accounts that have ANY activity (opening OR period) ---
+        # We FULL OUTER JOIN the two sub-queries on account_id so that
+        # accounts with only opening activity (no period moves) still appear
+        # and vice-versa.  SQLAlchemy async doesn't support full outer join
+        # directly on subqueries the same way; we union the two account_id
+        # sets first so we always start from the authoritative Account table,
+        # then left-join both sub-queries.
+        stmt = (
+            select(
+                Account.id,
+                Account.code,
+                Account.name,
+                AccountType.code.label("type_code"),
+                func.coalesce(opening_sub.c.open_debit, 0).label("open_debit"),
+                func.coalesce(opening_sub.c.open_credit, 0).label("open_credit"),
+                func.coalesce(period_sub.c.period_debit, 0).label("period_debit"),
+                func.coalesce(period_sub.c.period_credit, 0).label("period_credit"),
+            )
+            .join(AccountType, AccountType.id == Account.account_type_id)
+            .outerjoin(opening_sub, opening_sub.c.account_id == Account.id)
+            .outerjoin(period_sub, period_sub.c.account_id == Account.id)
+            .where(
+                Account.company_id == company_id,
+                # Only include accounts that actually have activity
+                (
+                    (opening_sub.c.account_id != None)  # noqa: E711
+                    | (period_sub.c.account_id != None)  # noqa: E711
+                ),
+            )
+            .order_by(Account.code)
+        )
 
         result = await self.session.execute(stmt)
-        return [
-            {
-                "account_id": row.id,
-                "account_code": row.code,
-                "account_name": row.name,
-                "total_debit": Decimal(row.total_debit),
-                "total_credit": Decimal(row.total_credit),
-            }
-            for row in result.all()
-        ]
+        rows = []
+        for row in result.all():
+            open_debit = Decimal(str(row.open_debit))
+            open_credit = Decimal(str(row.open_credit))
+            period_debit = Decimal(str(row.period_debit))
+            period_credit = Decimal(str(row.period_credit))
+            # Opening balance: signed debit-minus-credit (positive = net debit,
+            # negative = net credit).  Callers apply the sign convention of the
+            # account type themselves (debit-normal accounts present a positive
+            # opening as a debit balance; credit-normal accounts invert it).
+            opening_balance = open_debit - open_credit
+            closing_balance = opening_balance + period_debit - period_credit
+            rows.append(
+                {
+                    "account_id": row.id,
+                    "account_code": row.code,
+                    "account_name": row.name,
+                    "account_type_code": row.type_code,
+                    "opening_balance": opening_balance,
+                    "period_debit": period_debit,
+                    "period_credit": period_credit,
+                    "closing_balance": closing_balance,
+                    # Legacy aliases kept so any existing callers don't break
+                    "total_debit": period_debit,
+                    "total_credit": period_credit,
+                }
+            )
+        return rows
 
     async def balances_by_type(
         self,

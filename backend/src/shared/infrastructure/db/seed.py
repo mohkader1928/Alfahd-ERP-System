@@ -7,7 +7,7 @@ this once a release/deploy pipeline exists (Phase 14).
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.infrastructure.models import AccountType
@@ -96,6 +96,7 @@ PERMISSION_CATALOG = [
     # M5 — Reporting
     ("reporting.dashboard.view", "screen"),
     ("reporting.export", "action"),
+    ("reporting.sales.view", "screen"),
     # Phase 17D — Payments
     ("payment.view", "screen"),
     ("payment.create", "action"),
@@ -119,5 +120,32 @@ async def seed_core_data(session: AsyncSession) -> None:
         existing = await session.execute(select(Permission).where(Permission.code == code))
         if existing.scalar_one_or_none() is None:
             session.add(Permission(id=uuid.uuid4(), code=code, scope=scope))
+
+    # Flush so every permission row exists before the Admin-role sync below.
+    await session.flush()
+
+    # Sync: any role named "Admin" should always hold every permission in the
+    # catalog. This handles new permissions added after the company was
+    # bootstrapped. The role/role_permission tables are RLS-protected, so we
+    # must disable row_security for this session-local operation (requires the
+    # DB application user to have BYPASSRLS or SUPERUSER; silently skipped
+    # otherwise so non-privileged test connections are unaffected).
+    try:
+        await session.execute(text("SET LOCAL row_security = off"))
+        await session.execute(text("""
+            INSERT INTO role_permission (role_id, permission_id)
+            SELECT r.id, p.id
+            FROM role r
+            CROSS JOIN permission p
+            WHERE r.name = 'Admin'
+              AND NOT EXISTS (
+                  SELECT 1 FROM role_permission rp
+                  WHERE rp.role_id = r.id AND rp.permission_id = p.id
+              )
+        """))
+    except Exception:
+        # DB user lacks BYPASSRLS — skip silently. The Admin role can be
+        # updated manually via Settings → Security when new permissions arrive.
+        pass
 
     await session.commit()

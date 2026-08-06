@@ -14,6 +14,7 @@ const SOURCE_DOCUMENT_HREF: Record<string, (id: string) => string> = {
   sales_invoice: (id) => `/sales/invoices/${id}`,
   payment: (id) => `/payments/${id}`,
   vendor_bill: (id) => `/purchasing/bills/${id}`,
+  cycle_count: (id) => `/inventory/cycle-counts/${id}`,
 };
 
 export function sourceDocumentHref(sourceTable: string | null, sourceId: string | null): string | null {
@@ -29,6 +30,7 @@ const SOURCE_DOCUMENT_LABEL_KEY: Record<string, string> = {
   goods_receipt: "accounting.source.goods_receipt",
   goods_receipt_line: "accounting.source.goods_receipt",
   cycle_count_line: "accounting.source.cycle_count",
+  cycle_count: "accounting.source.cycle_count",
   manual_receipt: "accounting.source.manual_receipt",
   stock_transfer: "accounting.source.stock_transfer",
 };

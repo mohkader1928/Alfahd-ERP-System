@@ -3,6 +3,7 @@ Goods Receipt yet — M4 will wire Purchasing's receipt into
 `InventoryValuationService.receive_stock`; `/stock/receive` is a direct
 stand-in used for initial stock entry until then)."""
 
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -286,6 +287,19 @@ async def approve_cycle_count(
     if not (inventory_account and adjustment_account):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Default Chart of Accounts is not seeded")
 
+    # Each line still gets its own Stock Move (a physical quantity movement
+    # is inherently per product/location — it cannot be "netted" across
+    # different products), tagged move_type="adjustment" and
+    # source_table="cycle_count_line" so it reads as a distinct document
+    # type from ordinary receipts/transfers everywhere it's shown (Stock
+    # Card, Moves tab). The accounting impact is different: rather than one
+    # journal entry per line, every line's value change is accumulated into
+    # a single net amount and posted as ONE journal entry for the whole
+    # cycle count — the standard ERP treatment for a stocktake adjustment,
+    # and what a reviewer actually wants to see in the ledger (one line
+    # item to approve/audit, not N).
+    net_value = Decimal("0")  # positive = net increase (Dr Inventory), negative = net decrease
+
     for line in lines:
         diff = line.counted_qty - line.system_qty
         if diff == 0:
@@ -301,10 +315,7 @@ async def approve_cycle_count(
                 source_table="cycle_count_line",
                 source_id=line.id,
             )
-            entry_lines = [
-                {"account_id": inventory_account.id, "debit": move.qty * move.unit_cost, "credit": 0},
-                {"account_id": adjustment_account.id, "debit": 0, "credit": move.qty * move.unit_cost},
-            ]
+            net_value += move.qty * move.unit_cost
         else:
             move, cost = await inv_service.issue_stock(
                 company_id=ctx.company_id,
@@ -316,12 +327,24 @@ async def approve_cycle_count(
                 source_id=line.id,
                 move_type="adjustment",
             )
-            entry_lines = [
-                {"account_id": adjustment_account.id, "debit": cost, "credit": 0},
-                {"account_id": inventory_account.id, "debit": 0, "credit": cost},
-            ]
+            net_value -= cost
 
         line.stock_move_id = move.id
+
+    if net_value > 0:
+        entry_lines = [
+            {"account_id": inventory_account.id, "debit": net_value, "credit": 0},
+            {"account_id": adjustment_account.id, "debit": 0, "credit": net_value},
+        ]
+    elif net_value < 0:
+        entry_lines = [
+            {"account_id": adjustment_account.id, "debit": -net_value, "credit": 0},
+            {"account_id": inventory_account.id, "debit": 0, "credit": -net_value},
+        ]
+    else:
+        entry_lines = None
+
+    if entry_lines is not None:
         entry = await journal_service.create_draft_entry(
             company_id=ctx.company_id,
             branch_id=ctx.branch_id,
@@ -330,8 +353,8 @@ async def approve_cycle_count(
             reference=f"Cycle count {cycle_count.id}",
             lines=entry_lines,
             created_by=ctx.user_id,
-            source_table="cycle_count_line",
-            source_id=line.id,
+            source_table="cycle_count",
+            source_id=cycle_count.id,
         )
         await journal_service.post_entry(entry_id=entry.id, company_id=ctx.company_id)
 

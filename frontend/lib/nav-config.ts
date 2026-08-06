@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  BarChart3,
   Banknote,
   BookUser,
   Boxes,
@@ -60,6 +61,7 @@ export const NAV_CONFIG: NavEntry[] = [
       { type: "link", href: "/sales/quotations", labelKey: "nav.sales.quotations", icon: FileText },
       { type: "link", href: "/sales/orders", labelKey: "nav.sales.orders", icon: FileText },
       { type: "link", href: "/sales/invoices", labelKey: "nav.sales.invoices", icon: FileText },
+      { type: "link", href: "/sales/reports", labelKey: "nav.sales.reports", icon: BarChart3 },
     ],
   },
   { type: "link", href: "/accounting", labelKey: "nav.accounting", icon: Calculator },

@@ -273,6 +273,122 @@ async def test_cycle_count_posts_adjustment_and_journal_entry(client):
     assert detail["lines"][0]["stock_move_id"] is not None
 
 
+async def test_cycle_count_posts_one_net_journal_entry_across_lines(client):
+    """A cycle count with multiple lines must post exactly ONE journal
+    entry for the whole count, sized to the NET value of every line's
+    increase/decrease combined -- not one entry per line. Each line still
+    gets its own Stock Move (quantities can't be netted across different
+    products), tagged move_type="adjustment" so it reads as a distinct
+    document type from ordinary receipts/transfers."""
+    _, headers = await _bootstrap_and_login(client)
+    product_a = await _create_product(client, headers)
+    product_b = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_a, "location_id": location_id, "qty": "10", "unit_cost": "20.00"},
+    )
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_b, "location_id": location_id, "qty": "5", "unit_cost": "10.00"},
+    )
+
+    # Product A: counted 12 (system 10) -> +2 units * 20.00 = +40.00 increase.
+    # Product B: counted 2 (system 5) -> -3 units * 10.00 = -30.00 decrease.
+    # Net = +40.00 - 30.00 = +10.00 (a net increase).
+    create_resp = await client.post(
+        "/api/v1/inventory/cycle-counts",
+        headers=headers,
+        json={
+            "warehouse_id": wh["warehouse"]["id"],
+            "scheduled_date": "2026-04-05",
+            "lines": [
+                {"product_id": product_a, "location_id": location_id, "counted_qty": "12"},
+                {"product_id": product_b, "location_id": location_id, "counted_qty": "2"},
+            ],
+        },
+    )
+    cycle_count_id = create_resp.json()["cycle_count"]["id"]
+
+    je_before = (await client.get("/api/v1/accounting/journal-entries", headers=headers)).json()
+
+    approve_resp = await client.post(f"/api/v1/inventory/cycle-counts/{cycle_count_id}:approve", headers=headers)
+    assert approve_resp.status_code == 200
+    detail = approve_resp.json()
+    # Both lines got their own stock move.
+    assert all(line["stock_move_id"] is not None for line in detail["lines"])
+
+    je_after = (await client.get("/api/v1/accounting/journal-entries", headers=headers)).json()
+    new_entries = [e for e in je_after if e["id"] not in {j["id"] for j in je_before}]
+    assert len(new_entries) == 1  # exactly one entry for the whole count, not two
+    assert new_entries[0]["reference"] == f"Cycle count {cycle_count_id}"
+
+    trial_balance = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+    )
+    rows = {row["account_code"]: row for row in trial_balance.json()}
+    # Net Dr Inventory 10.00 (the +40 increase minus -30 decrease, in one entry).
+    assert rows["1300"]["period_debit"] == "10.0000"
+
+    moves = (await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_a})).json()
+    a_adjustment = next(m for m in moves if m["source_table"] == "cycle_count_line")
+    assert a_adjustment["move_type"] == "adjustment"
+
+
+async def test_cycle_count_net_zero_posts_no_journal_entry(client):
+    """Two lines whose value changes exactly offset (one increase, one
+    decrease of equal value) must still move real stock (both Stock Moves
+    are created), but post NO journal entry at all -- a zero-amount entry
+    would be a meaningless ledger row."""
+    _, headers = await _bootstrap_and_login(client)
+    product_a = await _create_product(client, headers)
+    product_b = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_a, "location_id": location_id, "qty": "10", "unit_cost": "10.00"},
+    )
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_b, "location_id": location_id, "qty": "10", "unit_cost": "10.00"},
+    )
+
+    # A: +2 units * 10.00 = +20.00. B: -2 units * 10.00 = -20.00. Net = 0.
+    create_resp = await client.post(
+        "/api/v1/inventory/cycle-counts",
+        headers=headers,
+        json={
+            "warehouse_id": wh["warehouse"]["id"],
+            "scheduled_date": "2026-04-06",
+            "lines": [
+                {"product_id": product_a, "location_id": location_id, "counted_qty": "12"},
+                {"product_id": product_b, "location_id": location_id, "counted_qty": "8"},
+            ],
+        },
+    )
+    cycle_count_id = create_resp.json()["cycle_count"]["id"]
+
+    je_before = (await client.get("/api/v1/accounting/journal-entries", headers=headers)).json()
+
+    approve_resp = await client.post(f"/api/v1/inventory/cycle-counts/{cycle_count_id}:approve", headers=headers)
+    assert approve_resp.status_code == 200
+    detail = approve_resp.json()
+    assert all(line["stock_move_id"] is not None for line in detail["lines"])  # stock still moved
+
+    je_after = (await client.get("/api/v1/accounting/journal-entries", headers=headers)).json()
+    assert len(je_after) == len(je_before)  # no new entry posted
+
+
 async def test_cycle_count_not_visible_across_companies(client):
     _, headers_a = await _bootstrap_and_login(client)
     product_id = await _create_product(client, headers_a)

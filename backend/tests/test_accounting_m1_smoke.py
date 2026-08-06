@@ -143,6 +143,108 @@ async def test_reversal_nets_trial_balance_to_zero(client):
     assert rows["1100"]["total_debit"] == rows["1100"]["total_credit"] == "2000.0000"
 
 
+async def test_trial_balance_opening_period_closing_columns(client):
+    """Bundle E — Trial Balance redesign: an entry posted BEFORE the report's
+    date_from must appear as opening_balance, not period_debit/period_credit;
+    an entry posted WITHIN the range must appear as period activity only;
+    closing_balance must equal opening + period debit - period credit,
+    signed debit-minus-credit (positive = net debit)."""
+    _, headers = await _bootstrap_and_login(client)
+    cash_id = await _get_account_id(client, headers, "1100")
+    capital_id = await _get_account_id(client, headers, "3100")
+
+    # Prior-period entry (before the report window) -> becomes opening balance.
+    prior = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": "2026-01-10",
+            "lines": [
+                {"account_id": cash_id, "debit": 5000, "credit": 0},
+                {"account_id": capital_id, "debit": 0, "credit": 5000},
+            ],
+        },
+    )
+    await client.post(f"/api/v1/accounting/journal-entries/{prior.json()['id']}:post", headers=headers)
+
+    # In-period entry -> becomes period_debit/period_credit.
+    in_period = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": "2026-02-15",
+            "lines": [
+                {"account_id": cash_id, "debit": 1500, "credit": 0},
+                {"account_id": capital_id, "debit": 0, "credit": 1500},
+            ],
+        },
+    )
+    await client.post(f"/api/v1/accounting/journal-entries/{in_period.json()['id']}:post", headers=headers)
+
+    tb_resp = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-02-01", "date_to": "2026-02-28"},
+    )
+    assert tb_resp.status_code == 200
+    rows = {row["account_code"]: row for row in tb_resp.json()}
+
+    cash_row = rows["1100"]
+    assert cash_row["opening_balance"] == "5000.0000"
+    assert cash_row["period_debit"] == "1500.0000"
+    assert cash_row["period_credit"] == "0.0000"
+    assert cash_row["closing_balance"] == "6500.0000"
+
+    capital_row = rows["3100"]
+    # Credit-normal account: opening/closing are still reported debit-minus-credit
+    # (negative = net credit), matching the universal trial-balance sign convention.
+    assert capital_row["opening_balance"] == "-5000.0000"
+    assert capital_row["period_credit"] == "1500.0000"
+    assert capital_row["closing_balance"] == "-6500.0000"
+
+    # Self-balancing invariant: every posted entry is debit=credit, so the
+    # signed closing balance across ALL accounts must sum to zero.
+    total_closing = sum(float(row["closing_balance"]) for row in rows.values())
+    assert abs(total_closing) < 0.0001
+
+
+async def test_trial_balance_abnormal_balance_reports_true_sign(client):
+    """A liability account can legitimately end up with a net DEBIT balance
+    (e.g. VAT Payable when input VAT exceeds output VAT in a period) —
+    the backend must report the true signed closing_balance, not clamp or
+    hide it. (The frontend separately flags this as an 'abnormal' balance
+    for display, but must still show the real number.)"""
+    _, headers = await _bootstrap_and_login(client)
+    ap_id = await _get_account_id(client, headers, "2100")  # liability, credit-normal
+    cash_id = await _get_account_id(client, headers, "1100")
+
+    # Debit the liability account more than it's credited -> net debit balance.
+    entry = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": "2026-03-05",
+            "lines": [
+                {"account_id": ap_id, "debit": 800, "credit": 0},
+                {"account_id": cash_id, "debit": 0, "credit": 800},
+            ],
+        },
+    )
+    await client.post(f"/api/v1/accounting/journal-entries/{entry.json()['id']}:post", headers=headers)
+
+    tb_resp = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-03-01", "date_to": "2026-03-31"},
+    )
+    rows = {row["account_code"]: row for row in tb_resp.json()}
+    # Positive closing_balance = net debit, even though 2100 is a liability.
+    assert rows["2100"]["closing_balance"] == "800.0000"
+
+
 async def test_reversing_a_non_posted_entry_rejected(client):
     _, headers = await _bootstrap_and_login(client)
     cash_id = await _get_account_id(client, headers, "1100")

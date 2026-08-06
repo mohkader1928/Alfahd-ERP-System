@@ -6,9 +6,18 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.identity.infrastructure.repositories import AuditLogRepository
-from src.modules.reporting.api.deps import get_dashboard_service, require_permission
-from src.modules.reporting.api.schemas import DashboardSummaryOut
-from src.modules.reporting.application.services import DashboardService
+from src.modules.reporting.api.deps import (
+    get_dashboard_service,
+    get_sales_reporting_service,
+    require_permission,
+)
+from src.modules.reporting.api.schemas import (
+    DashboardSummaryOut,
+    SalesByCustomerRow,
+    SalesByPeriodRow,
+    SalesByProductRow,
+)
+from src.modules.reporting.application.services import DashboardService, SalesReportingService
 from src.modules.reporting.infrastructure.csv_exporter import rows_to_csv
 from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
 from src.shared.infrastructure.db.session import get_db
@@ -82,4 +91,45 @@ async def export_audit_log(
         content=csv_body,
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=audit_log.csv"},
+    )
+
+
+# ── Sales Reports ──────────────────────────────────────────────────────────────
+
+@router.get("/sales/by-customer", response_model=list[SalesByCustomerRow])
+async def sales_by_customer(
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("reporting.sales.view")),
+    service: SalesReportingService = Depends(get_sales_reporting_service),
+):
+    """FR-RPT: Sales revenue grouped by customer for a date range."""
+    return await service.by_customer(
+        company_id=ctx.company_id, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get("/sales/by-product", response_model=list[SalesByProductRow])
+async def sales_by_product(
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("reporting.sales.view")),
+    service: SalesReportingService = Depends(get_sales_reporting_service),
+):
+    """FR-RPT: Sales revenue grouped by product (via invoice lines) for a date range."""
+    return await service.by_product(
+        company_id=ctx.company_id, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get("/sales/by-period", response_model=list[SalesByPeriodRow])
+async def sales_by_period(
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("reporting.sales.view")),
+    service: SalesReportingService = Depends(get_sales_reporting_service),
+):
+    """FR-RPT: Sales revenue grouped by calendar month for a date range."""
+    return await service.by_period(
+        company_id=ctx.company_id, date_from=date_from, date_to=date_to
     )
