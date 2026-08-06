@@ -8,7 +8,13 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-04, on top of committed `5aee470` (`main`) —
+**Last verified**: 2026-08-07, on top of committed `ba3ef2f` (`main`) —
+**Bundle E slice 2, Standard Product Cardex** (see dated entry below for
+full detail). 211/211 backend tests, `ruff`/`tsc`/`eslint` all clean;
+Owner Acceptance pending — the on-screen walkthrough for this slice is
+still owed.
+
+**Historical**: 2026-08-04, on top of committed `5aee470` (`main`) —
 **UI/UX Professional pass, Bundle A (first slice — Accounting module),
 Owner directive "ERP Professional UI/UX + Functional Completeness"** —
 uncommitted at time of writing. Scope of this slice, chosen because the
@@ -348,6 +354,43 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   silently dropped.
 
 **Owner Accepted: pending.**
+
+**Bundle E — Standard Product Cardex, second slice (2026-08-07)**,
+committed as `ba3ef2f`: Owner-requested inventory inquiry — a specific
+product, a date range, optional warehouse and document-type filters, "a
+standard cardex." Built as a new reusable backend shape
+(`opening_qty`/`cardex_lines`/`product_cardex` on `StockMoveRepository`/
+`InventoryValuationService`) mirroring General Ledger's opening/running/
+closing pattern but for quantities: a single uniform sign rule
+(`dest_location_id` set = increase, else decrease) correctly covers
+receipts, deliveries, adjustments, and both legs of a transfer without
+per-move-type branching. Warehouse filtering matches a move if *either*
+its source or destination location belongs to the target warehouse (so a
+transfer's two legs are correctly split between the two warehouses' cards).
+New route `GET /inventory/stock/cardex` (reuses `inventory.stock.view`,
+no new permission). Frontend: 6th "Product Cardex" tab on the Inventory
+page (`ReportView`+`ReportPrintHeader`, same shell as every other report
+this bundle has built), with the product's image shown next to its name
+in the report header — a same-day Owner request, reusing the exact
+`EntityImage` component/pattern already live on the Stock Card page, not
+a new image mechanism. 3 new backend tests (opening balance and running
+qty across an as-of-yesterday/today/tomorrow boundary; a transfer's two
+legs correctly scoped by warehouse filter; source-table filter isolates
+exactly the matching move type), 211/211 backend total, `ruff`/`tsc`/
+`eslint` all clean. **Tested for real, not yet Live Demonstrated**: the
+endpoint was exercised through the actual running frontend's authenticated
+session (token read from the live app's own `localStorage`, not a
+separate script) against real company data — A4 Paper Ream's cardex
+returned the exact opening/running/closing sequence its known move history
+predicts (receipt +6, delivery −3, transfer −1/+1, cycle-count adjustment
++3 → closing 6), and the `source_table` filter correctly isolated to just
+the one matching line. The on-screen click-through (select product in the
+UI, click Apply, visually confirm the rendered table) could not be
+completed this pass — the Browser preview pane was not compositing frames
+(`document.hidden` stayed `true` across a fresh tab and a full navigation,
+independent of the app), a client-side tooling gap, not an application
+bug. **Owner Accepted: pending** — the on-screen walkthrough is still
+owed before this can move past "pending."
 
 **Historical**: 2026-08-04, on top of committed `686c873` (`main`) —
 **Unified Address Book / Partner & Contacts**, then committed as
