@@ -200,6 +200,43 @@ class InventoryValuationService:
         await self.move_repo.add(move)
         return move, result.total_cost
 
+    async def product_cardex(
+        self,
+        *,
+        company_id: UUID,
+        product_id: UUID,
+        date_from: date,
+        date_to: date,
+        warehouse_id: UUID | None = None,
+        source_table: str | None = None,
+    ) -> dict:
+        """Bundle E — standard product cardex (Owner-requested): opening
+        quantity (all activity strictly before `date_from`), every move in
+        range with a running balance, and a closing quantity — the exact
+        same opening/running/closing shape `AccountingService.general_ledger`
+        already establishes for one account's ledger, applied to one
+        product's stock instead."""
+        opening = await self.move_repo.opening_qty(
+            company_id, product_id, before_date=date_from, warehouse_id=warehouse_id
+        )
+        moves = await self.move_repo.cardex_lines(
+            company_id,
+            product_id,
+            date_from=date_from,
+            date_to=date_to,
+            warehouse_id=warehouse_id,
+            source_table=source_table,
+        )
+
+        running = opening
+        lines = []
+        for move in moves:
+            signed_qty = move.qty if move.dest_location_id is not None else -move.qty
+            running = running + signed_qty
+            lines.append({"move": move, "signed_qty": signed_qty, "running_qty": running})
+
+        return {"opening_qty": opening, "lines": lines, "closing_qty": running}
+
 
 class CycleCountService:
     """UC-INV-02 — Cycle Count / Inventory Adjustment (FR-INV-006)."""

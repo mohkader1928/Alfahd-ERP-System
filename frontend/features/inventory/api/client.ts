@@ -4,6 +4,7 @@ import type {
   CycleCountDetail,
   CycleCountLineIn,
   Location,
+  ProductCardex,
   StockMove,
   StockQuant,
   Warehouse,
@@ -51,4 +52,18 @@ export const inventoryApi = {
 
   approveCycleCount: (companyId: string, branchId: string | null, id: string) =>
     apiClient.post<CycleCountDetail>(`${BASE}/cycle-counts/${id}:approve`, undefined, { companyId, branchId }),
+
+  getProductCardex: (
+    companyId: string,
+    params: { productId: string; dateFrom: string; dateTo: string; warehouseId?: string; sourceTable?: string }
+  ) => {
+    const qs = new URLSearchParams({
+      product_id: params.productId,
+      date_from: params.dateFrom,
+      date_to: params.dateTo,
+    });
+    if (params.warehouseId) qs.set("warehouse_id", params.warehouseId);
+    if (params.sourceTable) qs.set("source_table", params.sourceTable);
+    return apiClient.get<ProductCardex>(`${BASE}/stock/cardex?${qs.toString()}`, { companyId });
+  },
 };

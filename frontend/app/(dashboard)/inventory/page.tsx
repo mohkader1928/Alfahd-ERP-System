@@ -9,10 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { Can } from "@/components/erp/permissions/can";
 import { PermissionDenied } from "@/components/erp/states/permission-denied";
+import { ReportView } from "@/components/erp/report-view/report-view";
+import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -25,6 +29,14 @@ import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 import type { CycleCount, StockMove, StockQuant, Warehouse } from "@/features/inventory/api/types";
 import Link from "next/link";
+
+const CARDEX_SOURCE_TABLES = [
+  "sales_invoice",
+  "goods_receipt",
+  "manual_receipt",
+  "stock_transfer",
+  "cycle_count_line",
+] as const;
 
 /**
  * Bundle 3 — Purchasing/Inventory List Consistency. All four tabs move
@@ -575,6 +587,190 @@ function CycleCountsTab() {
   );
 }
 
+function CardexTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const { products, label: productLabel } = useProductLabel();
+  const { warehouses, label: warehouseLabel } = useWarehouseLabel();
+
+  const [productId, setProductId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
+  const [sourceTable, setSourceTable] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ productId: string; from: string; to: string; warehouseId: string; sourceTable: string } | null>(
+    null
+  );
+
+  const cardexQuery = useQuery({
+    queryKey: ["stock-cardex", companyId, ranAt],
+    queryFn: () =>
+      inventoryApi.getProductCardex(companyId, {
+        productId: ranAt!.productId,
+        dateFrom: ranAt!.from,
+        dateTo: ranAt!.to,
+        warehouseId: ranAt!.warehouseId || undefined,
+        sourceTable: ranAt!.sourceTable || undefined,
+      }),
+    enabled: !!ranAt,
+  });
+
+  const cardexProduct = ranAt ? products.find((p) => p.id === ranAt.productId) : undefined;
+
+  return (
+    <ReportView
+      title={t("inventory.cardex.title")}
+      filterArea={
+        <div className="flex flex-wrap gap-4">
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">{t("inventory.stock.product")}</Label>
+            <Select value={productId} onValueChange={(v) => setProductId(v ?? "")}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder={t("inventory.stock.product")}>{(value: string) => productLabel(value)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {products.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">{t("inventory.cardex.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">{t("inventory.cardex.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">{t("inventory.stock.warehouse")}</Label>
+            <Select value={warehouseId || "all"} onValueChange={(v) => setWarehouseId(v === "all" ? "" : (v ?? ""))}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder={t("inventory.cardex.all_warehouses")}>
+                  {(value: string) => (value === "all" ? t("inventory.cardex.all_warehouses") : warehouseLabel(value))}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("inventory.cardex.all_warehouses")}</SelectItem>
+                {warehouses.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">{t("inventory.cardex.document_type")}</Label>
+            <Select value={sourceTable || "all"} onValueChange={(v) => setSourceTable(v === "all" ? "" : (v ?? ""))}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder={t("inventory.cardex.all_types")}>
+                  {(value: string) => {
+                    if (value === "all") return t("inventory.cardex.all_types");
+                    const key = sourceDocumentLabelKey(value);
+                    return key ? t(key) : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("inventory.cardex.all_types")}</SelectItem>
+                {CARDEX_SOURCE_TABLES.map((st) => {
+                  const key = sourceDocumentLabelKey(st);
+                  return (
+                    <SelectItem key={st} value={st}>
+                      {key ? t(key) : st}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      }
+      onApply={() => setRanAt({ productId, from: dateFrom, to: dateTo, warehouseId, sourceTable })}
+      onPrint={ranAt && cardexQuery.data ? () => window.print() : undefined}
+      isLoading={cardexQuery.isLoading}
+      isError={cardexQuery.isError}
+      errorMessage={cardexQuery.error instanceof ApiError ? cardexQuery.error.detail : undefined}
+      onRetry={() => cardexQuery.refetch()}
+      isEmpty={!!ranAt && !!cardexQuery.data && cardexQuery.data.lines.length === 0}
+      kpis={
+        cardexQuery.data
+          ? [
+              { label: t("inventory.cardex.opening_qty"), value: cardexQuery.data.opening_qty },
+              { label: t("inventory.cardex.closing_qty"), value: cardexQuery.data.closing_qty },
+            ]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("inventory.cardex.select_product_hint")}</p>}
+      {ranAt && cardexQuery.data && (
+        <>
+          <ReportPrintHeader reportTitle={t("inventory.cardex.title")} dateRangeLabel={`${ranAt.from} – ${ranAt.to}`} />
+          <div className="flex items-center gap-3">
+            <EntityImage src={cardexProduct?.image_path} name={productLabel(ranAt.productId)} size="lg" shape="square" />
+            <h2 className="text-lg font-semibold">{productLabel(ranAt.productId)}</h2>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("inventory.moves.date")}</TableHead>
+                <TableHead>{t("inventory.moves.type")}</TableHead>
+                <TableHead>{t("inventory.moves.source")}</TableHead>
+                <TableHead className="text-end">{t("inventory.moves.qty")}</TableHead>
+                <TableHead className="text-end">{t("inventory.moves.unit_cost")}</TableHead>
+                <TableHead className="text-end">{t("inventory.cardex.running_qty")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow className="text-muted-foreground">
+                <TableCell colSpan={5} className="italic">
+                  {t("inventory.cardex.opening_qty")}
+                </TableCell>
+                <TableCell className="text-end font-mono">{cardexQuery.data.opening_qty}</TableCell>
+              </TableRow>
+              {cardexQuery.data.lines.map((line) => {
+                const href = sourceDocumentHref(line.source_table, line.source_id);
+                const labelKey = sourceDocumentLabelKey(line.source_table);
+                const label = labelKey ? t(labelKey) : line.source_table;
+                return (
+                  <TableRow key={line.id}>
+                    <TableCell>{formatDate(line.moved_at, locale)}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{line.move_type}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {href ? (
+                        <Link href={href} className="underline-offset-4 hover:underline">
+                          {label}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">{label}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className={`text-end font-mono ${Number(line.signed_qty) < 0 ? "text-destructive" : ""}`}>
+                      {Number(line.signed_qty) > 0 ? `+${line.signed_qty}` : line.signed_qty}
+                    </TableCell>
+                    <TableCell className="text-end">{formatCurrency(line.unit_cost)}</TableCell>
+                    <TableCell className="text-end font-mono font-semibold">{line.running_qty}</TableCell>
+                  </TableRow>
+                );
+              })}
+              <TableRow className="font-semibold border-t-2">
+                <TableCell colSpan={5}>{t("inventory.cardex.closing_qty")}</TableCell>
+                <TableCell className="text-end font-mono">{cardexQuery.data.closing_qty}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </>
+      )}
+    </ReportView>
+  );
+}
+
 export default function InventoryPage() {
   const { t } = useI18n();
   // See the same note in accounting/page.tsx — Base UI's Tabs.Panel doesn't
@@ -591,12 +787,14 @@ export default function InventoryPage() {
           <TabsTrigger value="moves">{t("inventory.tabs.moves")}</TabsTrigger>
           <TabsTrigger value="transfer">{t("inventory.tabs.transfer")}</TabsTrigger>
           <TabsTrigger value="cycle-counts">{t("inventory.tabs.cycle_counts")}</TabsTrigger>
+          <TabsTrigger value="cardex">{t("inventory.tabs.cardex")}</TabsTrigger>
         </TabsList>
         <TabsContent value="warehouses">{tab === "warehouses" && <WarehousesTab />}</TabsContent>
         <TabsContent value="stock">{tab === "stock" && <StockTab />}</TabsContent>
         <TabsContent value="moves">{tab === "moves" && <MovesTab />}</TabsContent>
         <TabsContent value="transfer">{tab === "transfer" && <TransferTab />}</TabsContent>
         <TabsContent value="cycle-counts">{tab === "cycle-counts" && <CycleCountsTab />}</TabsContent>
+        <TabsContent value="cardex">{tab === "cardex" && <CardexTab />}</TabsContent>
       </Tabs>
     </div>
   );

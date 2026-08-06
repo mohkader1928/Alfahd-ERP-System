@@ -3,6 +3,7 @@ Goods Receipt yet — M4 will wire Purchasing's receipt into
 `InventoryValuationService.receive_stock`; `/stock/receive` is a direct
 stand-in used for initial stock entry until then)."""
 
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -33,9 +34,11 @@ from src.modules.inventory.api.deps import (
     require_permission,
 )
 from src.modules.inventory.api.schemas import (
+    CardexLineOut,
     CycleCountCreateRequest,
     CycleCountDetailResponse,
     CycleCountOut,
+    ProductCardexResponse,
     StockMoveOut,
     StockQuantOut,
     StockReceiveRequest,
@@ -162,6 +165,52 @@ async def list_stock_moves(
     move_repo: StockMoveRepository = Depends(get_stock_move_repo),
 ):
     return await move_repo.list_by_company(ctx.company_id, product_id=product_id)
+
+
+@router.get("/stock/cardex", response_model=ProductCardexResponse)
+async def product_cardex(
+    product_id: UUID,
+    date_from: date,
+    date_to: date,
+    warehouse_id: UUID | None = None,
+    source_table: str | None = None,
+    ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
+    quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
+    layer_repo: StockLayerRepository = Depends(get_stock_layer_repo),
+    move_repo: StockMoveRepository = Depends(get_stock_move_repo),
+):
+    """Bundle E — standard product cardex (Owner-requested): opening qty,
+    every move in range with a running balance, closing qty. Optional
+    warehouse and document-type (source_table) filters narrow the inquiry,
+    matching how Accounting's General Ledger already filters by account."""
+    service = InventoryValuationService(quant_repo, layer_repo, move_repo)
+    result = await service.product_cardex(
+        company_id=ctx.company_id,
+        product_id=product_id,
+        date_from=date_from,
+        date_to=date_to,
+        warehouse_id=warehouse_id,
+        source_table=source_table,
+    )
+    return ProductCardexResponse(
+        product_id=product_id,
+        opening_qty=result["opening_qty"],
+        closing_qty=result["closing_qty"],
+        lines=[
+            CardexLineOut(
+                id=line["move"].id,
+                moved_at=line["move"].moved_at,
+                move_type=line["move"].move_type,
+                source_table=line["move"].source_table,
+                source_id=line["move"].source_id,
+                qty=line["move"].qty,
+                unit_cost=line["move"].unit_cost,
+                signed_qty=line["signed_qty"],
+                running_qty=line["running_qty"],
+            )
+            for line in result["lines"]
+        ],
+    )
 
 
 @router.post("/transfers", response_model=list[StockMoveOut], status_code=status.HTTP_201_CREATED)

@@ -64,3 +64,22 @@ export interface CycleCountLineIn {
   location_id: string;
   counted_qty: string;
 }
+
+export interface CardexLine {
+  id: string;
+  moved_at: string;
+  move_type: string;
+  source_table: string;
+  source_id: string;
+  qty: string;
+  unit_cost: string;
+  signed_qty: string;
+  running_qty: string;
+}
+
+export interface ProductCardex {
+  product_id: string;
+  opening_qty: string;
+  lines: CardexLine[];
+  closing_qty: string;
+}

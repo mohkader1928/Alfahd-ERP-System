@@ -6,6 +6,8 @@ invoicing a stockable product deducts stock and posts a COGS entry
 (FR-SAL-003, FR-INV-005), and insufficient stock blocks the sale (FR-INV-007).
 """
 
+from datetime import date, timedelta
+
 from tests.conftest import unique_email, unique_vat
 
 
@@ -577,3 +579,161 @@ async def test_list_stock_moves_filtered_by_product(client):
     moves = moves_resp.json()
     assert len(moves) == 1
     assert moves[0]["product_id"] == product_a
+
+
+async def test_cardex_opening_balance_and_running_qty(client):
+    """Bundle E -- standard product cardex (Owner-requested): a move dated
+    before the report's date_from is folded into opening_qty, not shown as
+    a line; a move within [date_from, date_to] appears with a running
+    balance that carries opening_qty forward."""
+    _, headers = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+    today = date.today().isoformat()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "10", "unit_cost": "5.00"},
+    )
+
+    # As-of yesterday: nothing had happened yet.
+    before_resp = await client.get(
+        "/api/v1/inventory/stock/cardex",
+        headers=headers,
+        params={"product_id": product_id, "date_from": yesterday, "date_to": yesterday},
+    )
+    assert before_resp.status_code == 200
+    before = before_resp.json()
+    assert before["opening_qty"] == "0.000000"
+    assert before["lines"] == []
+    assert before["closing_qty"] == "0.000000"
+
+    # Today: the receive shows as a line, running_qty reflects it.
+    today_resp = await client.get(
+        "/api/v1/inventory/stock/cardex",
+        headers=headers,
+        params={"product_id": product_id, "date_from": today, "date_to": today},
+    )
+    today_data = today_resp.json()
+    assert today_data["opening_qty"] == "0.000000"
+    assert len(today_data["lines"]) == 1
+    assert today_data["lines"][0]["signed_qty"] == "10.000000"
+    assert today_data["lines"][0]["running_qty"] == "10.000000"
+    assert today_data["closing_qty"] == "10.000000"
+
+    # As-of tomorrow: today's receive is now folded into opening_qty.
+    after_resp = await client.get(
+        "/api/v1/inventory/stock/cardex",
+        headers=headers,
+        params={"product_id": product_id, "date_from": tomorrow, "date_to": tomorrow},
+    )
+    after = after_resp.json()
+    assert after["opening_qty"] == "10.000000"
+    assert after["lines"] == []
+    assert after["closing_qty"] == "10.000000"
+
+
+async def test_cardex_warehouse_filter_scopes_transfer_legs(client):
+    """A transfer between two locations produces two Stock Moves (issue at
+    source, receive at dest). Filtering the cardex to one warehouse must
+    show only the leg that touches it."""
+    _, headers = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers)
+    wh_a = await _create_warehouse(client, headers)
+    location_a = wh_a["default_location"]["id"]
+    wh_b_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Cardex Warehouse B"}
+    )
+    wh_b = wh_b_resp.json()
+    location_b = wh_b["default_location"]["id"]
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_a, "qty": "20", "unit_cost": "3.00"},
+    )
+    await client.post(
+        "/api/v1/inventory/transfers",
+        headers=headers,
+        json={"product_id": product_id, "source_location_id": location_a, "dest_location_id": location_b, "qty": "8"},
+    )
+
+    today = date.today().isoformat()
+
+    cardex_a = (
+        await client.get(
+            "/api/v1/inventory/stock/cardex",
+            headers=headers,
+            params={"product_id": product_id, "date_from": today, "date_to": today, "warehouse_id": wh_a["warehouse"]["id"]},
+        )
+    ).json()
+    assert cardex_a["closing_qty"] == "12.000000"  # 20 received - 8 transferred out
+
+    cardex_b = (
+        await client.get(
+            "/api/v1/inventory/stock/cardex",
+            headers=headers,
+            params={"product_id": product_id, "date_from": today, "date_to": today, "warehouse_id": wh_b["warehouse"]["id"]},
+        )
+    ).json()
+    assert cardex_b["closing_qty"] == "8.000000"  # only the transfer-in leg
+
+    cardex_all = (
+        await client.get(
+            "/api/v1/inventory/stock/cardex",
+            headers=headers,
+            params={"product_id": product_id, "date_from": today, "date_to": today},
+        )
+    ).json()
+    assert cardex_all["closing_qty"] == "20.000000"  # unfiltered: internal transfer nets to zero movement
+
+
+async def test_cardex_source_table_filter(client):
+    _, headers = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+    today = date.today().isoformat()
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "6", "unit_cost": "1.00"},
+    )
+    create_resp = await client.post(
+        "/api/v1/inventory/cycle-counts",
+        headers=headers,
+        json={
+            "warehouse_id": wh["warehouse"]["id"],
+            "scheduled_date": today,
+            "lines": [{"product_id": product_id, "location_id": location_id, "counted_qty": "9"}],
+        },
+    )
+    await client.post(
+        f"/api/v1/inventory/cycle-counts/{create_resp.json()['cycle_count']['id']}:approve", headers=headers
+    )
+
+    manual_only = (
+        await client.get(
+            "/api/v1/inventory/stock/cardex",
+            headers=headers,
+            params={"product_id": product_id, "date_from": today, "date_to": today, "source_table": "manual_receipt"},
+        )
+    ).json()
+    assert len(manual_only["lines"]) == 1
+    assert manual_only["lines"][0]["source_table"] == "manual_receipt"
+
+    adjustment_only = (
+        await client.get(
+            "/api/v1/inventory/stock/cardex",
+            headers=headers,
+            params={"product_id": product_id, "date_from": today, "date_to": today, "source_table": "cycle_count_line"},
+        )
+    ).json()
+    assert len(adjustment_only["lines"]) == 1
+    assert adjustment_only["lines"][0]["source_table"] == "cycle_count_line"
+    assert adjustment_only["lines"][0]["signed_qty"] == "3.000000"  # 9 counted - 6 system

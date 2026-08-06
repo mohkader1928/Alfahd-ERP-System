@@ -110,3 +110,22 @@ class CycleCountOut(BaseModel):
 class CycleCountDetailResponse(BaseModel):
     cycle_count: CycleCountOut
     lines: list[CycleCountLineOut]
+
+
+class CardexLineOut(BaseModel):
+    id: UUID
+    moved_at: datetime
+    move_type: str
+    source_table: str
+    source_id: UUID
+    qty: Decimal
+    unit_cost: Decimal
+    signed_qty: Decimal
+    running_qty: Decimal
+
+
+class ProductCardexResponse(BaseModel):
+    product_id: UUID
+    opening_qty: Decimal
+    lines: list[CardexLineOut]
+    closing_qty: Decimal

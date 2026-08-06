@@ -1,9 +1,12 @@
 """Repository implementations for Inventory (Phase 8 §7)."""
 
+from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.modules.inventory.infrastructure.models import (
     CycleCount,
@@ -134,6 +137,65 @@ class StockMoveRepository:
             query = query.where(StockMove.product_id == product_id)
         result = await self.session.execute(query.order_by(StockMove.moved_at.desc()))
         return list(result.scalars().all())
+
+    def _warehouse_filter(self, query, warehouse_id: UUID):
+        """A move touches a warehouse if either its source or dest location
+        belongs to it -- covers receipts/deliveries/adjustments (one side
+        set) and transfers (both legs, possibly across warehouses)."""
+        source_loc = aliased(Location)
+        dest_loc = aliased(Location)
+        return query.outerjoin(source_loc, source_loc.id == StockMove.source_location_id).outerjoin(
+            dest_loc, dest_loc.id == StockMove.dest_location_id
+        ).where(or_(source_loc.warehouse_id == warehouse_id, dest_loc.warehouse_id == warehouse_id))
+
+    async def cardex_lines(
+        self,
+        company_id: UUID,
+        product_id: UUID,
+        *,
+        date_from: date,
+        date_to: date,
+        warehouse_id: UUID | None = None,
+        source_table: str | None = None,
+    ) -> list[StockMove]:
+        """Bundle E — standard product cardex: every move for one product in
+        [date_from, date_to], optionally narrowed to one warehouse and/or
+        one document (source) type."""
+        query = select(StockMove).where(
+            StockMove.company_id == company_id,
+            StockMove.product_id == product_id,
+            func.date(StockMove.moved_at) >= date_from,
+            func.date(StockMove.moved_at) <= date_to,
+        )
+        if warehouse_id is not None:
+            query = self._warehouse_filter(query, warehouse_id)
+        if source_table is not None:
+            query = query.where(StockMove.source_table == source_table)
+        result = await self.session.execute(query.order_by(StockMove.moved_at, StockMove.id))
+        return list(result.scalars().all())
+
+    async def opening_qty(
+        self, company_id: UUID, product_id: UUID, *, before_date: date, warehouse_id: UUID | None = None
+    ) -> Decimal:
+        """Signed quantity on hand strictly before `before_date`: a move
+        with a dest location is an increase, one with only a source
+        location is a decrease -- covers receipts, deliveries, adjustments,
+        and both legs of a transfer uniformly, without needing separate
+        per-move-type sign logic."""
+        signed_qty = case((StockMove.dest_location_id.is_not(None), StockMove.qty), else_=-StockMove.qty)
+        query = select(func.coalesce(func.sum(signed_qty), 0)).where(
+            StockMove.company_id == company_id,
+            StockMove.product_id == product_id,
+            func.date(StockMove.moved_at) < before_date,
+        )
+        if warehouse_id is not None:
+            query = self._warehouse_filter(query, warehouse_id)
+        result = await self.session.execute(query)
+        # COALESCE's fallback 0 is a plain integer literal with no relation
+        # to StockMove.qty's NUMERIC(18,6) scale, so an empty sum comes back
+        # as Decimal("0") instead of Decimal("0.000000") -- quantize
+        # explicitly so an empty and a non-empty result always match scale.
+        return Decimal(str(result.scalar_one())).quantize(Decimal("0.000001"))
 
 
 class CycleCountRepository:
