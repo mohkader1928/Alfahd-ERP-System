@@ -48,6 +48,8 @@ export interface SalesInvoice {
   subtotal_amount: string;
   tax_amount: string;
   total_amount: string;
+  last_emailed_at: string | null;
+  last_emailed_to: string | null;
 }
 
 export interface InvoiceIssueResponse {

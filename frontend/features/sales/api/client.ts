@@ -37,4 +37,14 @@ export const salesApi = {
       { reason },
       { companyId, branchId }
     ),
+
+  downloadInvoicePdf: (companyId: string, invoiceId: string, lang: string) =>
+    apiClient.getBlob(`${BASE}/invoices/${invoiceId}/pdf?lang=${lang}`, { companyId }),
+
+  sendInvoiceEmail: (companyId: string, invoiceId: string, toEmail?: string) =>
+    apiClient.post<SalesInvoice>(
+      `${BASE}/invoices/${invoiceId}:send-email`,
+      { to_email: toEmail || undefined },
+      { companyId }
+    ),
 };

@@ -78,6 +78,7 @@ PERMISSION_CATALOG = [
     ("sales.order.view", "screen"),
     ("sales.invoice.create", "action"),
     ("sales.invoice.credit_note", "action"),
+    ("sales.invoice.send_email", "action"),
     # M3 — Inventory
     ("inventory.warehouse.manage", "action"),
     ("inventory.warehouse.view", "screen"),

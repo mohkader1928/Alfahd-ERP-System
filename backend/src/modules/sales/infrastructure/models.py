@@ -123,6 +123,8 @@ class SalesInvoice(Base):
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
+    last_emailed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_emailed_to: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         CheckConstraint(f"invoice_type IN {INVOICE_TYPES}", name="ck_sales_invoice_type"),

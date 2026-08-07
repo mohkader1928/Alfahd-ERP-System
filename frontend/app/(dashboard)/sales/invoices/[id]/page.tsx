@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "react-qr-code";
 import { ArrowLeft } from "lucide-react";
+import { Download, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Can } from "@/components/erp/permissions/can";
@@ -17,17 +20,21 @@ import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const router = useRouter();
   const queryClient = useQueryClient();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
   const [reason, setReason] = useState("");
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [emailOverride, setEmailOverride] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["invoice", companyId, id],
@@ -40,6 +47,36 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       queryClient.invalidateQueries({ queryKey: ["invoice", companyId, id] });
       toastSuccess(t("toast.success_title"), result.invoice.number);
       router.push(`/sales/invoices/${result.invoice.id}`);
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+  });
+
+  async function handleDownloadPdf() {
+    setDownloading(true);
+    try {
+      const { blob, filename } = await salesApi.downloadInvoicePdf(companyId, id, locale);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || `${data?.invoice.number ?? "invoice"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error"));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const sendEmailMutation = useMutation({
+    mutationFn: () => salesApi.sendInvoiceEmail(companyId, id, emailOverride.trim() || undefined),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["invoice", companyId, id] });
+      setEmailDialogOpen(false);
+      setEmailOverride("");
+      toastSuccess(t("toast.success_title"), `${t("sales.invoice.email_sent")} ${updated.last_emailed_to ?? ""}`);
     },
     onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
@@ -63,6 +100,24 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={downloading}>
+              <Download className="h-4 w-4" />
+              {downloading ? t("common.loading") : t("sales.invoice.download_pdf")}
+            </Button>
+            <Can permission="sales.invoice.send_email">
+              <Button variant="outline" size="sm" onClick={() => setEmailDialogOpen(true)}>
+                <Mail className="h-4 w-4" />
+                {t("sales.invoice.send_email")}
+              </Button>
+            </Can>
+          </div>
+          {invoice.last_emailed_at && (
+            <p className="text-xs text-muted-foreground">
+              {t("sales.invoice.last_emailed")} {formatDate(invoice.last_emailed_at, locale)}
+              {invoice.last_emailed_to ? ` (${invoice.last_emailed_to})` : ""}
+            </p>
+          )}
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <dt className="text-muted-foreground">Type</dt>
             <dd className="capitalize">{invoice.invoice_type.replace("_", " ")}</dd>
@@ -112,6 +167,37 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           <AttachmentsPanel entityType="sales_invoice" entityId={invoice.id} />
         </CardContent>
       </Card>
+
+      <Dialog open={emailDialogOpen} onOpenChange={(open) => !open && setEmailDialogOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("sales.invoice.send_email")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label>{t("sales.invoice.recipient_email")}</Label>
+            <Input
+              type="email"
+              placeholder={t("sales.invoice.recipient_email_placeholder")}
+              value={emailOverride}
+              onChange={(e) => setEmailOverride(e.target.value)}
+              autoFocus
+            />
+          </div>
+          {sendEmailMutation.isError && (
+            <p className="text-sm text-destructive">
+              {sendEmailMutation.error instanceof ApiError ? sendEmailMutation.error.detail : t("common.error")}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmailDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => sendEmailMutation.mutate()} disabled={sendEmailMutation.isPending}>
+              {sendEmailMutation.isPending ? t("common.loading") : t("sales.invoice.send_email")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

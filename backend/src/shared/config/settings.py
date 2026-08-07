@@ -53,6 +53,22 @@ class Settings(BaseSettings):
     attachments_root: str = "/app/attachments"
     attachment_max_bytes: int = 10 * 1024 * 1024
 
+    # Document Delivery (Product Owner audit finding: no email-sending
+    # mechanism existed anywhere in the system — every reference ERP lets a
+    # user email an invoice/PO straight from its detail page). A single
+    # platform-level SMTP relay, not per-company credentials — matches how
+    # every other secret in this file (JWT key, DB password) is a deploy-
+    # time env var, and per-company SMTP would be a real multi-tenant
+    # mail-deliverability feature this milestone didn't ask for. Left unset
+    # in dev on purpose: EmailService raises a clear, actionable error
+    # rather than silently pretending to send.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
+    smtp_from_address: str | None = None
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

@@ -7,7 +7,8 @@ module calls those two directly rather than through the event bus.
 """
 
 import uuid
-from datetime import date
+from collections.abc import Awaitable, Callable
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -39,6 +40,9 @@ from src.modules.sales.infrastructure.repositories import (
 from src.modules.zatca.application.zatca_service import ZatcaInvoiceProcessor, now_iso
 from src.modules.zatca.domain.entities import InvoiceData, InvoiceLineData, SubmissionResult
 from src.modules.zatca.infrastructure.hash_chain import GENESIS_HASH
+from src.shared.documents.invoice_pdf import InvoiceDocument, InvoiceLineRow, render_invoice_pdf
+from src.shared.email.mailer import EmailAttachment
+from src.shared.email.mailer import send_email as default_send_email
 
 # Chart-of-account codes seeded by Accounting's default Saudi CoA (M1) that
 # the Sales journal entry posts against.
@@ -156,6 +160,8 @@ class SalesInvoiceService:
         warehouse_repo: WarehouseRepository | None = None,
         location_repo: LocationRepository | None = None,
         valuation_method: str | None = None,
+        seller_name_ar: str | None = None,
+        seller_logo_path: str | None = None,
     ):
         self.invoice_repo = invoice_repo
         self.order_repo = order_repo
@@ -167,6 +173,8 @@ class SalesInvoiceService:
         self.zatca_processor = zatca_processor
         self.seller_name = seller_name
         self.seller_vat_number = seller_vat_number
+        self.seller_name_ar = seller_name_ar
+        self.seller_logo_path = seller_logo_path
         # Inventory integration is optional (Phase 8 §3: Sales -> Inventory
         # is an allowed dependency, but not every company has inventory set
         # up — service-only companies invoice without any warehouse ever
@@ -543,3 +551,88 @@ class SalesInvoiceService:
         )
         posted = await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=invoice.company_id)
         invoice.journal_entry_id = posted.id
+
+    async def build_invoice_pdf(self, *, invoice_id: UUID, company_id: UUID, lang: str = "ar") -> bytes:
+        """Document Delivery — the real invoice document (letterhead, bill-
+        to, line items, totals, ZATCA QR), not the tabular reports the
+        Standard Reporting Framework already covers. Shared by the download
+        endpoint and `send_invoice_email` below — one render, two delivery
+        paths."""
+        invoice = await self.invoice_repo.get_by_id(invoice_id)
+        if invoice is None or invoice.company_id != company_id:
+            raise ValueError("Invoice not found")
+        lines = await self.invoice_repo.get_lines(invoice_id)
+        partner = await self.partner_repo.get_by_id(invoice.partner_id, include_archived=True)
+        submission = await self.zatca_submission_repo.get_by_invoice_id(invoice_id)
+
+        doc = InvoiceDocument(
+            number=invoice.number,
+            invoice_date=invoice.invoice_date,
+            due_date=invoice.due_date,
+            invoice_type=invoice.invoice_type,
+            subtotal_amount=invoice.subtotal_amount,
+            tax_amount=invoice.tax_amount,
+            total_amount=invoice.total_amount,
+            lines=[
+                InvoiceLineRow(
+                    description=line.description,
+                    qty=line.qty,
+                    unit_price=line.unit_price,
+                    tax_rate_percent=line.tax_rate_percent,
+                    line_total=line.line_total,
+                    tax_amount=line.tax_amount,
+                )
+                for line in lines
+            ],
+            company_name=self.seller_name,
+            company_name_ar=self.seller_name_ar or self.seller_name,
+            company_vat_number=self.seller_vat_number,
+            company_logo_path=self.seller_logo_path,
+            partner_name=partner.name if partner else "",
+            partner_vat_number=partner.vat_number if partner else None,
+            qr_payload=submission.qr_payload if submission else None,
+            lang=lang,
+        )
+        return render_invoice_pdf(doc)
+
+    async def send_invoice_email(
+        self,
+        *,
+        invoice_id: UUID,
+        company_id: UUID,
+        to_email: str | None = None,
+        lang: str = "ar",
+        mailer: Callable[..., Awaitable[None]] = default_send_email,
+    ) -> SalesInvoice:
+        """Document Delivery. Defaults to the customer's Partner.email on
+        file; an explicit `to_email` overrides it (e.g. a one-off different
+        recipient) without requiring the user to go edit the customer
+        record first."""
+        invoice = await self.invoice_repo.get_by_id(invoice_id)
+        if invoice is None or invoice.company_id != company_id:
+            raise ValueError("Invoice not found")
+        partner = await self.partner_repo.get_by_id(invoice.partner_id, include_archived=True)
+        recipient = to_email or (partner.email if partner else None)
+        if not recipient:
+            raise ValueError(
+                "No email address on file for this customer, and none was provided for this send."
+            )
+
+        pdf_bytes = await self.build_invoice_pdf(invoice_id=invoice_id, company_id=company_id, lang=lang)
+        subject = f"{self.seller_name} — Invoice {invoice.number}"
+        body = (
+            f"Dear {partner.name if partner else 'Customer'},\n\n"
+            f"Please find attached invoice {invoice.number} dated {invoice.invoice_date.isoformat()}, "
+            f"totaling {invoice.total_amount} {invoice.currency_code}.\n\n"
+            f"Regards,\n{self.seller_name}"
+        )
+        await mailer(
+            to=recipient,
+            subject=subject,
+            body=body,
+            attachments=[EmailAttachment(filename=f"{invoice.number}.pdf", content=pdf_bytes)],
+        )
+
+        invoice.last_emailed_at = datetime.now(UTC).replace(tzinfo=None)
+        invoice.last_emailed_to = recipient
+        return invoice

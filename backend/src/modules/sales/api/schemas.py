@@ -1,10 +1,10 @@
 """Pydantic schemas for Sales, per Phase 10 §6.3."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class QuotationLineIn(BaseModel):
@@ -69,6 +69,8 @@ class SalesInvoiceOut(BaseModel):
     subtotal_amount: Decimal
     tax_amount: Decimal
     total_amount: Decimal
+    last_emailed_at: datetime | None = None
+    last_emailed_to: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -80,3 +82,7 @@ class InvoiceIssueResponse(BaseModel):
 
 class CreditNoteCreateRequest(BaseModel):
     reason: str
+
+
+class SendInvoiceEmailRequest(BaseModel):
+    to_email: EmailStr | None = None

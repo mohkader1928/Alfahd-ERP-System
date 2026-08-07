@@ -2,11 +2,12 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.inventory.domain.entities import InsufficientStockError
 from src.modules.sales.api.deps import (
+    get_mailer,
     get_quotation_repo,
     get_quotation_service,
     get_sales_invoice_repo,
@@ -22,6 +23,7 @@ from src.modules.sales.api.schemas import (
     QuotationOut,
     SalesInvoiceOut,
     SalesOrderOut,
+    SendInvoiceEmailRequest,
 )
 from src.modules.sales.application.services import QuotationService, SalesInvoiceService
 from src.modules.sales.infrastructure.repositories import (
@@ -30,6 +32,7 @@ from src.modules.sales.infrastructure.repositories import (
     SalesOrderRepository,
     ZatcaSubmissionRepository,
 )
+from src.shared.email.mailer import EmailNotConfiguredError
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext
 
@@ -183,6 +186,45 @@ async def get_invoice(
     if submission is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ZATCA submission not found for this invoice")
     return InvoiceIssueResponse(invoice=invoice, zatca_submission=submission)
+
+
+@router.get("/invoices/{invoice_id}/pdf")
+async def download_invoice_pdf(
+    invoice_id: UUID,
+    lang: str = "ar",
+    ctx: AuthContext = Depends(require_permission("sales.invoice.create")),
+    service: SalesInvoiceService = Depends(get_sales_invoice_service),
+):
+    try:
+        pdf_bytes = await service.build_invoice_pdf(invoice_id=invoice_id, company_id=ctx.company_id, lang=lang)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline; filename=invoice.pdf"},
+    )
+
+
+@router.post("/invoices/{invoice_id}:send-email", response_model=SalesInvoiceOut)
+async def send_invoice_email(
+    invoice_id: UUID,
+    payload: SendInvoiceEmailRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("sales.invoice.send_email")),
+    service: SalesInvoiceService = Depends(get_sales_invoice_service),
+    mailer=Depends(get_mailer),
+):
+    try:
+        invoice = await service.send_invoice_email(
+            invoice_id=invoice_id, company_id=ctx.company_id, to_email=payload.to_email, mailer=mailer
+        )
+    except (EmailNotConfiguredError, ValueError) as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return invoice
 
 
 @router.get("/quotations/{quotation_id}", response_model=QuotationOut)

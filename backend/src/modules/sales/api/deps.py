@@ -34,8 +34,16 @@ from src.modules.sales.infrastructure.repositories import (
 from src.modules.zatca.application.zatca_service import ZatcaInvoiceProcessor
 from src.modules.zatca.infrastructure.gateways.sandbox_gateway import SandboxZatcaGateway
 from src.modules.zatca.infrastructure.signing import DevSigningService
+from src.shared.email.mailer import send_email
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext, get_auth_context
+
+
+def get_mailer():
+    """Document Delivery — a real FastAPI dependency (not a bare function
+    default) specifically so tests can swap it via
+    `app.dependency_overrides` instead of touching real SMTP."""
+    return send_email
 
 
 def get_quotation_repo(db: AsyncSession = Depends(get_db)) -> QuotationRepository:
@@ -102,4 +110,6 @@ async def get_sales_invoice_service(
         warehouse_repo=warehouse_repo,
         location_repo=location_repo,
         valuation_method=company.valuation_method,
+        seller_name_ar=company.legal_name_ar,
+        seller_logo_path=company.logo_path,
     )
