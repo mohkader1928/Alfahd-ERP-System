@@ -8,14 +8,26 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `0b7e319` (`main`) —
-**Purchase Orders + Vendor Bills lists: server-side filtering + real
-pagination** (see dated entry below for full detail), the sixth bundle
-picked by the same Product Owner audit methodology. 263/263 backend
-tests, `ruff`/`tsc`/`eslint` all clean, verified live (status filter on
-Purchase Orders and partner filter on the New Payment vendor-bill picker
-both fire real server requests and narrow the result set correctly, no
-console errors).
+**Last verified**: 2026-08-08, on top of committed `63033b5` (`main`) —
+**Sales order date silently reset to today** (see dated entry below),
+reported directly by the Owner while testing (a Sales Order they dated
+2026-01-01, SO-000012, never showed up anywhere dated January). Root
+cause: `confirm_to_sales_order()` stamped `date.today()` instead of
+carrying the quotation's own date forward. Fixed, plus `invoice_date` was
+found completely absent from the API response schema — added and
+surfaced on the invoice list/detail screens. 265/265 backend tests,
+`ruff`/`tsc`/`eslint` clean, verified live via direct API calls (a fresh
+January-dated quotation now confirms into an order that keeps
+`order_date: "2026-01-20"` instead of today).
+
+**Also same session**: the Dashboard's sales trend chart was reported as
+visually unclear — traced to a real CSS bug (`items-end` on the chart's
+row left every bar column's height indefinite, so every bar's `height: X%`
+resolved to 0px regardless of the underlying data) plus an unthemed
+chart color (`bg-primary`, a chroma-0 grayscale token). Fixed with a
+pixel-based bar height and the dataviz skill's validated sequential blue
+(`#2a78d6`/`#3987e5`, checked against this app's actual card surfaces).
+Commit `f5d83b0`.
 
 **Prior, same day/session, continuous execution per Owner directive**
 (see each dated entry below for full detail): `a20ebbf` — Sales Invoices
