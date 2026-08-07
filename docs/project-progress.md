@@ -8,25 +8,26 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `5b88f0f` (`main`) —
-**Purchase Order Approval Workflow + Notifications** (see dated entry
-below for full detail), selected via a full-system Product Owner audit,
-not the next item on a checklist. 242/242 backend tests, `ruff`/`tsc`/
-`eslint` all clean, verified live end-to-end (Settings threshold save,
-real PO creation+confirm over the threshold, order detail page rendering
-`pending_approval` + Approve/Reject).
+**Last verified**: 2026-08-07, on top of committed `3a6f46e` (`main`) —
+**Document Delivery: Sales Invoice PDF + Send by Email** (see dated entry
+below for full detail), the second bundle picked by the same Product
+Owner audit methodology. 248/248 backend tests, `ruff`/`tsc`/`eslint` all
+clean, verified live end-to-end (real PDF download in-browser, Send-by-
+Email dialog surfacing the exact backend error when SMTP is unconfigured
+in dev).
 
 **Prior, same day, continuous execution per Owner directive** (see each
-dated entry below for full detail): `ef822dd` — VAT/Tax Summary Report;
-`a8d3ed3` — Global Search; `dc94a9a` — Attachments; `7c3adb2` — Users
-Management (Identity/Access/Governance); `3138b5c` — Standard Reporting
-Framework. Owner Acceptance is pending for these five — the on-screen
-browser walkthrough specifically remains owed for the earlier four (was
-blocked on the Browser preview pane, a tooling/environment issue for that
-stretch of the session, not an application bug); every one of those
-bundles was instead verified for real through direct authenticated HTTP
-calls against live company data plus full automated test coverage, and
-documented as such rather than assumed.
+dated entry below for full detail): `5b88f0f` — Purchase Order Approval
+Workflow + Notifications; `ef822dd` — VAT/Tax Summary Report; `a8d3ed3` —
+Global Search; `dc94a9a` — Attachments; `7c3adb2` — Users Management
+(Identity/Access/Governance); `3138b5c` — Standard Reporting Framework.
+Owner Acceptance is pending for the earlier four of these — the
+on-screen browser walkthrough specifically remains owed (was blocked on
+the Browser preview pane, a tooling/environment issue for that stretch of
+the session, not an application bug); every one of those bundles was
+instead verified for real through direct authenticated HTTP calls against
+live company data plus full automated test coverage, and documented as
+such rather than assumed.
 
 **Full-project re-audit (2026-08-07)**: Owner directive to stop
 report-by-report execution, review the whole system (backend modules, DB,
@@ -390,6 +391,96 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Document Delivery: Sales Invoice PDF + Send by Email (2026-08-07)**,
+committed as `3a6f46e`. Second bundle picked by the Product Owner audit
+methodology (review the whole system, pick the highest-value gap, execute
+without stopping to propose alternatives). Discovered mid-audit that the
+gap was bigger than "add a Send Email button" — this system had zero PDF
+for the actual sales invoice document at all; the Standard Reporting
+Framework only ever covered tabular reports (Trial Balance, VAT Summary,
+...), never a real business-document layout. Per the Owner's rule 5
+("fix it if it's in scope"), built the invoice PDF as part of this bundle
+rather than deferring it, since email delivery is meaningless without a
+real document to attach.
+
+- **Backend — Invoice PDF**: new `shared/documents/invoice_pdf.py` —
+  letterhead (company name AR/EN, VAT number, logo if set), bill-to
+  block, line items, subtotal/tax/grand-total, and the ZATCA Phase-1 QR
+  code regenerated server-side (`qrcode`, new dependency) from the exact
+  same TLV `qr_payload` the on-screen invoice page already renders via
+  `react-qr-code` — one real payload, two renderings, not two sources of
+  truth. Same WeasyPrint HTML/CSS -> PDF technique as the tabular
+  reports (correct Arabic bidi via Pango, no hand-rolled canvas). `GET
+  /sales/invoices/{id}/pdf`.
+- **Backend — Send by Email**: new `shared/email/mailer.py` — stdlib
+  `smtplib` behind an `asyncio.to_thread` wrapper (no new async-SMTP
+  dependency for what's fundamentally one blocking call per send).
+  Platform-level SMTP config (`SMTP_HOST` etc. in `Settings`) — deliberately
+  unset in this dev deployment, which makes `EmailNotConfiguredError`
+  surface as a real, catchable 422 instead of a silent no-op or an
+  unhandled exception (verified live — see below). `POST
+  /sales/invoices/{id}:send-email` defaults to the customer's
+  `Partner.email` on file; an explicit `to_email` overrides it for a
+  one-off recipient without editing the customer record first. New
+  `sales.invoice.send_email` permission. `last_emailed_at`/
+  `last_emailed_to` on `SalesInvoice` — a real "last emailed" record, the
+  same confirmation every reference ERP shows on an invoice, not a fire-
+  and-forget action with no trace.
+- **Frontend**: Download PDF and Send by Email buttons on the invoice
+  detail page; Send by Email opens a dialog (optional recipient override,
+  defaults to blank = customer's email on file) and surfaces the exact
+  backend error message on failure; a "last emailed" line appears once an
+  invoice has been sent.
+- **Real bug found and fixed — this one was self-inflicted and serious**:
+  while wiring the new PDF/email methods onto `SalesInvoiceService`, an
+  edit mistakenly spliced them into the *middle* of the existing
+  `_post_journal_entry` method instead of after it, orphaning its last
+  line (`invoice.journal_entry_id = posted.id`) as unreachable dead code
+  and silently turning off `journal_entry_id` for every new sales
+  invoice and credit note going forward. Caught immediately by the full
+  regression suite — 5 tests failed (VAT Summary and all 4 AR/AP
+  Subledger tests, both of which filter on `journal_entry_id IS NOT
+  NULL`) — not discovered live or in production. Fixed by restoring
+  `_post_journal_entry` to one contiguous method; full suite re-confirmed
+  green afterward. Documented here in full per the Owner's standing
+  instruction to report real problems found and fixed, not just the
+  feature delivered.
+- **Tests**: `backend/tests/test_invoice_email_delivery.py` (6 new: real
+  PDF download starts with `%PDF`; send-email defaults to the partner's
+  email and records `last_emailed_at`/`last_emailed_to`; an explicit
+  recipient overrides the partner's email; no recipient at all is
+  rejected with a clear 422 instead of silently doing nothing; a user
+  without `sales.invoice.send_email` gets a real 403; and — without any
+  mock — the real `send_email` against this environment's actually-unset
+  `SMTP_HOST` returns an actionable 422). Real SMTP delivery itself is
+  swapped for a fake via `app.dependency_overrides` on a dedicated
+  `get_mailer` FastAPI dependency (not a bare function default, precisely
+  so it's overridable) — everything up to and including composing the
+  email (permission check, PDF generation, recipient resolution, DB
+  update) is exercised for real; only the actual SMTP network call is
+  faked, the same boundary this codebase's ZATCA sandbox gateway already
+  draws for its own external call. 248/248 backend tests, `ruff` clean.
+- **Verified live**: downloaded a real invoice PDF from the running
+  frontend against the real API (200 OK, correct `Content-Type`); opened
+  the Send by Email dialog and submitted it with SMTP unconfigured — the
+  dialog rendered the exact backend message ("Outgoing email isn't
+  configured for this deployment (SMTP_HOST is unset)"), proving the
+  error path is wired correctly end to end, not just asserted in a test.
+  `tsc`/`eslint` clean.
+- **Flagged for later, not blocking this bundle**: Purchase Order and
+  Vendor Bill email delivery are the natural next extension of the exact
+  same `shared/email` + attachment-PDF pattern, not built here to keep
+  this bundle's blast radius reviewable (a document PDF renderer is
+  genuinely a second render function per document type — Purchase
+  Order's layout differs enough from an invoice's that it isn't a
+  one-line reuse). All 9 other gaps the Approval Workflow bundle's audit
+  already flagged (list-view server-side filtering, document-numbering
+  configuration, multi-currency, Dashboard richness, Inventory Valuation
+  report, recurring documents, per-record audit-trail UI) remain open
+  and un-reassessed, per the Owner's instruction not to re-run analysis.
 
 **Owner Accepted: pending.**
 
