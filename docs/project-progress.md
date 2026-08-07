@@ -8,11 +8,36 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `ba3ef2f` (`main`) —
-**Bundle E slice 2, Standard Product Cardex** (see dated entry below for
-full detail). 211/211 backend tests, `ruff`/`tsc`/`eslint` all clean;
-Owner Acceptance pending — the on-screen walkthrough for this slice is
-still owed.
+**Last verified**: 2026-08-07, on top of committed `3138b5c` (`main`) —
+**Standard Reporting Framework** (see dated entry below for full detail).
+217/217 backend tests, `ruff`/`tsc`/`eslint` all clean. Owner Acceptance
+pending — this and the prior slice's on-screen walkthroughs are both
+still owed (blocked on the Browser preview pane, a tooling issue, not
+an application bug — see the dated entry).
+
+**Full-project re-audit (2026-08-07)**: Owner directive to stop
+report-by-report execution, review the whole system (backend modules, DB,
+frontend, shared components, docs) against Odoo/SAP B1/Dynamics 365 BC/
+NetSuite/ERPNext, and re-prioritize. Findings: no Users management UI
+exists at all (backend `POST /users`, role/company-access endpoints have
+zero frontend — an owner cannot add a second employee without a DB
+console); the original Phase 17 blueprint's own §20 recommendation for a
+shared `ReportFilter`/export architecture was never built, so all 12
+existing reports (at the time) had independently hand-rolled filters,
+which is exactly how the Trial Balance Dr/Cr-only regression slipped
+through; almost none of the "feels like a real ERP" layer exists (no
+global search, notifications, attachments-on-documents, activity
+timeline, saved filters, command palette); Audit Log only covers 6 of
+dozens of mutating actions; multi-currency is a stored label only (no
+`exchange_rate` anywhere in the backend). Reprioritized into 4 bundles
+ahead of the original Bundle E report backlog: (1) Standard Reporting
+Framework, (2) Identity/Access/Governance (Users UI + audit coverage),
+(3) Professional Workspace Layer (search/notifications/attachments/
+breadcrumbs/mobile nav), (4) Dashboard 2.0 + remaining reports (Cash
+Flow/VAT/Purchasing/Inventory Valuation). Owner approved; execution mode
+changed to "audit → implement → test → document → move to next gap
+without stopping for a new plan," continuing only for a genuine
+architectural decision.
 
 **Historical**: 2026-08-04, on top of committed `5aee470` (`main`) —
 **UI/UX Professional pass, Bundle A (first slice — Accounting module),
@@ -352,6 +377,74 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Standard Reporting Framework (2026-08-07)**, committed as `3138b5c` —
+the first of 4 bundles from the full-project re-audit (see the top of this
+file). Owner directive: stop building reports one at a time; build one
+shared framework all reports inherit, then retrofit it onto every report
+that already exists in one pass.
+
+- **Shared renderer** (`backend/src/shared/reporting/`): `export_render.py`
+  (`ReportTable`/`ReportColumn` → PDF via WeasyPrint, Excel via openpyxl),
+  `export_response.py` (turns a table into a downloadable FastAPI
+  `Response`), `labels.py` (shared AR/EN column labels), `company_name.py`
+  (AR/EN company-name resolution for report headers), `formatting.py`
+  (matches `frontend/lib/format-currency.ts`/`format-date.ts` exactly, so
+  exported numbers look identical to the on-screen report).
+- **Why WeasyPrint, not reportlab**: a from-scratch canvas PDF library has
+  no built-in Arabic bidi/glyph-joining — for a bilingual Arabic-first ERP
+  that's the single hardest part of the problem and the likeliest place a
+  hand-rolled renderer embarrasses itself. WeasyPrint (HTML/CSS → PDF via
+  Pango/Cairo) gets correct Arabic shaping for free; verified directly by
+  reading a generated PDF back (`docs` note: rendered "ميزان المراجعة"
+  table with properly joined letters and correct RTL column order).
+  Adds `libpango-1.0-0`/`libcairo2`/`libgdk-pixbuf-2.0-0`/`fonts-noto-core`
+  to the backend `Dockerfile`'s shared base stage (both dev and production
+  images).
+- **Retrofitted onto all 11 existing reports in one pass** (not one at a
+  time): Trial Balance, General Ledger, Income Statement, Balance Sheet
+  (accounting); Customer/Vendor Subledger, AR/AP Aging (payments); Sales
+  by Customer/Product/Period (reporting); Product Cardex (inventory). Each
+  endpoint gained `format=pdf|xlsx` and `lang=ar|en` query params that
+  reuse the exact same service/query already computing its JSON response —
+  only the serialization branches, no duplicated business logic.
+- **Frontend**: `ReportView`'s single `onExport` became `onExportPdf`/
+  `onExportExcel`, backed by one shared `reportExportHandlers()`
+  (`lib/report-export.ts`) — blob fetch with auth headers, triggers a
+  real browser save-as with the server's real filename. Wired identically
+  across all 11 report tabs (`accounting/page.tsx`, `sales/reports/page.tsx`,
+  `inventory/page.tsx`'s Cardex tab) — copy-once, not eleven separate
+  implementations.
+- **Real bug found and fixed during live verification**: exported files
+  downloaded with the generic filename "report" instead of the server's
+  real filename ("trial-balance.pdf" etc.) — `Content-Disposition` isn't
+  in the browser's default CORS-safelisted response headers, so
+  cross-origin JS (frontend on :3000, backend on :8000) could never read
+  it. Fixed with `expose_headers=["Content-Disposition"]` on the CORS
+  middleware (`backend/src/api/main.py`) — affects every file-download
+  endpoint in the app, not just these 11 reports.
+- **Tests**: 8 new (PDF/Excel content-type + magic-byte assertions across
+  accounting/payments/reporting/inventory, plus a permission-gating check
+  on the export path specifically, since format params could in principle
+  bypass a check the JSON path enforces — confirmed they don't). 217/217
+  backend total, `ruff`/`tsc`/`eslint` all clean.
+- **Verified for real, not simulated**: every export format for every one
+  of the 11 reports was exercised through the real running app's live
+  authenticated session (fresh login via the actual `/auth/login` endpoint,
+  not a stored/mocked token) against real company data — confirmed
+  correct `%PDF`/`PK` (xlsx zip) magic bytes, correct byte sizes, and
+  (after the CORS fix) correct real filenames including data-derived ones
+  like `product-cardex-A4 Paper Ream.pdf`. On-screen click-through in the
+  Browser preview pane itself remains blocked this session by the same
+  pane-rendering tooling issue noted in the Cardex entry below — not an
+  application bug.
+- **New gap surfaced, not yet acted on**: none of the report tabs expose
+  Group-by/Sort controls in the UI, and there's no "saved filters"
+  mechanism yet — both were named in the original Bundle 1 request but
+  deferred as separate, smaller follow-ups since the framework's core
+  (filters → data → print → export, all standardized) was the priority.
 
 **Owner Accepted: pending.**
 
