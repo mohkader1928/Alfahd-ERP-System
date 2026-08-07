@@ -8,12 +8,13 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `7c3adb2` (`main`) —
-**Users Management (Identity/Access/Governance)** (see dated entry below
-for full detail). 222/222 backend tests, `ruff`/`tsc`/`eslint` all clean.
+**Last verified**: 2026-08-07, on top of committed `dc94a9a` (`main`) —
+**Attachments (Professional Workspace Layer)** (see dated entry below for
+full detail). 228/228 backend tests, `ruff`/`tsc`/`eslint` all clean.
 
-**Prior**: 2026-08-07, `3138b5c` — **Standard Reporting Framework** (see
-dated entry below for full detail).
+**Prior**: 2026-08-07, `7c3adb2` — **Users Management (Identity/Access/
+Governance)**; `3138b5c` — **Standard Reporting Framework** (see dated
+entries below for full detail).
 217/217 backend tests, `ruff`/`tsc`/`eslint` all clean. Owner Acceptance
 pending — this and the prior slice's on-screen walkthroughs are both
 still owed (blocked on the Browser preview pane, a tooling issue, not
@@ -381,6 +382,69 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Attachments — Professional Workspace Layer (2026-08-07)**, committed as
+`dc94a9a`: every reference ERP lets a user attach an arbitrary file to any
+business document; this system had zero such mechanism outside product/
+partner/company logos (which are a different, deliberately-public concern —
+see below).
+
+- **Backend**: one polymorphic `attachment` table (`entity_type`/
+  `entity_id`, the same `source_table`/`source_id` convention already used
+  for stock moves and drill-down), `company_id`-scoped with
+  `company_isolation` RLS applied in the same migration (`e4f5a6b7c8d9`).
+  Wider content-type allowlist than entity images (PDF, Word, Excel, CSV,
+  text, images vs. images-only) via a new `save_attachment_file` in the
+  shared media module. Stored under a **separate filesystem root**
+  (`attachments_root`, not `media_root`) — `media_root` is deliberately
+  served unauthenticated at `/media` (for print headers/logos), and
+  business documents must only ever be reachable through the
+  authenticated, permission-checked `GET /attachments/{id}/download`.
+  New `attachment.view`/`attachment.manage` permissions (one pair for the
+  whole cross-cutting concern, matching the `audit_log.view` precedent —
+  not one permission per document type).
+- **Frontend**: one shared `AttachmentsPanel` (list/upload/download/
+  delete, file-type icons, size/uploader/date shown per file) wired onto
+  three real document detail pages this pass — Sales Invoice, Purchase
+  Order, Vendor Bill — not left as an unused component sitting on zero
+  screens.
+- **Real bug #1, found and fixed during this bundle**: the Admin-role
+  permission-sync query (fixed in the prior Reporting Framework bundle to
+  be correct) was still O(roles × permissions) with a correlated
+  subquery — fine at realistic production scale, but it saturated this
+  session's dev DB (≈9,000 roles accumulated from repeated pytest
+  bootstrapping) for 30+ seconds on every API startup, at one point
+  visibly degrading the whole dev environment. Rewrote it to pre-filter
+  to genuinely *incomplete* roles first via a cheap `GROUP BY`/`HAVING`
+  (index-only on the `role_permission` PK) before the expensive
+  `CROSS JOIN` — which now only ever touches roles that actually need it
+  (≈0 in steady state).
+- **Real bug #2, found and fixed during this bundle**: `docker exec
+  <api-container> alembic upgrade head` was silently connecting as
+  `erp_app` (the least-privileged runtime role — no `CREATE` on schema
+  `public`) instead of `erp_migrate`, because `DATABASE_URL_MIGRATE_SYNC`
+  isn't set in the `api` container's own environment. DDL migrations must
+  go through the dedicated `migrate` compose service (`docker compose run
+  --rm migrate`, using `.env.migrate`) — not a code bug, but a real
+  operational gotcha now documented here so it isn't rediscovered the
+  hard way again.
+- **Tests**: 6 new (upload+list, download returns real bytes, delete
+  removes it, unsupported content-type rejected with 422, isolated across
+  companies, 401 without auth). 228/228 backend total, `ruff`/`tsc`/
+  `eslint` all clean.
+- **Verified for real, not simulated**: a full upload → list → download →
+  delete round trip executed directly against a real invoice belonging to
+  the live demo company (not a mock, not just pytest) — confirmed exact
+  byte-for-byte content, correct filename via `Content-Disposition`,
+  correct content-type, and correct RLS-scoped isolation.
+- **Deliberately not built this pass**: attaching files isn't yet wired
+  onto every document type in the system (only the three named above) —
+  intentional, incremental rollout onto the highest-value document types
+  first, not a partial/broken feature; extending to remaining document
+  types (journal entries, purchase quotations, sales orders) is now cheap
+  since the shared panel and backend already exist.
 
 **Owner Accepted: pending.**
 
