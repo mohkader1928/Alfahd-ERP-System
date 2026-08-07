@@ -8,8 +8,12 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `3138b5c` (`main`) —
-**Standard Reporting Framework** (see dated entry below for full detail).
+**Last verified**: 2026-08-07, on top of committed `7c3adb2` (`main`) —
+**Users Management (Identity/Access/Governance)** (see dated entry below
+for full detail). 222/222 backend tests, `ruff`/`tsc`/`eslint` all clean.
+
+**Prior**: 2026-08-07, `3138b5c` — **Standard Reporting Framework** (see
+dated entry below for full detail).
 217/217 backend tests, `ruff`/`tsc`/`eslint` all clean. Owner Acceptance
 pending — this and the prior slice's on-screen walkthroughs are both
 still owed (blocked on the Browser preview pane, a tooling issue, not
@@ -377,6 +381,70 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Users Management — Identity/Access/Governance (2026-08-07)**, committed
+as `7c3adb2` — the single most severe gap the full-project re-audit found:
+`POST /users` and the role/company-access grant endpoints already existed
+with zero frontend, meaning an owner could not add a second real employee
+through the product at all.
+
+- **Backend**: `GET /users` (everyone with access to the active company,
+  each with their role names — `UserRepository.list_by_company_access`
+  joins through `user_company_access`, since "who works here" isn't the
+  same as raw tenant membership), `GET /users/{id}` (roles for the active
+  company + company-access grants with resolved company/branch names),
+  `DELETE /users/{id}/roles/{role_id}` — the symmetric counterpart to the
+  already-existing assign endpoint, added because a role checkbox that can
+  only ever be checked and never unchecked is a half-built screen (Owner's
+  own "no incomplete screens" standard). Reuses `user.view`/`user.create`/
+  `user.manage_roles`, already in the permission catalog — no new
+  permission or migration needed for the endpoints themselves.
+- **Frontend**: Settings → Users (list + quick-create dialog) and a
+  per-user detail page (role checkboxes wired to assign/remove, read-only
+  company-access list), built as a direct mirror of the existing
+  Settings → Security list/detail pattern — same shared components, same
+  interaction shape, zero new UI patterns invented.
+- **Deliberately not built this pass** (small, real, explicitly deferred
+  rather than scope-crept in): granting a user access to a *second*
+  company from this screen — no "list all companies in this tenant"
+  endpoint exists yet, and building one is its own small backend slice;
+  user deactivation/reset-password — no backend support exists for either
+  and neither was part of the identified gap (owners can still fully
+  onboard and permission a new employee without them).
+- **Real bug found and fixed during live verification, not cosmetic**: the
+  "keep Admin roles synced with new permissions" mechanism (introduced in
+  the Standard Reporting Framework slice, meant to auto-grant permissions
+  like `reporting.sales.view` to every existing Admin role) has been a
+  silent no-op since the day it was written. It selected from the `role`
+  table, which carries FORCE ROW LEVEL SECURITY keyed on company context —
+  a context that does not exist at API startup, so the query matched zero
+  rows every single time it ran, for every DB user including `erp_app`
+  (confirmed directly: `erp_app`/`erp_migrate` both lack BYPASSRLS; only
+  the bootstrap superuser has it). Confirmed live via direct SQL that the
+  demo company's real Admin role was missing `role.manage` specifically as
+  a result. Fixed `seed_core_data()`'s sync to identify Admin roles
+  *indirectly* — any role already holding `reporting.dashboard.view` (a
+  permission only an Admin role has) — through `role_permission`/
+  `permission`, which carry no RLS at all, the same fact migration
+  `c1d2e3f4a5b6` already relied on; never touches `role` directly. Added
+  migration `d3e4f5a6b7c8` to backfill whatever permission drift had
+  already accumulated across every existing company while the sync was
+  silently broken (verified: the demo company's Admin role gained
+  `role.manage` immediately after applying it).
+- **Tests**: 5 new (list shows created users with correct role names and
+  empty roles for a freshly-created user; detail shows roles + company
+  access; assign→remove is symmetric and immediately reflected; isolated
+  across companies; 401 without auth). 222/222 backend total, `ruff`/
+  `tsc`/`eslint` all clean.
+- **Verified for real, not simulated**: exercised through the live
+  authenticated app session (fresh login, not a stored token) against the
+  real demo company — created a user, confirmed `GET /roles` which had
+  been returning a real 403 before the sync fix now succeeds, assigned
+  then removed a role with the change immediately visible in the detail
+  response, confirmed company access and role names both correct, and
+  confirmed the user count in the list increased correctly.
 
 **Owner Accepted: pending.**
 
