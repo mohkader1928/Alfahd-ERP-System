@@ -8,27 +8,27 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `a2e6752` (`main`) —
-**Dashboard Enrichment** (see dated entry below for full detail), the
-third bundle picked by the same Product Owner audit methodology.
-250/250 backend tests, `ruff`/`tsc`/`eslint` all clean, verified live
-end-to-end in the browser against real demo-company data (KPI cards,
-pending-approvals alert, 6-month trend chart, and recent-activity feed
-all rendering correctly with no console errors).
+**Last verified**: 2026-08-07, on top of committed `08369aa` (`main`) —
+**Inventory Valuation report** (see dated entry below for full detail),
+the fourth bundle picked by the same Product Owner audit methodology.
+256/256 backend tests, `ruff`/`tsc`/`eslint` all clean, verified live
+against the real demo company (28 products across 2 warehouses, correct
+per-row and grand-total SAR figures, no console errors).
 
 **Prior, same day, continuous execution per Owner directive** (see each
-dated entry below for full detail): `3a6f46e` — Document Delivery (Sales
-Invoice PDF + Send by Email); `5b88f0f` — Purchase Order Approval
-Workflow + Notifications; `ef822dd` — VAT/Tax Summary Report; `a8d3ed3` —
-Global Search; `dc94a9a` — Attachments; `7c3adb2` — Users Management
-(Identity/Access/Governance); `3138b5c` — Standard Reporting Framework.
-Owner Acceptance is pending for the earliest four of these — the
-on-screen browser walkthrough specifically remains owed (was blocked on
-the Browser preview pane, a tooling/environment issue for that stretch of
-the session, not an application bug); every one of those bundles was
-instead verified for real through direct authenticated HTTP calls against
-live company data plus full automated test coverage, and documented as
-such rather than assumed.
+dated entry below for full detail): `a2e6752` — Dashboard Enrichment;
+`3a6f46e` — Document Delivery (Sales Invoice PDF + Send by Email);
+`5b88f0f` — Purchase Order Approval Workflow + Notifications; `ef822dd`
+— VAT/Tax Summary Report; `a8d3ed3` — Global Search; `dc94a9a` —
+Attachments; `7c3adb2` — Users Management (Identity/Access/Governance);
+`3138b5c` — Standard Reporting Framework. Owner Acceptance is pending for
+the earliest four of these — the on-screen browser walkthrough
+specifically remains owed (was blocked on the Browser preview pane, a
+tooling/environment issue for that stretch of the session, not an
+application bug); every one of those bundles was instead verified for
+real through direct authenticated HTTP calls against live company data
+plus full automated test coverage, and documented as such rather than
+assumed.
 
 **Full-project re-audit (2026-08-07)**: Owner directive to stop
 report-by-report execution, review the whole system (backend modules, DB,
@@ -392,6 +392,58 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Inventory Valuation report (2026-08-07)**, committed as `08369aa`.
+Fourth bundle picked by the Product Owner audit methodology — "what is
+my stock worth right now?" is a standard report in every reference ERP
+(SAP B1, Dynamics 365 BC, Odoo, ERPNext) and was entirely absent here,
+even though the costing engine to answer it correctly already existed
+in the inventory module (`InventoryValuationService`, built in an
+earlier milestone).
+
+- **Backend**: new `InventoryValuationReportService` in the `reporting`
+  module (same cross-module-read precedent as `VatReportingService`/
+  `SearchService`/`SalesReportingService`) — qty on hand and value per
+  product/warehouse. `GET /reporting/inventory-valuation` with the
+  standard `format=json|pdf|xlsx` / `lang=ar|en` export and an optional
+  `warehouse_id` filter, gated by a new
+  `reporting.inventory_valuation.view` permission.
+- **Correctness detail that mattered — not just plumbing**:
+  `StockQuant.moving_avg_cost` is only ever updated for `average`-method
+  companies (`InventoryValuationService.receive_stock` never touches it
+  for `fifo`); a FIFO company's real remaining cost basis lives in
+  `StockLayer.qty_remaining * unit_cost` instead. The report branches on
+  `company.valuation_method` exactly like the transactional engine
+  already does — reading the wrong structure for a company's actual
+  method would have silently understated or zeroed the report rather
+  than erroring, the worst kind of report bug (looks fine, is wrong).
+  Caught and handled *before* it could ship, by tracing the existing
+  costing engine's own branching logic rather than guessing at a single
+  "current cost" column.
+- **Frontend**: new "Inventory Valuation" tab on the Inventory page,
+  reusing `ReportView` exactly like the existing Product Cardex tab —
+  warehouse filter, KPI cards (product count, total value), full table
+  with a grand-total footer, PDF/Excel/print export, drill-down links to
+  each product's stock card.
+- **Tests**: `backend/tests/test_inventory_valuation.py` (6 new:
+  average-method valuation reads `moving_avg_cost` correctly; FIFO-method
+  valuation sums across `StockLayer` rows rather than reflecting only the
+  latest receipt cost; the warehouse filter actually narrows results; PDF
+  and Excel export both produce real files; the endpoint requires
+  authentication; a company with zero stock returns `[]` rather than
+  erroring). 256/256 backend tests, `ruff` clean.
+- **Verified live**: opened the real demo company's Inventory Valuation
+  tab in the browser — 28 products across "Main Warehouse" and
+  "Secondary Warehouse", correct per-row unit costs and totals, correct
+  grand total (679,058.21 SAR), no console errors. `tsc`/`eslint` clean.
+- **Flagged for later, not blocking this bundle**: list-view server-side
+  filtering, document-numbering configuration, multi-currency, recurring
+  documents, per-record audit-trail UI, extending Document Delivery /
+  Approval Workflow to other document types, and a historical (as-of-
+  date, not just "right now") valuation view all remain open and
+  un-reassessed, per the Owner's instruction not to re-run analysis.
 
 **Owner Accepted: pending.**
 
