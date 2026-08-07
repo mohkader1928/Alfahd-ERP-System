@@ -66,6 +66,7 @@ class SalesInvoiceOut(BaseModel):
     invoice_type: str
     number: str
     status: str
+    invoice_date: date
     subtotal_amount: Decimal
     tax_amount: Decimal
     total_amount: Decimal

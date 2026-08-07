@@ -13,6 +13,7 @@ import { salesApi } from "@/features/sales/api/client";
 import type { SalesInvoice } from "@/features/sales/api/types";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
 
 const INVOICE_STATUSES = ["draft", "pending_submission", "cleared", "reported", "rejected", "cancelled"];
@@ -30,7 +31,7 @@ function useCustomerLabel() {
 }
 
 export default function SalesInvoicesPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
   const customer = useCustomerLabel();
@@ -81,6 +82,13 @@ export default function SalesInvoicesPage() {
       key: "invoice_type",
       header: t("sales.invoice.type"),
       render: (row) => <span className="capitalize">{row.invoice_type.replace("_", " ")}</span>,
+    },
+    {
+      key: "invoice_date",
+      header: t("sales.invoice.date"),
+      sortable: true,
+      sortValue: (row) => row.invoice_date,
+      render: (row) => formatDate(row.invoice_date, locale),
     },
     {
       key: "status",

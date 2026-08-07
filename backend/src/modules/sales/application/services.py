@@ -115,7 +115,12 @@ class QuotationService:
             quotation_id=quotation.id,
             number=number,
             status="confirmed",
-            order_date=date.today(),
+            # Preserve the quotation's own date rather than the order's
+            # creation date — was previously date.today(), which silently
+            # discarded whatever date the quotation actually carried (there
+            # is no ZATCA or accounting reason to force this one; unlike
+            # invoice_date, order_date is never reported to ZATCA).
+            order_date=quotation.quote_date,
             total_amount=quotation.total_amount,
         )
         order_lines = [

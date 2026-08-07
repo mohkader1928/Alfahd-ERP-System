@@ -130,6 +130,7 @@
   "sales.invoices.title": "فواتير المبيعات",
   "sales.invoices.empty_description": "أصدر فاتورة من أمر بيع مؤكَّد لتظهر هنا.",
   "sales.invoice.type": "النوع",
+  "sales.invoice.date": "تاريخ الفاتورة",
   "sales.quotations.date": "التاريخ",
   "sales.quotations.confirm": "تأكيد كأمر بيع",
   "sales.quotations.create_title": "عرض سعر جديد",

@@ -23,13 +23,23 @@ function formatCompact(value: number): string {
   return value.toFixed(0);
 }
 
+// Single-series sequential blue (dataviz skill's reference palette,
+// categorical slot 1 / sequential default) — validated against this app's
+// actual card surfaces (#ffffff light, #1e1e1e dark) via
+// scripts/validate_palette.js before adoption: both clear the 3:1 contrast
+// floor. Previously this bar used `bg-primary`, a chroma-0 near-black
+// grayscale token (this app's whole `--chart-1..5` scaffold is unthemed
+// grayscale) — indistinguishable as a "trend" color from any other neutral
+// UI chrome on the page.
+const BAR_COLOR = "bg-[#2a78d6] dark:bg-[#3987e5]";
+
 export function SalesTrendChart({ points }: { points: SalesTrendPoint[] }) {
   const values = points.map((p) => Number(p.total));
   const max = Math.max(...values, 1);
   const width = 100 / points.length;
 
   return (
-    <div className="flex h-44 items-end gap-2 px-1">
+    <div className="flex h-44 items-end gap-2 border-b border-border px-1">
       {points.map((p) => {
         const value = Number(p.total);
         const barPx = Math.max((value / max) * BAR_TRACK_PX, value > 0 ? 6 : 2);
@@ -48,10 +58,10 @@ export function SalesTrendChart({ points }: { points: SalesTrendPoint[] }) {
               {value > 0 ? formatCompact(value) : ""}
             </span>
             <div
-              className="w-full min-w-[8px] rounded-t-sm bg-primary transition-all hover:bg-primary/80"
+              className={`w-full max-w-6 min-w-[8px] rounded-t-[4px] transition-opacity hover:opacity-80 ${BAR_COLOR}`}
               style={{ height: `${barPx}px` }}
             />
-            <span className="text-[10px] text-muted-foreground">{monthLabel}</span>
+            <span className="pt-1 text-[10px] text-muted-foreground">{monthLabel}</span>
           </div>
         );
       })}

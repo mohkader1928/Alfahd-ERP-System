@@ -45,6 +45,7 @@ export interface SalesInvoice {
   invoice_type: "tax" | "simplified" | "credit_note" | "debit_note";
   number: string;
   status: string;
+  invoice_date: string;
   subtotal_amount: string;
   tax_amount: string;
   total_amount: string;

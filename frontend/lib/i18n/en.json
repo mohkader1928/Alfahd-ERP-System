@@ -130,6 +130,7 @@
   "sales.invoices.title": "Sales Invoices",
   "sales.invoices.empty_description": "Issue an invoice from a confirmed sales order to see it here.",
   "sales.invoice.type": "Type",
+  "sales.invoice.date": "Invoice Date",
   "sales.quotations.date": "Date",
   "sales.quotations.confirm": "Confirm to Sales Order",
   "sales.quotations.create_title": "New Quotation",

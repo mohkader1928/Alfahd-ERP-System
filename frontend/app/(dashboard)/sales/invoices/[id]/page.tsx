@@ -121,6 +121,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <dt className="text-muted-foreground">Type</dt>
             <dd className="capitalize">{invoice.invoice_type.replace("_", " ")}</dd>
+            <dt className="text-muted-foreground">{t("sales.invoice.date")}</dt>
+            <dd>{formatDate(invoice.invoice_date, locale)}</dd>
             <dt className="text-muted-foreground">Subtotal</dt>
             <dd>{formatCurrency(invoice.subtotal_amount)}</dd>
             <dt className="text-muted-foreground">VAT</dt>
