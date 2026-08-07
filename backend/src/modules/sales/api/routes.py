@@ -1,5 +1,6 @@
 """FastAPI routes for Sales, per Phase 10 §6.3."""
 
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -32,6 +33,7 @@ from src.modules.sales.infrastructure.repositories import (
     SalesOrderRepository,
     ZatcaSubmissionRepository,
 )
+from src.shared.api.pagination import Page, PageParams
 from src.shared.email.mailer import EmailNotConfiguredError
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext
@@ -163,13 +165,30 @@ async def issue_credit_note(
     return InvoiceIssueResponse(invoice=credit_note, zatca_submission=submission)
 
 
-@router.get("/invoices", response_model=list[SalesInvoiceOut])
+@router.get("/invoices", response_model=Page[SalesInvoiceOut])
 async def list_invoices(
     partner_id: UUID | None = None,
+    status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page_params: PageParams = Depends(),
     ctx: AuthContext = Depends(require_permission("sales.invoice.create")),
     invoice_repo: SalesInvoiceRepository = Depends(get_sales_invoice_repo),
 ):
-    return await invoice_repo.list_by_company(ctx.company_id, partner_id=partner_id)
+    """List-view server-side filtering (Product Owner audit): real
+    LIMIT/OFFSET + status/date filters, replacing the old hardcoded
+    limit=500-with-no-offset that silently hid any invoice past the
+    500th most recent."""
+    items, total = await invoice_repo.list_by_company_page(
+        ctx.company_id,
+        partner_id=partner_id,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        offset=page_params.offset,
+        limit=page_params.page_size,
+    )
+    return Page(items=items, total=total, page=page_params.page, page_size=page_params.page_size)
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceIssueResponse)

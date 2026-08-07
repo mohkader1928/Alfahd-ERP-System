@@ -168,6 +168,46 @@ class SalesInvoiceRepository:
         result = await self.session.execute(query.order_by(SalesInvoice.invoice_date.desc()).limit(limit))
         return list(result.scalars().all())
 
+    async def list_by_company_page(
+        self,
+        company_id: UUID,
+        *,
+        partner_id: UUID | None = None,
+        status: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> tuple[list[SalesInvoice], int]:
+        """List-view server-side filtering (Product Owner audit): the
+        plain `list_by_company` above hardcodes `limit=500` with no
+        offset, so a company with more than 500 invoices silently loses
+        access to older ones in the list screen — a real data-visibility
+        bug, not just a performance nice-to-have. Real `LIMIT`/`OFFSET`
+        plus a matching `COUNT(*)` so the caller always knows the true
+        total, regardless of how many rows are actually returned."""
+        conditions = [SalesInvoice.company_id == company_id]
+        if partner_id is not None:
+            conditions.append(SalesInvoice.partner_id == partner_id)
+        if status is not None:
+            conditions.append(SalesInvoice.status == status)
+        if date_from is not None:
+            conditions.append(SalesInvoice.invoice_date >= date_from)
+        if date_to is not None:
+            conditions.append(SalesInvoice.invoice_date <= date_to)
+
+        count_result = await self.session.execute(select(func.count()).select_from(SalesInvoice).where(*conditions))
+        total = count_result.scalar_one()
+
+        rows_result = await self.session.execute(
+            select(SalesInvoice)
+            .where(*conditions)
+            .order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(rows_result.scalars().all()), total
+
 
 class ZatcaSubmissionRepository:
     def __init__(self, session: AsyncSession):

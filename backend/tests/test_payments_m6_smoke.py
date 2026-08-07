@@ -359,10 +359,10 @@ async def test_sales_invoice_list_endpoint_filters_by_partner(client):
     _, headers = await _bootstrap_and_login(client)
     invoice_id, _total, partner_id = await _issue_customer_invoice(client, headers)
 
-    all_invoices = (await client.get("/api/v1/sales/invoices", headers=headers)).json()
+    all_invoices = (await client.get("/api/v1/sales/invoices", headers=headers)).json()["items"]
     assert any(inv["id"] == invoice_id for inv in all_invoices)
 
-    filtered = (await client.get(f"/api/v1/sales/invoices?partner_id={partner_id}", headers=headers)).json()
+    filtered = (await client.get(f"/api/v1/sales/invoices?partner_id={partner_id}", headers=headers)).json()["items"]
     assert all(inv["partner_id"] == partner_id for inv in filtered)
     assert any(inv["id"] == invoice_id for inv in filtered)
 

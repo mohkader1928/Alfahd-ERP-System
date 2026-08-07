@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { FilterBar, type FilterFieldConfig } from "@/components/erp/filter-bar/filter-bar";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -12,6 +14,8 @@ import type { SalesInvoice } from "@/features/sales/api/types";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { statusVariant } from "@/lib/status-variant";
+
+const INVOICE_STATUSES = ["draft", "pending_submission", "cleared", "reported", "rejected", "cancelled"];
 
 function useCustomerLabel() {
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
@@ -30,11 +34,31 @@ export default function SalesInvoicesPage() {
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
   const customer = useCustomerLabel();
+  const [filters, setFilters] = useState<Record<string, string>>({});
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["sales-invoices", companyId],
-    queryFn: () => salesApi.listInvoices(companyId),
+    queryKey: ["sales-invoices", companyId, filters.status, filters.date_from, filters.date_to],
+    queryFn: () =>
+      salesApi.listInvoices(companyId, {
+        status: filters.status || undefined,
+        dateFrom: filters.date_from || undefined,
+        dateTo: filters.date_to || undefined,
+        pageSize: 200,
+      }),
   });
+  const invoices = data?.items;
+
+  const filterFields: FilterFieldConfig[] = [
+    {
+      key: "status",
+      label: t("sales.quotations.status"),
+      type: "select",
+      options: INVOICE_STATUSES.map((s) => ({ value: s, label: s })),
+      width: "w-44",
+    },
+    { key: "date_from", label: t("sales.reports.date_from"), type: "date" },
+    { key: "date_to", label: t("sales.reports.date_to"), type: "date" },
+  ];
 
   const columns: ERPColumn<SalesInvoice>[] = [
     {
@@ -80,7 +104,7 @@ export default function SalesInvoicesPage() {
       title={t("sales.invoices.title")}
       breadcrumbs={[{ label: t("nav.sales") }, { label: t("sales.invoices.title") }]}
       columns={columns}
-      rows={data}
+      rows={invoices}
       rowKey={(row) => row.id}
       getRowHref={(row) => `/sales/invoices/${row.id}`}
       isLoading={isLoading}
@@ -91,6 +115,14 @@ export default function SalesInvoicesPage() {
       searchPlaceholder={t("list.search_placeholder")}
       searchText={(row) => `${row.number} ${customer.label(row.partner_id)}`}
       emptyDescription={t("sales.invoices.empty_description")}
+      filters={
+        <FilterBar
+          fields={filterFields}
+          values={filters}
+          onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
+          onClear={() => setFilters({})}
+        />
+      }
     />
   );
 }

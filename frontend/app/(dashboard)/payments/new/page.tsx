@@ -57,7 +57,7 @@ export default function NewPaymentPage() {
   // both modules expose a list endpoint (see docs/17d-payments.md §11).
   const invoicesQuery = useQuery({
     queryKey: ["sales-invoices", companyId, partnerId],
-    queryFn: () => salesApi.listInvoices(companyId, partnerId),
+    queryFn: () => salesApi.listInvoices(companyId, { partnerId, pageSize: 200 }),
     enabled: paymentType === "customer" && !!partnerId,
   });
   const billsQuery = useQuery({
@@ -65,7 +65,7 @@ export default function NewPaymentPage() {
     queryFn: () => purchasingApi.listVendorBills(companyId, partnerId),
     enabled: paymentType === "vendor" && !!partnerId,
   });
-  const documents = paymentType === "customer" ? invoicesQuery.data : billsQuery.data;
+  const documents = paymentType === "customer" ? invoicesQuery.data?.items : billsQuery.data;
 
   const balanceQuery = useQuery({
     queryKey: ["document-balance", companyId, paymentType, targetId],
