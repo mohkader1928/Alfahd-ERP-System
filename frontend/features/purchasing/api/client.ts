@@ -1,4 +1,5 @@
 import { apiClient } from "@/lib/api-client";
+import type { Page } from "@/lib/pagination";
 import type {
   GoodsReceipt,
   PurchaseOrder,
@@ -10,8 +11,33 @@ import type {
 
 const BASE = "/api/v1/purchasing";
 
+export interface PurchaseOrderListFilters {
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface VendorBillListFilters {
+  partnerId?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export const purchasingApi = {
-  listOrders: (companyId: string) => apiClient.get<PurchaseOrder[]>(`${BASE}/orders`, { companyId }),
+  listOrders: (companyId: string, filters: PurchaseOrderListFilters = {}) => {
+    const qs = new URLSearchParams();
+    if (filters.status) qs.set("status", filters.status);
+    if (filters.dateFrom) qs.set("date_from", filters.dateFrom);
+    if (filters.dateTo) qs.set("date_to", filters.dateTo);
+    qs.set("page", String(filters.page ?? 1));
+    qs.set("page_size", String(filters.pageSize ?? 50));
+    return apiClient.get<Page<PurchaseOrder>>(`${BASE}/orders?${qs.toString()}`, { companyId });
+  },
 
   createOrder: (
     companyId: string,
@@ -45,8 +71,16 @@ export const purchasingApi = {
     payload: { vendor_reference?: string; lines: { purchase_order_line_id: string; qty: string; unit_price: string }[] }
   ) => apiClient.post<VendorBill>(`${BASE}/orders/${orderId}/vendor-bills`, payload, { companyId, branchId }),
 
-  listVendorBills: (companyId: string, partnerId?: string) =>
-    apiClient.get<VendorBill[]>(`${BASE}/vendor-bills${partnerId ? `?partner_id=${partnerId}` : ""}`, { companyId }),
+  listVendorBills: (companyId: string, filters: VendorBillListFilters = {}) => {
+    const qs = new URLSearchParams();
+    if (filters.partnerId) qs.set("partner_id", filters.partnerId);
+    if (filters.status) qs.set("status", filters.status);
+    if (filters.dateFrom) qs.set("date_from", filters.dateFrom);
+    if (filters.dateTo) qs.set("date_to", filters.dateTo);
+    qs.set("page", String(filters.page ?? 1));
+    qs.set("page_size", String(filters.pageSize ?? 50));
+    return apiClient.get<Page<VendorBill>>(`${BASE}/vendor-bills?${qs.toString()}`, { companyId });
+  },
 
   approveVendorBill: (companyId: string, id: string) =>
     apiClient.post<VendorBill>(`${BASE}/vendor-bills/${id}:approve`, undefined, { companyId }),

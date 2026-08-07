@@ -62,10 +62,10 @@ export default function NewPaymentPage() {
   });
   const billsQuery = useQuery({
     queryKey: ["vendor-bills", companyId, partnerId],
-    queryFn: () => purchasingApi.listVendorBills(companyId, partnerId),
+    queryFn: () => purchasingApi.listVendorBills(companyId, { partnerId, pageSize: 200 }),
     enabled: paymentType === "vendor" && !!partnerId,
   });
-  const documents = paymentType === "customer" ? invoicesQuery.data?.items : billsQuery.data;
+  const documents = paymentType === "customer" ? invoicesQuery.data?.items : billsQuery.data?.items;
 
   const balanceQuery = useQuery({
     queryKey: ["document-balance", companyId, paymentType, targetId],

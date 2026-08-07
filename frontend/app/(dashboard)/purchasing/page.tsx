@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { FilterBar, type FilterFieldConfig } from "@/components/erp/filter-bar/filter-bar";
 import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -18,6 +19,9 @@ import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 import type { PurchaseOrder, VendorBill } from "@/features/purchasing/api/types";
+
+const PO_STATUSES = ["draft", "pending_approval", "confirmed", "done", "cancelled"];
+const BILL_STATUSES = ["draft", "matched", "mismatched", "approved", "posted"];
 
 /**
  * Bundle 3 — Purchasing/Inventory List Consistency. Both tabs now sit on
@@ -45,11 +49,31 @@ function OrdersTab() {
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
   const { label: vendorLabel } = useVendorLabel();
+  const [filters, setFilters] = useState<Record<string, string>>({});
 
   const ordersQuery = useQuery({
-    queryKey: ["purchase-orders", companyId],
-    queryFn: () => purchasingApi.listOrders(companyId),
+    queryKey: ["purchase-orders", companyId, filters.status, filters.date_from, filters.date_to],
+    queryFn: () =>
+      purchasingApi.listOrders(companyId, {
+        status: filters.status || undefined,
+        dateFrom: filters.date_from || undefined,
+        dateTo: filters.date_to || undefined,
+        pageSize: 200,
+      }),
   });
+  const orders = ordersQuery.data?.items;
+
+  const filterFields: FilterFieldConfig[] = [
+    {
+      key: "status",
+      label: t("purchasing.orders.status"),
+      type: "select",
+      options: PO_STATUSES.map((s) => ({ value: s, label: s })),
+      width: "w-44",
+    },
+    { key: "date_from", label: t("sales.reports.date_from"), type: "date" },
+    { key: "date_to", label: t("sales.reports.date_to"), type: "date" },
+  ];
 
   const columns: ERPColumn<PurchaseOrder>[] = [
     {
@@ -84,7 +108,7 @@ function OrdersTab() {
     <ERPListView
       title={t("purchasing.orders.title")}
       columns={columns}
-      rows={ordersQuery.data}
+      rows={orders}
       rowKey={(r) => r.id}
       getRowHref={(r) => `/purchasing/orders/${r.id}`}
       isLoading={ordersQuery.isLoading}
@@ -100,6 +124,14 @@ function OrdersTab() {
         href: "/purchasing/orders/new",
         permission: "purchasing.order.create",
       }}
+      filters={
+        <FilterBar
+          fields={filterFields}
+          values={filters}
+          onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
+          onClear={() => setFilters({})}
+        />
+      }
     />
   );
 }
@@ -109,11 +141,31 @@ function VendorBillsTab() {
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
   const { label: vendorLabel } = useVendorLabel();
+  const [filters, setFilters] = useState<Record<string, string>>({});
 
   const billsQuery = useQuery({
-    queryKey: ["vendor-bills", companyId],
-    queryFn: () => purchasingApi.listVendorBills(companyId),
+    queryKey: ["vendor-bills", companyId, filters.status, filters.date_from, filters.date_to],
+    queryFn: () =>
+      purchasingApi.listVendorBills(companyId, {
+        status: filters.status || undefined,
+        dateFrom: filters.date_from || undefined,
+        dateTo: filters.date_to || undefined,
+        pageSize: 200,
+      }),
   });
+  const bills = billsQuery.data?.items;
+
+  const filterFields: FilterFieldConfig[] = [
+    {
+      key: "status",
+      label: t("purchasing.orders.status"),
+      type: "select",
+      options: BILL_STATUSES.map((s) => ({ value: s, label: s })),
+      width: "w-44",
+    },
+    { key: "date_from", label: t("sales.reports.date_from"), type: "date" },
+    { key: "date_to", label: t("sales.reports.date_to"), type: "date" },
+  ];
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => purchasingApi.approveVendorBill(companyId, id),
@@ -151,7 +203,7 @@ function VendorBillsTab() {
     <ERPListView
       title={t("purchasing.vendor_bills.title")}
       columns={columns}
-      rows={billsQuery.data}
+      rows={bills}
       rowKey={(r) => r.id}
       isLoading={billsQuery.isLoading}
       isError={billsQuery.isError}
@@ -170,6 +222,14 @@ function VendorBillsTab() {
             </Button>
           </Can>
         )
+      }
+      filters={
+        <FilterBar
+          fields={filterFields}
+          values={filters}
+          onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
+          onClear={() => setFilters({})}
+        />
       }
     />
   );

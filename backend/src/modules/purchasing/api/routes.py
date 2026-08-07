@@ -1,5 +1,6 @@
 """FastAPI routes for Purchasing, per Phase 10 §6.5."""
 
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -35,28 +36,58 @@ from src.modules.purchasing.infrastructure.repositories import (
     PurchaseOrderRepository,
     VendorBillRepository,
 )
+from src.shared.api.pagination import Page, PageParams
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext
 
 router = APIRouter()
 
 
-@router.get("/orders", response_model=list[PurchaseOrderOut])
+@router.get("/orders", response_model=Page[PurchaseOrderOut])
 async def list_purchase_orders(
     status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page_params: PageParams = Depends(),
     ctx: AuthContext = Depends(require_permission("purchasing.order.view")),
     order_repo: PurchaseOrderRepository = Depends(get_purchase_order_repo),
 ):
-    return await order_repo.list_by_company(ctx.company_id, status=status)
+    """List-view server-side filtering (Product Owner audit): real
+    LIMIT/OFFSET + status/date filters, same pattern as Sales Invoices."""
+    items, total = await order_repo.list_by_company_page(
+        ctx.company_id,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        offset=page_params.offset,
+        limit=page_params.page_size,
+    )
+    return Page(items=items, total=total, page=page_params.page, page_size=page_params.page_size)
 
 
-@router.get("/vendor-bills", response_model=list[VendorBillOut])
+@router.get("/vendor-bills", response_model=Page[VendorBillOut])
 async def list_vendor_bills(
     partner_id: UUID | None = None,
+    status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page_params: PageParams = Depends(),
     ctx: AuthContext = Depends(require_permission("purchasing.vendor_bill.view")),
     bill_repo: VendorBillRepository = Depends(get_vendor_bill_repo),
 ):
-    return await bill_repo.list_by_company(ctx.company_id, partner_id=partner_id)
+    """List-view server-side filtering (Product Owner audit): real
+    LIMIT/OFFSET + partner/status/date filters, same pattern as Sales
+    Invoices."""
+    items, total = await bill_repo.list_by_company_page(
+        ctx.company_id,
+        partner_id=partner_id,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        offset=page_params.offset,
+        limit=page_params.page_size,
+    )
+    return Page(items=items, total=total, page=page_params.page, page_size=page_params.page_size)
 
 
 @router.get("/vendor-bills/{bill_id}", response_model=VendorBillDetailResponse)

@@ -221,10 +221,10 @@ async def test_select_isolation_list_endpoints_never_include_other_company(clien
     quotations = (await client.get("/api/v1/sales/quotations", headers=a["headers"])).json()
     assert all(q["id"] != b["quotation_id"] for q in quotations)
 
-    orders = (await client.get("/api/v1/purchasing/orders", headers=a["headers"])).json()
+    orders = (await client.get("/api/v1/purchasing/orders", headers=a["headers"])).json()["items"]
     assert all(o["id"] != b["purchase_order_id"] for o in orders)
 
-    bills = (await client.get("/api/v1/purchasing/vendor-bills", headers=a["headers"])).json()
+    bills = (await client.get("/api/v1/purchasing/vendor-bills", headers=a["headers"])).json()["items"]
     assert all(bill["id"] != b["vendor_bill_id"] for bill in bills)
 
     entries = (await client.get("/api/v1/accounting/journal-entries", headers=a["headers"])).json()

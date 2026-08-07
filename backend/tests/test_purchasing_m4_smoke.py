@@ -267,7 +267,7 @@ async def test_list_purchase_orders_and_vendor_bills(client):
 
     list_resp = await client.get("/api/v1/purchasing/orders", headers=headers)
     assert list_resp.status_code == 200
-    assert any(o["id"] == order_id for o in list_resp.json())
+    assert any(o["id"] == order_id for o in list_resp.json()["items"])
 
     await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
     po_line_id = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()["lines"][0]["id"]
@@ -285,7 +285,7 @@ async def test_list_purchase_orders_and_vendor_bills(client):
 
     bills_resp = await client.get("/api/v1/purchasing/vendor-bills", headers=headers)
     assert bills_resp.status_code == 200
-    assert any(b["id"] == bill_id for b in bills_resp.json())
+    assert any(b["id"] == bill_id for b in bills_resp.json()["items"])
 
     detail_resp = await client.get(f"/api/v1/purchasing/vendor-bills/{bill_id}", headers=headers)
     assert detail_resp.status_code == 200
@@ -346,6 +346,6 @@ async def test_purchase_orders_not_visible_across_companies(client):
 
     _, headers_b = await _bootstrap_and_login(client)
     list_resp = await client.get("/api/v1/purchasing/orders", headers=headers_b)
-    assert all(o["id"] != order_id for o in list_resp.json())
+    assert all(o["id"] != order_id for o in list_resp.json()["items"])
     detail_resp = await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers_b)
     assert detail_resp.status_code == 404

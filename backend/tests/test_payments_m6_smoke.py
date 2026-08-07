@@ -371,7 +371,7 @@ async def test_vendor_bill_list_endpoint_filters_by_partner(client):
     _, headers = await _bootstrap_and_login(client)
     bill_id, _total, vendor_id = await _issue_vendor_bill(client, headers)
 
-    filtered = (await client.get(f"/api/v1/purchasing/vendor-bills?partner_id={vendor_id}", headers=headers)).json()
+    filtered = (await client.get(f"/api/v1/purchasing/vendor-bills?partner_id={vendor_id}", headers=headers)).json()["items"]
     assert all(bill["partner_id"] == vendor_id for bill in filtered)
     assert any(bill["id"] == bill_id for bill in filtered)
 

@@ -56,6 +56,40 @@ class PurchaseOrderRepository:
         result = await self.session.execute(query.order_by(PurchaseOrder.order_date.desc()))
         return list(result.scalars().all())
 
+    async def list_by_company_page(
+        self,
+        company_id: UUID,
+        *,
+        status: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> tuple[list[PurchaseOrder], int]:
+        """List-view server-side filtering (Product Owner audit, same
+        pattern established for Sales Invoices) — real LIMIT/OFFSET plus
+        a matching COUNT(*) so the list screen is never silently capped
+        as the company's order history grows."""
+        conditions = [PurchaseOrder.company_id == company_id]
+        if status is not None:
+            conditions.append(PurchaseOrder.status == status)
+        if date_from is not None:
+            conditions.append(PurchaseOrder.order_date >= date_from)
+        if date_to is not None:
+            conditions.append(PurchaseOrder.order_date <= date_to)
+
+        count_result = await self.session.execute(select(func.count()).select_from(PurchaseOrder).where(*conditions))
+        total = count_result.scalar_one()
+
+        rows_result = await self.session.execute(
+            select(PurchaseOrder)
+            .where(*conditions)
+            .order_by(PurchaseOrder.order_date.desc(), PurchaseOrder.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(rows_result.scalars().all()), total
+
 
 class GoodsReceiptRepository:
     def __init__(self, session: AsyncSession):
@@ -133,6 +167,43 @@ class VendorBillRepository:
             query = query.where(VendorBill.partner_id == partner_id)
         result = await self.session.execute(query.order_by(VendorBill.bill_date.desc()))
         return list(result.scalars().all())
+
+    async def list_by_company_page(
+        self,
+        company_id: UUID,
+        *,
+        partner_id: UUID | None = None,
+        status: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> tuple[list[VendorBill], int]:
+        """List-view server-side filtering (Product Owner audit, same
+        pattern established for Sales Invoices) — real LIMIT/OFFSET plus
+        a matching COUNT(*) so the list screen is never silently capped
+        as the company's bill history grows."""
+        conditions = [VendorBill.company_id == company_id]
+        if partner_id is not None:
+            conditions.append(VendorBill.partner_id == partner_id)
+        if status is not None:
+            conditions.append(VendorBill.status == status)
+        if date_from is not None:
+            conditions.append(VendorBill.bill_date >= date_from)
+        if date_to is not None:
+            conditions.append(VendorBill.bill_date <= date_to)
+
+        count_result = await self.session.execute(select(func.count()).select_from(VendorBill).where(*conditions))
+        total = count_result.scalar_one()
+
+        rows_result = await self.session.execute(
+            select(VendorBill)
+            .where(*conditions)
+            .order_by(VendorBill.bill_date.desc(), VendorBill.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(rows_result.scalars().all()), total
 
     async def sum_total_in_range(self, company_id: UUID, date_from: date, date_to: date) -> Decimal:
         """FR-RPT-003 — period purchases KPI. Only posted bills count as a
