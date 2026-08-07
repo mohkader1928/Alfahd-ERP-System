@@ -8,27 +8,28 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `08369aa` (`main`) —
-**Inventory Valuation report** (see dated entry below for full detail),
-the fourth bundle picked by the same Product Owner audit methodology.
-256/256 backend tests, `ruff`/`tsc`/`eslint` all clean, verified live
-against the real demo company (28 products across 2 warehouses, correct
-per-row and grand-total SAR figures, no console errors).
+**Last verified**: 2026-08-07, on top of committed `a20ebbf` (`main`) —
+**Sales Invoices list: server-side filtering + real pagination** (see
+dated entry below for full detail), the fifth bundle picked by the same
+Product Owner audit methodology. 259/259 backend tests, `ruff`/`tsc`/
+`eslint` all clean, verified live (status/date filter bar renders,
+changing a filter fires a real server request and the result set +
+total count update correctly, no console errors).
 
 **Prior, same day, continuous execution per Owner directive** (see each
-dated entry below for full detail): `a2e6752` — Dashboard Enrichment;
-`3a6f46e` — Document Delivery (Sales Invoice PDF + Send by Email);
-`5b88f0f` — Purchase Order Approval Workflow + Notifications; `ef822dd`
-— VAT/Tax Summary Report; `a8d3ed3` — Global Search; `dc94a9a` —
-Attachments; `7c3adb2` — Users Management (Identity/Access/Governance);
-`3138b5c` — Standard Reporting Framework. Owner Acceptance is pending for
-the earliest four of these — the on-screen browser walkthrough
-specifically remains owed (was blocked on the Browser preview pane, a
-tooling/environment issue for that stretch of the session, not an
-application bug); every one of those bundles was instead verified for
-real through direct authenticated HTTP calls against live company data
-plus full automated test coverage, and documented as such rather than
-assumed.
+dated entry below for full detail): `08369aa` — Inventory Valuation
+report; `a2e6752` — Dashboard Enrichment; `3a6f46e` — Document Delivery
+(Sales Invoice PDF + Send by Email); `5b88f0f` — Purchase Order Approval
+Workflow + Notifications; `ef822dd` — VAT/Tax Summary Report; `a8d3ed3`
+— Global Search; `dc94a9a` — Attachments; `7c3adb2` — Users Management
+(Identity/Access/Governance); `3138b5c` — Standard Reporting Framework.
+Owner Acceptance is pending for the earliest four of these — the
+on-screen browser walkthrough specifically remains owed (was blocked on
+the Browser preview pane, a tooling/environment issue for that stretch of
+the session, not an application bug); every one of those bundles was
+instead verified for real through direct authenticated HTTP calls against
+live company data plus full automated test coverage, and documented as
+such rather than assumed.
 
 **Full-project re-audit (2026-08-07)**: Owner directive to stop
 report-by-report execution, review the whole system (backend modules, DB,
@@ -392,6 +393,71 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Sales Invoices list: server-side filtering + real pagination
+(2026-08-07)**, committed as `a20ebbf`. Fifth bundle picked by the
+Product Owner audit methodology — closes the gap the Approval Workflow
+bundle's own audit had already flagged as "EXISTS but PARTIAL" (every
+list screen loads its full result set client-side; no backend list
+endpoint supported `status`/date filters).
+
+- **Real bug found and fixed, not just a missing nice-to-have**:
+  `SalesInvoiceRepository.list_by_company` hardcoded `limit=500` with no
+  `offset` — any company with more than 500 sales invoices silently lost
+  access to older ones in the list screen, permanently, with no filter
+  or page control able to reach them. The tell was already sitting in
+  the codebase: AR Aging's own call site had to override the cap with
+  `limit=5000`, a symptom of the underlying default being wrong, not a
+  sign the cap was intentional.
+- **Backend**: new `SalesInvoiceRepository.list_by_company_page` — real
+  SQL `LIMIT`/`OFFSET` plus a matching `COUNT(*)`, `status`/`date_from`/
+  `date_to` filters, and a stable secondary sort key (`id desc` after
+  `invoice_date desc`) so paging never skips or duplicates a row when
+  two invoices share a date. `GET /sales/invoices` now returns the
+  shared `Page[T]` envelope already defined in `shared/api/pagination.py`
+  — built in an earlier phase specifically for this and explicitly
+  documented there as "not wired into any existing route yet"; this
+  bundle is the first to actually use it, establishing the pattern for
+  every future paginated list endpoint to reuse rather than re-invent.
+  The old `list_by_company` (bare list, no filters) was left untouched
+  — it still serves its 4 existing in-process callers (customer
+  subledger, AR aging, dashboard recent-activity, CSV export), none of
+  which needed to change.
+- **Frontend**: the Sales Invoices list gained a real filter bar
+  (status + date range) using the existing shared `FilterBar` component
+  (same one Products' list screen already uses — no new filter UI
+  invented), wired to refetch from the server on every change instead of
+  filtering an already-truncated client-side array. New
+  `frontend/lib/pagination.ts` mirrors the backend `Page<T>` shape. The
+  "New Payment" document picker (which also calls this same endpoint to
+  populate its dropdown) was updated to unwrap the new envelope and
+  request a generous page size — it's a selection list, not a paged
+  screen, so it needed the shape change without needing UI pagination.
+- **Deliberate scope boundary**: did not touch `ERPListView`'s shared
+  client-side pagination contract — every other list screen in the app
+  depends on it, and the component's own existing code comment already
+  earmarks a `Page<T>`-based server-side variant as a later, separate
+  step "without changing this component's external contract." Extending
+  every other module's list endpoint (Purchase Orders beyond the
+  `status` filter already added in the Approval Workflow bundle, Vendor
+  Bills, Payments, Journal Entries) the same way `list_by_company_page`
+  now does is flagged as the natural next slice of this same gap, not
+  done here, to keep this bundle's blast radius reviewable.
+- **Tests**: `backend/tests/test_sales_invoice_list_pagination.py` (3
+  new: three pages across a 5-invoice/page-size-2 spread are distinct
+  with zero overlap and zero gaps — the exact scenario the old bug would
+  have silently hidden; the status filter narrows correctly; the
+  date-range filter narrows correctly). Fixed 2 pre-existing assertions
+  in `test_payments_m6_smoke.py` that read the old bare-array response
+  shape. 259/259 backend tests, `ruff` clean.
+- **Verified live**: opened the real Sales Invoices list — filter bar
+  renders (status select + two date inputs), setting the "from" date
+  fired a real `GET /sales/invoices?date_from=2026-08-01&page=1&
+  page_size=200` request (confirmed via network inspection) and the
+  result set + "16 of 16" total-count footer updated correctly, no
+  console errors. `tsc`/`eslint` clean.
 
 **Owner Accepted: pending.**
 
