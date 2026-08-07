@@ -8,19 +8,22 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `ef822dd` (`main`) —
-**VAT/Tax Summary Report** (see dated entry below for full detail).
-237/237 backend tests, `ruff`/`tsc`/`eslint` all clean. This one was
-verified with a real on-screen browser walkthrough (login, run report,
-read live numbers) — the Browser preview pane recovered this session.
+**Last verified**: 2026-08-07, on top of committed `5b88f0f` (`main`) —
+**Purchase Order Approval Workflow + Notifications** (see dated entry
+below for full detail), selected via a full-system Product Owner audit,
+not the next item on a checklist. 242/242 backend tests, `ruff`/`tsc`/
+`eslint` all clean, verified live end-to-end (Settings threshold save,
+real PO creation+confirm over the threshold, order detail page rendering
+`pending_approval` + Approve/Reject).
 
 **Prior, same day, continuous execution per Owner directive** (see each
-dated entry below for full detail): `a8d3ed3` — Global Search; `dc94a9a`
-— Attachments; `7c3adb2` — Users Management (Identity/Access/Governance);
-`3138b5c` — Standard Reporting Framework. Owner Acceptance is pending for
-these four — the on-screen browser walkthrough specifically remains owed
-(was blocked on the Browser preview pane, a tooling/environment issue for
-that stretch of the session, not an application bug); every one of those
+dated entry below for full detail): `ef822dd` — VAT/Tax Summary Report;
+`a8d3ed3` — Global Search; `dc94a9a` — Attachments; `7c3adb2` — Users
+Management (Identity/Access/Governance); `3138b5c` — Standard Reporting
+Framework. Owner Acceptance is pending for these five — the on-screen
+browser walkthrough specifically remains owed for the earlier four (was
+blocked on the Browser preview pane, a tooling/environment issue for that
+stretch of the session, not an application bug); every one of those
 bundles was instead verified for real through direct authenticated HTTP
 calls against live company data plus full automated test coverage, and
 documented as such rather than assumed.
@@ -387,6 +390,101 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Purchase Order Approval Workflow + Notifications (2026-08-07)**,
+committed as `5b88f0f`. Selected by a full-system Product Owner audit
+(Owner directive: stop picking standalone report screens, review the
+whole system, execute the single highest-value gap) — not the next line
+on a backlog. The audit checked 10 cross-cutting areas (notifications,
+approvals, list-view UX maturity, document numbering, multi-currency,
+email delivery, dashboard richness, inventory valuation reporting,
+recurring documents, per-record audit trail) and picked this one because
+it was the most concretely confirmed-missing, most universally expected
+across SAP B1/Dynamics 365 BC/Odoo/ERPNext, and — decisively — already
+explicitly flagged as deferred in this codebase's own
+`purchasing/application/services.py` docstring (FR-CORE-052, "PO amount
+exceeds threshold," never built). Notifications was picked as the
+required companion, not a separate feature: an approval request nobody
+gets alerted to is half a feature, and the same audit confirmed
+notifications were entirely absent too.
+
+- **Backend — Approval Workflow**: new `company.po_approval_threshold`
+  (nullable `Numeric(18,4)`, editable via the existing `PATCH
+  /companies/{id}`) — unset means the exact prior auto-confirm behavior,
+  unchanged. `PurchaseOrder` gained `created_by_user_id`,
+  `approval_status` (`not_required|pending|approved|rejected`),
+  `approved_by`, `approved_at`, `rejection_reason`, and a new `status`
+  value `pending_approval` (its own `PO_STATUSES` tuple — not the shared
+  `DOC_STATUSES` `goods_receipt` also uses). `POST
+  /purchasing/orders/{id}:confirm` now routes to `pending_approval`
+  instead of auto-confirming when the order total exceeds the threshold;
+  new `POST .../{id}:approve` and `POST .../{id}:reject` (with a required
+  reason) close the loop, gated by a new `purchasing.order.approve`
+  permission. A rejected PO returns to `draft`, editable and
+  re-confirmable — not a dead end.
+- **Backend — Notifications**: new `notifications` module (own
+  `notification` table, `company_isolation` RLS applied in the same
+  migration per the Phase 16A/16B lesson). `RoleRepository` gained
+  `list_user_ids_with_permission` — the inverse of the existing
+  `get_user_permission_codes` — to find every user holding
+  `purchasing.order.approve` in a company without hardcoding a fixed
+  "approver" concept. The PO's own creator is deliberately excluded from
+  their own submission's notification even when they also hold the
+  approve permission (proven by a dedicated test). `GET /notifications`,
+  `GET /notifications/unread-count`, `POST /notifications/{id}:read`,
+  `POST /notifications:read-all` — gated only by authentication (a
+  personal inbox, not a company-wide resource; RLS plus a
+  `recipient_user_id` filter are the real scope).
+- **Frontend**: Company Settings gained the threshold field with an
+  explanatory hint; the Purchase Order detail page shows a
+  `pending_approval` banner, a rejection-reason banner when applicable,
+  and Approve/Reject actions (Reject opens a dialog requiring a reason) —
+  all reusing the existing `Can`/permission-gating pattern. New
+  `NotificationBell` in the `Topbar` (30s poll — no websocket
+  infrastructure exists in this stack yet, matching what every reference
+  ERP's web client does before investing in a push channel): unread-count
+  badge, dropdown list, click-to-navigate-and-mark-read, mark-all-read.
+- **Real bug found and fixed**: `CompanyUpdateRequest`'s audit-log diff
+  loop passed each changed field's raw Python value straight into
+  `AuditLogRepository.record(old_value=..., new_value=...)`, which is
+  typed `str | None` and backs a `Text` column. Every existing field was
+  already a string, so this worked by accident; adding the first
+  non-string field (`po_approval_threshold: Decimal`) would have handed
+  a `Decimal` object to the DB driver for a text column. Fixed by
+  stringifying defensively in the loop — a one-line fix, but the kind
+  that fails invisibly (only the audit trail for that one field breaks,
+  everything else keeps working) until exactly this situation exposes it.
+- **Tests**: `backend/tests/test_approval_workflow.py` (5 new: under-
+  threshold auto-confirm has no regression; over-threshold requires
+  approval and notifies the approver but not the creator; approving
+  confirms and notifies the creator; rejecting returns to draft with a
+  reason and notifies the creator, and the rejected PO can be re-
+  confirmed; a user without `purchasing.order.approve` gets a real 403,
+  not just an invisible notification). 242/242 backend tests, `ruff`
+  clean.
+- **Verified live**: Settings → Company → set a threshold → real `PATCH`
+  200. Created and confirmed a real PO over that threshold via the live
+  API (not a test client) → `status: pending_approval`,
+  `approval_status: pending`, confirmed via direct DB/API inspection.
+  Opened that order's real detail page in the browser → the
+  `pending_approval` banner, badge, and Approve/Reject buttons all
+  rendered correctly with no console errors. `tsc`/`eslint` clean.
+- **Flagged for later, not blocking this bundle** (per the audit's other
+  9 findings, none of which were dropped silently): list-view filtering
+  is entirely client-side (no server-side `status`/date-range query
+  params on `sales`/`purchasing` list endpoints — flagged in the same
+  audit, `GET /purchasing/orders` now optionally accepts `status` as a
+  first step, but the other list endpoints don't yet); no document-
+  numbering configuration screen (numbers are still hardcoded
+  `f"PO-{n:06d}"`-style formats); no multi-currency transaction support
+  beyond a `currency_code` column stub; no "send by email" on any
+  document; the Dashboard is still 4 static KPI cards; no Inventory
+  Valuation report; no recurring/standing documents; no per-record audit-
+  trail UI (global audit log only). Approval Workflow itself is scoped to
+  Purchase Orders only — Sales Orders and Journal Entries are natural
+  next extensions of the same engine, not built here.
 
 **Owner Accepted: pending.**
 
