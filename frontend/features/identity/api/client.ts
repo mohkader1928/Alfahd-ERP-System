@@ -20,6 +20,8 @@ import type {
   TokenResponse,
   TwoFactorRequiredResponse,
   UnitOfMeasure,
+  UserDetail,
+  UserListRow,
 } from "./types";
 
 const BASE = "/api/v1/identity";
@@ -185,4 +187,23 @@ export const identityApi = {
       { permission_codes: permissionCodes },
       { companyId }
     ),
+
+  listUsers: (companyId: string) => apiClient.get<UserListRow[]>(`${BASE}/users`, { companyId }),
+
+  getUser: (companyId: string, userId: string) =>
+    apiClient.get<UserDetail>(`${BASE}/users/${userId}`, { companyId }),
+
+  createUser: (
+    companyId: string,
+    payload: { email: string; full_name: string; password: string; branch_id?: string | null }
+  ) => apiClient.post<UserListRow>(`${BASE}/users`, { ...payload, company_id: companyId }, { companyId }),
+
+  assignRole: (companyId: string, userId: string, roleId: string) =>
+    apiClient.post<void>(`${BASE}/users/${userId}/roles`, { role_id: roleId }, { companyId }),
+
+  removeRole: (companyId: string, userId: string, roleId: string) =>
+    apiClient.delete<void>(`${BASE}/users/${userId}/roles/${roleId}`, { companyId }),
+
+  grantCompanyAccess: (companyId: string, userId: string, payload: { company_id: string; branch_id?: string | null }) =>
+    apiClient.post<void>(`${BASE}/users/${userId}/company-access`, payload, { companyId }),
 };

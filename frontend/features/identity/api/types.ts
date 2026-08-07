@@ -198,3 +198,29 @@ export interface RoleDetail {
   is_system: boolean;
   permission_codes: string[];
 }
+
+export interface UserListRow {
+  id: string;
+  email: string;
+  full_name: string;
+  is_active: boolean;
+  is_2fa_enabled: boolean;
+  role_names: string[];
+}
+
+export interface CompanyAccessRow {
+  company_id: string;
+  company_name: string;
+  branch_id: string | null;
+  branch_name: string | null;
+}
+
+export interface UserDetail {
+  id: string;
+  email: string;
+  full_name: string;
+  is_active: boolean;
+  is_2fa_enabled: boolean;
+  roles: Role[];
+  company_access: CompanyAccessRow[];
+}

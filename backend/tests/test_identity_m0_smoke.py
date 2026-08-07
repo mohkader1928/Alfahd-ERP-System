@@ -363,3 +363,110 @@ async def test_full_o2c_precondition_flow_branch_and_company_scoped_access(clien
     list_resp = await client.get(f"/api/v1/identity/companies/{company_id}/branches", headers=headers)
     assert list_resp.status_code == 200
     assert len(list_resp.json()) == 2  # main branch from bootstrap + the one just created
+
+
+async def _admin_headers(client, resp, payload):
+    company_id = resp.json()["company_id"]
+    login_resp = await client.post(
+        "/api/v1/identity/auth/login",
+        json={"email": payload["admin_email"], "password": payload["admin_password"]},
+    )
+    token = login_resp.json()["access_token"]
+    return company_id, {"Authorization": f"Bearer {token}", "X-Company-Id": company_id}
+
+
+async def test_list_users_shows_created_users_with_role_names(client):
+    """Bundle 2 — Identity/Access/Governance: GET /users, previously
+    nonexistent, must show every user with company access, each with the
+    role names they hold for this company."""
+    resp, payload = await _bootstrap(client)
+    company_id, headers = await _admin_headers(client, resp, payload)
+    admin_user_id = resp.json()["admin_user_id"]
+
+    new_email = unique_email()
+    create_resp = await client.post(
+        "/api/v1/identity/users",
+        headers=headers,
+        json={"email": new_email, "full_name": "Fresh Employee", "password": "Str0ng!Passw0rd", "company_id": company_id},
+    )
+    assert create_resp.status_code == 201
+    new_user_id = create_resp.json()["id"]
+
+    list_resp = await client.get("/api/v1/identity/users", headers=headers)
+    assert list_resp.status_code == 200
+    rows = {row["id"]: row for row in list_resp.json()}
+
+    assert admin_user_id in rows
+    assert rows[admin_user_id]["role_names"] == ["Admin"]
+    assert new_user_id in rows
+    assert rows[new_user_id]["full_name"] == "Fresh Employee"
+    assert rows[new_user_id]["role_names"] == []  # create_user never auto-assigns a role
+
+
+async def test_get_user_detail_shows_roles_and_company_access(client):
+    resp, payload = await _bootstrap(client)
+    company_id, headers = await _admin_headers(client, resp, payload)
+    admin_user_id = resp.json()["admin_user_id"]
+
+    detail_resp = await client.get(f"/api/v1/identity/users/{admin_user_id}", headers=headers)
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["email"] == payload["admin_email"]
+    assert [r["name"] for r in detail["roles"]] == ["Admin"]
+    assert any(c["company_id"] == company_id for c in detail["company_access"])
+
+
+async def test_assign_and_remove_role_reflected_in_user_detail(client):
+    """Symmetric role assignment: a role can be both granted and revoked
+    through the API, and the change is immediately visible in GET
+    /users/{id} — not just a one-way POST with no way to undo it."""
+    resp, payload = await _bootstrap(client)
+    company_id, headers = await _admin_headers(client, resp, payload)
+
+    new_email = unique_email()
+    create_resp = await client.post(
+        "/api/v1/identity/users",
+        headers=headers,
+        json={"email": new_email, "full_name": "Role Test User", "password": "Str0ng!Passw0rd", "company_id": company_id},
+    )
+    new_user_id = create_resp.json()["id"]
+
+    roles_resp = await client.get("/api/v1/identity/roles", headers=headers)
+    admin_role_id = next(r["id"] for r in roles_resp.json() if r["name"] == "Admin")
+
+    assign_resp = await client.post(
+        f"/api/v1/identity/users/{new_user_id}/roles", headers=headers, json={"role_id": admin_role_id}
+    )
+    assert assign_resp.status_code == 204
+
+    detail_after_assign = (
+        await client.get(f"/api/v1/identity/users/{new_user_id}", headers=headers)
+    ).json()
+    assert [r["id"] for r in detail_after_assign["roles"]] == [admin_role_id]
+
+    remove_resp = await client.delete(
+        f"/api/v1/identity/users/{new_user_id}/roles/{admin_role_id}", headers=headers
+    )
+    assert remove_resp.status_code == 204
+
+    detail_after_remove = (
+        await client.get(f"/api/v1/identity/users/{new_user_id}", headers=headers)
+    ).json()
+    assert detail_after_remove["roles"] == []
+
+
+async def test_list_users_isolated_across_companies(client):
+    resp_a, payload_a = await _bootstrap(client)
+    _, headers_a = await _admin_headers(client, resp_a, payload_a)
+    admin_a_id = resp_a.json()["admin_user_id"]
+
+    resp_b, payload_b = await _bootstrap(client)
+    _, headers_b = await _admin_headers(client, resp_b, payload_b)
+
+    list_b = (await client.get("/api/v1/identity/users", headers=headers_b)).json()
+    assert all(row["id"] != admin_a_id for row in list_b)
+
+
+async def test_list_users_requires_permission(client):
+    resp = await client.get("/api/v1/identity/users")
+    assert resp.status_code == 401

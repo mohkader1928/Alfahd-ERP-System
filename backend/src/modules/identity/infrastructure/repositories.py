@@ -108,6 +108,42 @@ class UserRepository:
         )
         return list(result.scalars().all())
 
+    async def list_by_company_access(self, company_id: UUID) -> list[AppUser]:
+        """Users management (Bundle 2 — Identity/Access/Governance): "who
+        works at this company" is defined by `user_company_access`, not raw
+        tenant membership — a tenant can have users belonging to only some
+        of its companies."""
+        result = await self.session.execute(
+            select(AppUser)
+            .join(UserCompanyAccess, UserCompanyAccess.user_id == AppUser.id)
+            .where(UserCompanyAccess.company_id == company_id, AppUser.deleted_at.is_(None))
+            .distinct()
+            .order_by(AppUser.full_name)
+        )
+        return list(result.scalars().all())
+
+    async def list_company_access_with_names(self, user_id: UUID) -> list[dict]:
+        result = await self.session.execute(
+            select(
+                UserCompanyAccess.company_id,
+                Company.legal_name,
+                UserCompanyAccess.branch_id,
+                Branch.name.label("branch_name"),
+            )
+            .join(Company, Company.id == UserCompanyAccess.company_id)
+            .outerjoin(Branch, Branch.id == UserCompanyAccess.branch_id)
+            .where(UserCompanyAccess.user_id == user_id)
+        )
+        return [
+            {
+                "company_id": row.company_id,
+                "company_name": row.legal_name,
+                "branch_id": row.branch_id,
+                "branch_name": row.branch_name,
+            }
+            for row in result.all()
+        ]
+
 
 class RoleRepository:
     def __init__(self, session: AsyncSession):
@@ -129,6 +165,21 @@ class RoleRepository:
     async def assign_to_user(self, user_id: UUID, role_id: UUID) -> None:
         self.session.add(UserRole(user_id=user_id, role_id=role_id))
         await self.session.flush()
+
+    async def remove_from_user(self, user_id: UUID, role_id: UUID) -> None:
+        role_assignment = await self.session.get(UserRole, {"user_id": user_id, "role_id": role_id})
+        if role_assignment is not None:
+            await self.session.delete(role_assignment)
+            await self.session.flush()
+
+    async def list_for_user_in_company(self, user_id: UUID, company_id: UUID) -> list[Role]:
+        result = await self.session.execute(
+            select(Role)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user_id, Role.company_id == company_id)
+            .order_by(Role.name)
+        )
+        return list(result.scalars().all())
 
     async def get_user_permission_codes(self, user_id: UUID, company_id: UUID) -> set[str]:
         """All permission codes granted to `user_id` via roles scoped to `company_id`."""

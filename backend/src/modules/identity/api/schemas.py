@@ -173,6 +173,32 @@ class CompanyAccessGrantRequest(BaseModel):
     branch_id: UUID | None = None
 
 
+class UserListRow(BaseModel):
+    id: UUID
+    email: str
+    full_name: str
+    is_active: bool
+    is_2fa_enabled: bool
+    role_names: list[str]
+
+
+class CompanyAccessRow(BaseModel):
+    company_id: UUID
+    company_name: str
+    branch_id: UUID | None
+    branch_name: str | None
+
+
+class UserDetailOut(BaseModel):
+    id: UUID
+    email: str
+    full_name: str
+    is_active: bool
+    is_2fa_enabled: bool
+    roles: list[RoleOut]
+    company_access: list[CompanyAccessRow]
+
+
 class AddressIn(BaseModel):
     """Phase 17B: the `partner.address`/`branch.address` JSONB columns had
     no established shape anywhere in the codebase before this phase (never

@@ -27,6 +27,7 @@ from src.modules.identity.api.schemas import (
     BranchCreateRequest,
     BranchOut,
     CompanyAccessGrantRequest,
+    CompanyAccessRow,
     CompanyCreateRequest,
     CompanyOut,
     CompanyUpdateRequest,
@@ -57,6 +58,8 @@ from src.modules.identity.api.schemas import (
     UnitOfMeasureOut,
     UnitOfMeasureUpdateRequest,
     UserCreateRequest,
+    UserDetailOut,
+    UserListRow,
     UserOut,
 )
 from src.modules.identity.application.services import (
@@ -485,6 +488,59 @@ async def list_branches(
     return await branch_repo.list_by_company(ctx.company_id)
 
 
+@router.get("/users", response_model=list[UserListRow])
+async def list_users(
+    ctx: AuthContext = Depends(require_permission("user.view")),
+    user_repo: UserRepository = Depends(get_user_repo),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """Bundle 2 — Identity/Access/Governance: the Owner-facing gap found
+    during the full-project re-audit. `POST /users` and role/company-access
+    grants already existed but had zero way to list who's already been
+    created — an owner could not add a second real employee through the
+    product at all."""
+    users = await user_repo.list_by_company_access(ctx.company_id)
+    rows = []
+    for user in users:
+        roles = await role_repo.list_for_user_in_company(user.id, ctx.company_id)
+        rows.append(
+            UserListRow(
+                id=user.id,
+                email=user.email,
+                full_name=user.full_name,
+                is_active=user.is_active,
+                is_2fa_enabled=user.is_2fa_enabled,
+                role_names=[r.name for r in roles],
+            )
+        )
+    return rows
+
+
+@router.get("/users/{user_id}", response_model=UserDetailOut)
+async def get_user(
+    user_id: UUID,
+    ctx: AuthContext = Depends(require_permission("user.view")),
+    user_repo: UserRepository = Depends(get_user_repo),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    user = await user_repo.get_by_id(user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    company_access = await user_repo.list_company_access_with_names(user_id)
+    if not any(row["company_id"] == ctx.company_id for row in company_access):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    roles = await role_repo.list_for_user_in_company(user_id, ctx.company_id)
+    return UserDetailOut(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_active=user.is_active,
+        is_2fa_enabled=user.is_2fa_enabled,
+        roles=roles,
+        company_access=[CompanyAccessRow(**row) for row in company_access],
+    )
+
+
 @router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: UserCreateRequest,
@@ -529,6 +585,31 @@ async def assign_role(
         field_name="role_id",
         old_value=None,
         new_value=str(payload.role_id),
+    )
+    await db.commit()
+
+
+@router.delete("/users/{user_id}/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_role(
+    user_id: UUID,
+    role_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("user.manage_roles")),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """Symmetric counterpart to `POST /users/{user_id}/roles` — a role
+    checkbox in the Users UI that could only ever be checked, never
+    unchecked, would be a half-built screen."""
+    await role_repo.remove_from_user(user_id=user_id, role_id=role_id)
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="user_role",
+        target_id=user_id,
+        field_name="role_id",
+        old_value=str(role_id),
+        new_value=None,
     )
     await db.commit()
 

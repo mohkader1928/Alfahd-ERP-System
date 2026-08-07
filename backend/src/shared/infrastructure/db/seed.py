@@ -124,28 +124,32 @@ async def seed_core_data(session: AsyncSession) -> None:
     # Flush so every permission row exists before the Admin-role sync below.
     await session.flush()
 
-    # Sync: any role named "Admin" should always hold every permission in the
-    # catalog. This handles new permissions added after the company was
-    # bootstrapped. The role/role_permission tables are RLS-protected, so we
-    # must disable row_security for this session-local operation (requires the
-    # DB application user to have BYPASSRLS or SUPERUSER; silently skipped
-    # otherwise so non-privileged test connections are unaffected).
-    try:
-        await session.execute(text("SET LOCAL row_security = off"))
-        await session.execute(text("""
-            INSERT INTO role_permission (role_id, permission_id)
-            SELECT r.id, p.id
-            FROM role r
-            CROSS JOIN permission p
-            WHERE r.name = 'Admin'
-              AND NOT EXISTS (
-                  SELECT 1 FROM role_permission rp
-                  WHERE rp.role_id = r.id AND rp.permission_id = p.id
-              )
-        """))
-    except Exception:
-        # DB user lacks BYPASSRLS — skip silently. The Admin role can be
-        # updated manually via Settings → Security when new permissions arrive.
-        pass
+    # Sync: any Admin role should always hold every permission in the catalog
+    # — handles new permissions added after the company was bootstrapped.
+    #
+    # This must NOT select from `role` directly: `role` has FORCE ROW LEVEL
+    # SECURITY keyed on company context, and this runs at API startup with no
+    # company context set, so a `role`-table query silently sees zero rows —
+    # not an error, just a no-op — for every DB user, `erp_app` included
+    # (confirmed live: this exact bug left `role.manage` missing from an
+    # existing company's Admin role for as long as the previous version of
+    # this sync existed; see migration `<role_manage_backfill>` for the
+    # one-time repair). `permission`/`role_permission` carry no RLS at all
+    # (same fact migration c1d2e3f4a5b6 relies on), so identifying Admin
+    # roles *indirectly* — any role already holding a permission only an
+    # Admin role would have — works unconditionally, regardless of DB user
+    # or company context.
+    await session.execute(text("""
+        INSERT INTO role_permission (role_id, permission_id)
+        SELECT DISTINCT admin_rp.role_id, p_missing.id
+        FROM role_permission admin_rp
+        JOIN permission p_marker ON p_marker.id = admin_rp.permission_id
+                                  AND p_marker.code = 'reporting.dashboard.view'
+        CROSS JOIN permission p_missing
+        WHERE NOT EXISTS (
+            SELECT 1 FROM role_permission rp2
+            WHERE rp2.role_id = admin_rp.role_id AND rp2.permission_id = p_missing.id
+        )
+    """))
 
     await session.commit()
