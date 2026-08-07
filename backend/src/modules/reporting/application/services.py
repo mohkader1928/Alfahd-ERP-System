@@ -4,7 +4,7 @@ interfaces, not shared tables), since dashboards inherently aggregate
 cross-module data (FR-RPT-003)."""
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -13,8 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.infrastructure.repositories import JournalEntryRepository
 from src.modules.identity.infrastructure.master_data_models import Partner, Product
+from src.modules.payments.infrastructure.repositories import PaymentRepository
 from src.modules.purchasing.infrastructure.models import PurchaseOrder, VendorBill
-from src.modules.purchasing.infrastructure.repositories import VendorBillRepository
+from src.modules.purchasing.infrastructure.repositories import (
+    PurchaseOrderRepository,
+    VendorBillRepository,
+)
 from src.modules.sales.infrastructure.models import (
     Quotation,
     SalesInvoice,
@@ -28,6 +32,21 @@ ACCOUNT_CODE_AP = "2100"
 
 
 @dataclass(frozen=True)
+class SalesTrendPoint:
+    period_label: str
+    total: Decimal
+
+
+@dataclass(frozen=True)
+class RecentActivityItem:
+    entity_type: str
+    entity_id: UUID
+    label: str
+    date: date
+    amount: Decimal
+
+
+@dataclass(frozen=True)
 class DashboardSummary:
     period_start: date
     period_end: date
@@ -35,18 +54,52 @@ class DashboardSummary:
     period_purchases_total: Decimal
     receivables_balance: Decimal
     payables_balance: Decimal
+    sales_trend: list[SalesTrendPoint]
+    pending_approvals_count: int
+    recent_activity: list[RecentActivityItem]
+
+
+def _month_bounds(year: int, month: int) -> tuple[date, date]:
+    start = date(year, month, 1)
+    end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    return start, end - timedelta(days=1)
+
+
+def _last_n_months(anchor: date, n: int) -> list[tuple[int, int]]:
+    """[(year, month), ...] for the n calendar months ending at `anchor`'s
+    month, oldest first — plain integer arithmetic, no calendar library
+    needed since we only ever need month/year rollover."""
+    months = []
+    y, m = anchor.year, anchor.month
+    for _ in range(n):
+        months.append((y, m))
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+    return list(reversed(months))
 
 
 class DashboardService:
+    """UI/UX Professional pass — Dashboard Enrichment (Product Owner audit:
+    the dashboard was 4 static KPI cards, the single most visible gap
+    against SAP B1/Dynamics 365 BC/Odoo/ERPNext, every one of which opens
+    on a trend chart, an actionable exceptions list, and a recent-activity
+    feed, not just numbers)."""
+
     def __init__(
         self,
         invoice_repo: SalesInvoiceRepository,
         bill_repo: VendorBillRepository,
         journal_entry_repo: JournalEntryRepository,
+        order_repo: PurchaseOrderRepository | None = None,
+        payment_repo: PaymentRepository | None = None,
     ):
         self.invoice_repo = invoice_repo
         self.bill_repo = bill_repo
         self.journal_entry_repo = journal_entry_repo
+        self.order_repo = order_repo
+        self.payment_repo = payment_repo
 
     async def get_summary(self, *, company_id: UUID, period_start: date, period_end: date) -> DashboardSummary:
         sales_total = await self.invoice_repo.sum_total_in_range(company_id, period_start, period_end)
@@ -63,7 +116,69 @@ class DashboardService:
             period_purchases_total=purchases_total,
             receivables_balance=ar_balance,
             payables_balance=ap_balance,
+            sales_trend=await self._sales_trend(company_id),
+            pending_approvals_count=await self._pending_approvals_count(company_id),
+            recent_activity=await self._recent_activity(company_id),
         )
+
+    async def _sales_trend(self, company_id: UUID, *, months: int = 6) -> list[SalesTrendPoint]:
+        today = date.today()
+        points = []
+        for year, month in _last_n_months(today, months):
+            start, end = _month_bounds(year, month)
+            total = await self.invoice_repo.sum_total_in_range(company_id, start, end)
+            points.append(SalesTrendPoint(period_label=f"{year:04d}-{month:02d}", total=total))
+        return points
+
+    async def _pending_approvals_count(self, company_id: UUID) -> int:
+        if self.order_repo is None:
+            return 0
+        pending = await self.order_repo.list_by_company(company_id, status="pending_approval")
+        return len(pending)
+
+    async def _recent_activity(self, company_id: UUID, *, limit: int = 8) -> list[RecentActivityItem]:
+        items: list[RecentActivityItem] = []
+
+        invoices = await self.invoice_repo.list_by_company(company_id, limit=limit)
+        items.extend(
+            RecentActivityItem(
+                entity_type="sales_invoice",
+                entity_id=inv.id,
+                label=inv.number,
+                date=inv.invoice_date,
+                amount=inv.total_amount,
+            )
+            for inv in invoices
+        )
+
+        if self.order_repo is not None:
+            orders = await self.order_repo.list_by_company(company_id)
+            for order in orders[:limit]:
+                items.append(
+                    RecentActivityItem(
+                        entity_type="purchase_order",
+                        entity_id=order.id,
+                        label=order.number,
+                        date=order.order_date,
+                        amount=order.total_amount,
+                    )
+                )
+
+        if self.payment_repo is not None:
+            payments = await self.payment_repo.list_by_company(company_id, limit=limit)
+            items.extend(
+                RecentActivityItem(
+                    entity_type="payment",
+                    entity_id=p.id,
+                    label=p.number,
+                    date=p.payment_date,
+                    amount=p.amount,
+                )
+                for p in payments
+            )
+
+        items.sort(key=lambda i: i.date, reverse=True)
+        return items[:limit]
 
 
 # ── Sales Reporting ────────────────────────────────────────────────────────────

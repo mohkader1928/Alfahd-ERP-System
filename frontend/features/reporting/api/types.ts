@@ -1,3 +1,16 @@
+export interface SalesTrendPoint {
+  period_label: string;
+  total: string;
+}
+
+export interface RecentActivityItem {
+  entity_type: string;
+  entity_id: string;
+  label: string;
+  date: string;
+  amount: string;
+}
+
 export interface DashboardSummary {
   period_start: string;
   period_end: string;
@@ -5,6 +18,9 @@ export interface DashboardSummary {
   period_purchases_total: string;
   receivables_balance: string;
   payables_balance: string;
+  sales_trend: SalesTrendPoint[];
+  pending_approvals_count: number;
+  recent_activity: RecentActivityItem[];
 }
 
 // ── Sales Reports ──────────────────────────────────────────────────────────────

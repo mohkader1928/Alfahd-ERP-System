@@ -5,6 +5,19 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class SalesTrendPointOut(BaseModel):
+    period_label: str
+    total: Decimal
+
+
+class RecentActivityItemOut(BaseModel):
+    entity_type: str
+    entity_id: UUID
+    label: str
+    date: date
+    amount: Decimal
+
+
 class DashboardSummaryOut(BaseModel):
     period_start: date
     period_end: date
@@ -12,6 +25,9 @@ class DashboardSummaryOut(BaseModel):
     period_purchases_total: Decimal
     receivables_balance: Decimal
     payables_balance: Decimal
+    sales_trend: list[SalesTrendPointOut]
+    pending_approvals_count: int
+    recent_activity: list[RecentActivityItemOut]
 
 
 # ── Sales Reports ──────────────────────────────────────────────────────────────

@@ -5,7 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.infrastructure.repositories import JournalEntryRepository
 from src.modules.identity.api.deps import require_permission  # noqa: F401 (re-exported for routes)
-from src.modules.purchasing.infrastructure.repositories import VendorBillRepository
+from src.modules.payments.infrastructure.repositories import PaymentRepository
+from src.modules.purchasing.infrastructure.repositories import (
+    PurchaseOrderRepository,
+    VendorBillRepository,
+)
 from src.modules.reporting.application.services import (
     DashboardService,
     SalesReportingService,
@@ -18,7 +22,11 @@ from src.shared.infrastructure.db.session import get_db
 
 def get_dashboard_service(db: AsyncSession = Depends(get_db)) -> DashboardService:
     return DashboardService(
-        SalesInvoiceRepository(db), VendorBillRepository(db), JournalEntryRepository(db)
+        SalesInvoiceRepository(db),
+        VendorBillRepository(db),
+        JournalEntryRepository(db),
+        order_repo=PurchaseOrderRepository(db),
+        payment_repo=PaymentRepository(db),
     )
 
 
