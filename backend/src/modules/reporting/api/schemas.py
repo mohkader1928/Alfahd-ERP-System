@@ -49,3 +49,15 @@ class SearchResultRow(BaseModel):
     id: UUID
     label: str
     sublabel: str | None
+
+
+class VatSummaryOut(BaseModel):
+    date_from: date
+    date_to: date
+    sales_subtotal: Decimal
+    output_vat: Decimal
+    sales_total: Decimal
+    purchases_subtotal: Decimal
+    input_vat: Decimal
+    purchases_total: Decimal
+    net_vat_payable: Decimal

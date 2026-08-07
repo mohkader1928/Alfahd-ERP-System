@@ -37,6 +37,20 @@ export interface SalesByPeriodRow {
   total: string;
 }
 
+// ── VAT / Tax Summary ────────────────────────────────────────────────────────
+
+export interface VatSummary {
+  date_from: string;
+  date_to: string;
+  sales_subtotal: string;
+  output_vat: string;
+  sales_total: string;
+  purchases_subtotal: string;
+  input_vat: string;
+  purchases_total: string;
+  net_vat_payable: string;
+}
+
 // ── Global Search ─────────────────────────────────────────────────────────────
 
 export interface SearchResultRow {

@@ -10,6 +10,7 @@ from src.modules.reporting.application.services import (
     DashboardService,
     SalesReportingService,
     SearchService,
+    VatReportingService,
 )
 from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
 from src.shared.infrastructure.db.session import get_db
@@ -27,3 +28,7 @@ def get_sales_reporting_service(db: AsyncSession = Depends(get_db)) -> SalesRepo
 
 def get_search_service(db: AsyncSession = Depends(get_db)) -> SearchService:
     return SearchService(db)
+
+
+def get_vat_reporting_service(db: AsyncSession = Depends(get_db)) -> VatReportingService:
+    return VatReportingService(db)

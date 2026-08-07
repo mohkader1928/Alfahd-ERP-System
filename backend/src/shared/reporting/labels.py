@@ -33,6 +33,13 @@ _LABELS: dict[str, dict[str, str]] = {
         "revenue": "الإيرادات",
         "days_overdue": "أيام التأخير",
         "bucket": "الفئة العمرية",
+        "sales_subtotal": "صافي المبيعات",
+        "output_vat": "ضريبة المخرجات (المبيعات)",
+        "sales_total": "إجمالي المبيعات",
+        "purchases_subtotal": "صافي المشتريات",
+        "input_vat": "ضريبة المدخلات (المشتريات)",
+        "purchases_total": "إجمالي المشتريات",
+        "net_vat_payable": "صافي الضريبة المستحقة",
     },
     "en": {
         "account": "Account",
@@ -63,6 +70,13 @@ _LABELS: dict[str, dict[str, str]] = {
         "revenue": "Revenue",
         "days_overdue": "Days Overdue",
         "bucket": "Aging Bucket",
+        "sales_subtotal": "Net Sales",
+        "output_vat": "Output VAT (Sales)",
+        "sales_total": "Total Sales",
+        "purchases_subtotal": "Net Purchases",
+        "input_vat": "Input VAT (Purchases)",
+        "purchases_total": "Total Purchases",
+        "net_vat_payable": "Net VAT Payable",
     },
 }
 
@@ -80,6 +94,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "sales_by_product": "المبيعات حسب الصنف",
         "sales_by_period": "المبيعات حسب الفترة",
         "product_cardex": "بطاقة الصنف القياسية",
+        "vat_summary": "ملخص ضريبة القيمة المضافة",
     },
     "en": {
         "trial_balance": "Trial Balance",
@@ -94,6 +109,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "sales_by_product": "Sales by Product",
         "sales_by_period": "Sales by Period",
         "product_cardex": "Standard Product Cardex",
+        "vat_summary": "VAT Summary",
     },
 }
 

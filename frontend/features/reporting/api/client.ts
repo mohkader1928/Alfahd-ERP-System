@@ -5,6 +5,7 @@ import type {
   SalesByPeriodRow,
   SalesByProductRow,
   SearchResultRow,
+  VatSummary,
 } from "./types";
 
 const BASE = "/api/v1/reporting";
@@ -38,4 +39,9 @@ export const reportingApi = {
 
   search: (companyId: string, q: string) =>
     apiClient.get<SearchResultRow[]>(`${BASE}/search?q=${encodeURIComponent(q)}`, { companyId }),
+
+  // ── VAT / Tax Summary ─────────────────────────────────────────────────────────
+
+  vatSummary: (companyId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<VatSummary>(`${BASE}/vat-summary?date_from=${dateFrom}&date_to=${dateTo}`, { companyId }),
 };

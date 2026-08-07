@@ -13,6 +13,7 @@ from src.modules.reporting.api.deps import (
     get_dashboard_service,
     get_sales_reporting_service,
     get_search_service,
+    get_vat_reporting_service,
     require_permission,
 )
 from src.modules.reporting.api.schemas import (
@@ -21,11 +22,13 @@ from src.modules.reporting.api.schemas import (
     SalesByPeriodRow,
     SalesByProductRow,
     SearchResultRow,
+    VatSummaryOut,
 )
 from src.modules.reporting.application.services import (
     DashboardService,
     SalesReportingService,
     SearchService,
+    VatReportingService,
 )
 from src.modules.reporting.infrastructure.csv_exporter import rows_to_csv
 from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
@@ -239,3 +242,42 @@ async def sales_by_period(
         rtl=lang == "ar",
     )
     return build_export_response(format, "sales-by-period", table)
+
+
+# ── VAT / Tax Summary ────────────────────────────────────────────────────────────
+
+@router.get("/vat-summary", response_model=VatSummaryOut)
+async def vat_summary(
+    date_from: date,
+    date_to: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("reporting.vat.view")),
+    service: VatReportingService = Depends(get_vat_reporting_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """Owner-requested — the standard baseline every Saudi business needs
+    before filing a ZATCA VAT return: output VAT (sales) vs. input VAT
+    (purchases) for a period, netted to what's owed or refundable. Only
+    counts documents that actually posted to the books."""
+    result = await service.vat_summary(company_id=ctx.company_id, date_from=date_from, date_to=date_to)
+    if format == "json":
+        return VatSummaryOut(date_from=date_from, date_to=date_to, **result)
+
+    table = ReportTable(
+        title=title(lang, "vat_summary"),
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f"{date_from} — {date_to}",
+        columns=[ReportColumn(label(lang, "description")), ReportColumn(label(lang, "amount"), "end")],
+        rows=[
+            [label(lang, "sales_subtotal"), format_amount(result["sales_subtotal"])],
+            [label(lang, "output_vat"), format_amount(result["output_vat"])],
+            [label(lang, "sales_total"), format_amount(result["sales_total"])],
+            [label(lang, "purchases_subtotal"), format_amount(result["purchases_subtotal"])],
+            [label(lang, "input_vat"), format_amount(result["input_vat"])],
+            [label(lang, "purchases_total"), format_amount(result["purchases_total"])],
+        ],
+        totals=[label(lang, "net_vat_payable"), format_amount(result["net_vat_payable"])],
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, "vat-summary", table)

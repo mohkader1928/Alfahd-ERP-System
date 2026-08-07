@@ -107,6 +107,7 @@ PERMISSION_CATALOG = [
     ("attachment.view", "screen"),
     ("attachment.manage", "action"),
     ("search.use", "screen"),
+    ("reporting.vat.view", "screen"),
 ]
 
 

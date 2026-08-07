@@ -284,3 +284,71 @@ class SearchService:
             ]
 
         return results
+
+
+class VatReportingService:
+    """VAT/Tax Summary — explicitly named in the Owner's original Bundle E
+    spec, and the standard baseline every Saudi business needs before
+    filing a ZATCA VAT return: output VAT collected on sales vs. input VAT
+    paid on purchases for a period, netted to what's actually owed (or
+    refundable). Only counts documents that have actually posted to the
+    books (`journal_entry_id is not None`) — the same "real accounting
+    impact, not just a draft" filter AR/AP Aging already applies."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def vat_summary(self, *, company_id: UUID, date_from: date, date_to: date) -> dict:
+        sales_stmt = select(
+            func.coalesce(func.sum(SalesInvoice.subtotal_amount), 0).label("subtotal"),
+            func.coalesce(func.sum(SalesInvoice.tax_amount), 0).label("vat"),
+            func.coalesce(func.sum(SalesInvoice.total_amount), 0).label("total"),
+        ).where(
+            SalesInvoice.company_id == company_id,
+            SalesInvoice.journal_entry_id.is_not(None),
+            SalesInvoice.invoice_type.in_(_FORWARD_INVOICE_TYPES),
+            SalesInvoice.invoice_date >= date_from,
+            SalesInvoice.invoice_date <= date_to,
+        )
+        credit_note_stmt = select(
+            func.coalesce(func.sum(SalesInvoice.subtotal_amount), 0).label("subtotal"),
+            func.coalesce(func.sum(SalesInvoice.tax_amount), 0).label("vat"),
+            func.coalesce(func.sum(SalesInvoice.total_amount), 0).label("total"),
+        ).where(
+            SalesInvoice.company_id == company_id,
+            SalesInvoice.journal_entry_id.is_not(None),
+            SalesInvoice.invoice_type == "credit_note",
+            SalesInvoice.invoice_date >= date_from,
+            SalesInvoice.invoice_date <= date_to,
+        )
+        purchases_stmt = select(
+            func.coalesce(func.sum(VendorBill.subtotal_amount), 0).label("subtotal"),
+            func.coalesce(func.sum(VendorBill.tax_amount), 0).label("vat"),
+            func.coalesce(func.sum(VendorBill.total_amount), 0).label("total"),
+        ).where(
+            VendorBill.company_id == company_id,
+            VendorBill.journal_entry_id.is_not(None),
+            VendorBill.bill_date >= date_from,
+            VendorBill.bill_date <= date_to,
+        )
+
+        sales_row = (await self.session.execute(sales_stmt)).one()
+        credit_row = (await self.session.execute(credit_note_stmt)).one()
+        purchases_row = (await self.session.execute(purchases_stmt)).one()
+
+        sales_subtotal = Decimal(str(sales_row.subtotal)) - Decimal(str(credit_row.subtotal))
+        output_vat = Decimal(str(sales_row.vat)) - Decimal(str(credit_row.vat))
+        sales_total = Decimal(str(sales_row.total)) - Decimal(str(credit_row.total))
+        purchases_subtotal = Decimal(str(purchases_row.subtotal))
+        input_vat = Decimal(str(purchases_row.vat))
+        purchases_total = Decimal(str(purchases_row.total))
+
+        return {
+            "sales_subtotal": sales_subtotal,
+            "output_vat": output_vat,
+            "sales_total": sales_total,
+            "purchases_subtotal": purchases_subtotal,
+            "input_vat": input_vat,
+            "purchases_total": purchases_total,
+            "net_vat_payable": output_vat - input_vat,
+        }

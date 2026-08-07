@@ -23,6 +23,7 @@ import { accountingApi } from "@/features/accounting/api/client";
 import type { Account, JournalEntry, JournalEntryLineIn } from "@/features/accounting/api/types";
 import { identityApi } from "@/features/identity/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
+import { reportingApi } from "@/features/reporting/api/client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
@@ -935,6 +936,113 @@ function BalanceSheetTab() {
   );
 }
 
+function VatSummaryTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["vat-summary", companyId, ranAt?.from, ranAt?.to],
+    queryFn: () => reportingApi.vatSummary(companyId, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+  const r = reportQuery.data;
+  const netPayable = r ? Number(r.net_vat_payable) : 0;
+
+  return (
+    <ReportView
+      title={t("accounting.tabs.vat_summary")}
+      filterArea={
+        <>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.vat.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.vat.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+        </>
+      }
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onPrint={r ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/reporting/vat-summary",
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      kpis={
+        r
+          ? [
+              { label: t("accounting.vat.output_vat"), value: formatCurrency(r.output_vat) },
+              { label: t("accounting.vat.input_vat"), value: formatCurrency(r.input_vat) },
+              {
+                label: netPayable >= 0 ? t("accounting.vat.net_vat_payable") : t("accounting.vat.net_vat_refundable"),
+                value: formatCurrency(Math.abs(netPayable)),
+              },
+            ]
+          : undefined
+      }
+    >
+      {!r && <p className="text-sm text-muted-foreground">{t("accounting.vat.run_hint")}</p>}
+      {r && (
+        <div className="max-w-lg">
+          <ReportPrintHeader
+            reportTitle={t("accounting.tabs.vat_summary")}
+            dateRangeLabel={ranAt ? `${ranAt.from} – ${ranAt.to}` : undefined}
+          />
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr>
+                <td className="py-1.5 font-sans">{t("accounting.vat.sales_subtotal")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.sales_subtotal)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 font-sans">{t("accounting.vat.output_vat")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.output_vat)}</td>
+              </tr>
+              <tr className="border-t font-semibold">
+                <td className="py-1.5 font-sans">{t("accounting.vat.sales_total")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.sales_total)}</td>
+              </tr>
+            </tbody>
+            <tbody>
+              <tr>
+                <td className="pt-4 py-1.5 font-sans">{t("accounting.vat.purchases_subtotal")}</td>
+                <td className="pt-4 py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.purchases_subtotal)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 font-sans">{t("accounting.vat.input_vat")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.input_vat)}</td>
+              </tr>
+              <tr className="border-t font-semibold">
+                <td className="py-1.5 font-sans">{t("accounting.vat.purchases_total")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.purchases_total)}</td>
+              </tr>
+            </tbody>
+            <tbody>
+              <tr className="border-t-2 border-double font-bold text-base">
+                <td className="py-2 font-sans">
+                  {netPayable >= 0 ? t("accounting.vat.net_vat_payable") : t("accounting.vat.net_vat_refundable")}
+                </td>
+                <td className="py-2 text-end font-mono tabular-nums">{formatCurrency(Math.abs(netPayable))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ReportView>
+  );
+}
+
 function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
   const { t, locale } = useI18n();
   return (
@@ -1349,6 +1457,7 @@ export default function AccountingPage() {
           <TabsTrigger value="general-ledger">{t("accounting.tabs.general_ledger")}</TabsTrigger>
           <TabsTrigger value="income-statement">{t("accounting.tabs.income_statement")}</TabsTrigger>
           <TabsTrigger value="balance-sheet">{t("accounting.tabs.balance_sheet")}</TabsTrigger>
+          <TabsTrigger value="vat-summary">{t("accounting.tabs.vat_summary")}</TabsTrigger>
           <TabsTrigger value="customer-subledger">{t("accounting.tabs.customer_subledger")}</TabsTrigger>
           <TabsTrigger value="vendor-subledger">{t("accounting.tabs.vendor_subledger")}</TabsTrigger>
           <TabsTrigger value="ar-aging">{t("accounting.tabs.ar_aging")}</TabsTrigger>
@@ -1360,6 +1469,7 @@ export default function AccountingPage() {
         <TabsContent value="general-ledger">{tab === "general-ledger" && <GeneralLedgerTab initialAccountId={deepLinkAccountId} />}</TabsContent>
         <TabsContent value="income-statement">{tab === "income-statement" && <IncomeStatementTab />}</TabsContent>
         <TabsContent value="balance-sheet">{tab === "balance-sheet" && <BalanceSheetTab />}</TabsContent>
+        <TabsContent value="vat-summary">{tab === "vat-summary" && <VatSummaryTab />}</TabsContent>
         <TabsContent value="customer-subledger">
           {tab === "customer-subledger" && <CustomerSubledgerTab initialPartnerId={deepLinkPartnerId} />}
         </TabsContent>
