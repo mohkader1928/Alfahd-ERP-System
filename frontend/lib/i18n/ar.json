@@ -325,6 +325,8 @@
   "common.retry": "إعادة المحاولة",
   "common.confirm": "تأكيد",
   "common.export": "تصدير",
+  "common.export_pdf": "تصدير PDF",
+  "common.export_excel": "تصدير Excel",
   "common.refresh": "تحديث",
   "common.print": "طباعة",
   "common.permission_denied": "ليس لديك صلاحية للوصول لهذا",

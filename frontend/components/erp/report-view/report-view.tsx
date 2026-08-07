@@ -21,7 +21,8 @@ interface ReportViewProps {
   filterArea?: React.ReactNode;
   onApply?: () => void;
   onReset?: () => void;
-  onExport?: () => void;
+  onExportPdf?: () => void;
+  onExportExcel?: () => void;
   onPrint?: () => void;
   kpis?: KpiSummaryItem[];
   isLoading?: boolean;
@@ -49,7 +50,8 @@ export function ReportView({
   filterArea,
   onApply,
   onReset,
-  onExport,
+  onExportPdf,
+  onExportExcel,
   onPrint,
   kpis,
   isLoading,
@@ -88,10 +90,16 @@ export function ReportView({
                   {t("filters.reset")}
                 </Button>
               )}
-              {onExport && (
-                <Button size="sm" variant="outline" onClick={onExport}>
+              {onExportPdf && (
+                <Button size="sm" variant="outline" onClick={onExportPdf}>
                   <Download className="h-4 w-4" />
-                  {t("common.export")}
+                  {t("common.export_pdf")}
+                </Button>
+              )}
+              {onExportExcel && (
+                <Button size="sm" variant="outline" onClick={onExportExcel}>
+                  <Download className="h-4 w-4" />
+                  {t("common.export_excel")}
                 </Button>
               )}
               {onPrint && (

@@ -19,6 +19,8 @@ dependencies = [
     "celery>=5.4.0",
     "python-multipart>=0.0.12",
     "email-validator>=2.2.0",
+    "weasyprint>=62.0",
+    "openpyxl>=3.1.5",
 ]
 
 [project.optional-dependencies]

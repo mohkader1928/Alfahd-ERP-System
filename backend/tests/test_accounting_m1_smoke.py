@@ -346,3 +346,97 @@ async def test_journal_entry_not_visible_across_companies(client):
     _, headers_b = await _bootstrap_and_login(client)
     resp = await client.get(f"/api/v1/accounting/journal-entries/{entry_id}", headers=headers_b)
     assert resp.status_code == 404
+
+
+async def test_trial_balance_export_pdf_and_excel(client):
+    """Standard Reporting Framework — every report endpoint must serve a
+    real downloadable PDF/Excel via `format=pdf|xlsx`, not just JSON."""
+    _, headers = await _bootstrap_and_login(client)
+    cash_id = await _get_account_id(client, headers, "1100")
+    capital_id = await _get_account_id(client, headers, "3100")
+    entry = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": "2026-02-15",
+            "lines": [
+                {"account_id": cash_id, "debit": 1500, "credit": 0},
+                {"account_id": capital_id, "debit": 0, "credit": 1500},
+            ],
+        },
+    )
+    await client.post(f"/api/v1/accounting/journal-entries/{entry.json()['id']}:post", headers=headers)
+
+    pdf_resp = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-02-01", "date_to": "2026-02-28", "format": "pdf", "lang": "ar"},
+    )
+    assert pdf_resp.status_code == 200
+    assert pdf_resp.headers["content-type"] == "application/pdf"
+    assert "trial-balance.pdf" in pdf_resp.headers["content-disposition"]
+    assert pdf_resp.content[:4] == b"%PDF"
+
+    xlsx_resp = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-02-01", "date_to": "2026-02-28", "format": "xlsx", "lang": "en"},
+    )
+    assert xlsx_resp.status_code == 200
+    assert xlsx_resp.headers["content-type"] == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert xlsx_resp.content[:2] == b"PK"  # xlsx is a zip container
+
+
+async def test_general_ledger_export_requires_permission(client):
+    _, headers = await _bootstrap_and_login(client)
+    cash_id = await _get_account_id(client, headers, "1100")
+
+    # No auth header at all -> export path must be permission-gated same as JSON.
+    resp = await client.get(
+        "/api/v1/accounting/reports/general-ledger",
+        params={
+            "account_id": cash_id,
+            "date_from": "2026-01-01",
+            "date_to": "2026-12-31",
+            "format": "pdf",
+        },
+    )
+    assert resp.status_code == 401
+
+
+async def test_income_statement_and_balance_sheet_export(client):
+    _, headers = await _bootstrap_and_login(client)
+    cash_id = await _get_account_id(client, headers, "1100")
+    revenue_id = await _get_account_id(client, headers, "4100")
+    entry = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": "2026-03-01",
+            "lines": [
+                {"account_id": cash_id, "debit": 2000, "credit": 0},
+                {"account_id": revenue_id, "debit": 0, "credit": 2000},
+            ],
+        },
+    )
+    await client.post(f"/api/v1/accounting/journal-entries/{entry.json()['id']}:post", headers=headers)
+
+    is_resp = await client.get(
+        "/api/v1/accounting/reports/income-statement",
+        headers=headers,
+        params={"date_from": "2026-03-01", "date_to": "2026-03-31", "format": "pdf"},
+    )
+    assert is_resp.status_code == 200
+    assert is_resp.content[:4] == b"%PDF"
+
+    bs_resp = await client.get(
+        "/api/v1/accounting/reports/balance-sheet",
+        headers=headers,
+        params={"as_of_date": "2026-03-31", "format": "xlsx"},
+    )
+    assert bs_resp.status_code == 200
+    assert bs_resp.content[:2] == b"PK"

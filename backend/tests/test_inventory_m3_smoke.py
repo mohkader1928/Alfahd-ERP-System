@@ -737,3 +737,35 @@ async def test_cardex_source_table_filter(client):
     assert len(adjustment_only["lines"]) == 1
     assert adjustment_only["lines"][0]["source_table"] == "cycle_count_line"
     assert adjustment_only["lines"][0]["signed_qty"] == "3.000000"  # 9 counted - 6 system
+
+
+async def test_cardex_export_pdf_and_excel(client):
+    """Standard Reporting Framework — Product Cardex must also serve real
+    PDF/Excel, matching every other report."""
+    _, headers = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+    today = date.today().isoformat()
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "10", "unit_cost": "5.00"},
+    )
+
+    pdf_resp = await client.get(
+        "/api/v1/inventory/stock/cardex",
+        headers=headers,
+        params={"product_id": product_id, "date_from": today, "date_to": today, "format": "pdf"},
+    )
+    assert pdf_resp.status_code == 200, pdf_resp.text
+    assert pdf_resp.content[:4] == b"%PDF"
+
+    xlsx_resp = await client.get(
+        "/api/v1/inventory/stock/cardex",
+        headers=headers,
+        params={"product_id": product_id, "date_from": today, "date_to": today, "format": "xlsx", "lang": "en"},
+    )
+    assert xlsx_resp.status_code == 200, xlsx_resp.text
+    assert xlsx_resp.content[:2] == b"PK"

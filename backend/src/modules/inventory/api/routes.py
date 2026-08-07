@@ -5,6 +5,7 @@ stand-in used for initial stock entry until then)."""
 
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,6 +24,8 @@ from src.modules.accounting.infrastructure.repositories import (
     JournalEntryRepository,
     JournalRepository,
 )
+from src.modules.identity.api.deps import get_company_repo, get_product_repo
+from src.modules.identity.infrastructure.repositories import CompanyRepository, ProductRepository
 from src.modules.inventory.api.deps import (
     get_company_valuation_method,
     get_cycle_count_repo,
@@ -62,7 +65,14 @@ from src.modules.inventory.infrastructure.repositories import (
     WarehouseRepository,
 )
 from src.shared.infrastructure.db.session import get_db, set_company_context
+from src.shared.reporting.company_name import resolve_company_name
+from src.shared.reporting.export_render import ReportColumn, ReportTable
+from src.shared.reporting.export_response import build_export_response
+from src.shared.reporting.formatting import format_amount, format_date_str, format_qty
+from src.shared.reporting.labels import label, title
 from src.shared.security.auth_context import AuthContext
+
+ExportFormatParam = Literal["json", "pdf", "xlsx"]
 
 router = APIRouter()
 
@@ -174,10 +184,14 @@ async def product_cardex(
     date_to: date,
     warehouse_id: UUID | None = None,
     source_table: str | None = None,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
     quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
     layer_repo: StockLayerRepository = Depends(get_stock_layer_repo),
     move_repo: StockMoveRepository = Depends(get_stock_move_repo),
+    product_repo: ProductRepository = Depends(get_product_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
 ):
     """Bundle E — standard product cardex (Owner-requested): opening qty,
     every move in range with a running balance, closing qty. Optional
@@ -192,25 +206,60 @@ async def product_cardex(
         warehouse_id=warehouse_id,
         source_table=source_table,
     )
-    return ProductCardexResponse(
-        product_id=product_id,
-        opening_qty=result["opening_qty"],
-        closing_qty=result["closing_qty"],
-        lines=[
-            CardexLineOut(
-                id=line["move"].id,
-                moved_at=line["move"].moved_at,
-                move_type=line["move"].move_type,
-                source_table=line["move"].source_table,
-                source_id=line["move"].source_id,
-                qty=line["move"].qty,
-                unit_cost=line["move"].unit_cost,
-                signed_qty=line["signed_qty"],
-                running_qty=line["running_qty"],
-            )
-            for line in result["lines"]
+    if format == "json":
+        return ProductCardexResponse(
+            product_id=product_id,
+            opening_qty=result["opening_qty"],
+            closing_qty=result["closing_qty"],
+            lines=[
+                CardexLineOut(
+                    id=line["move"].id,
+                    moved_at=line["move"].moved_at,
+                    move_type=line["move"].move_type,
+                    source_table=line["move"].source_table,
+                    source_id=line["move"].source_id,
+                    qty=line["move"].qty,
+                    unit_cost=line["move"].unit_cost,
+                    signed_qty=line["signed_qty"],
+                    running_qty=line["running_qty"],
+                )
+                for line in result["lines"]
+            ],
+        )
+
+    product = await product_repo.get_by_id(product_id)
+    product_name = (product.name_ar if lang == "ar" and product.name_ar else product.name) if product else str(product_id)
+    table_rows = [
+        [
+            format_date_str(line["move"].moved_at),
+            line["move"].move_type,
+            line["move"].source_table,
+            format_qty(line["signed_qty"]),
+            format_amount(line["move"].unit_cost),
+            format_qty(line["running_qty"]),
+        ]
+        for line in result["lines"]
+    ]
+    table = ReportTable(
+        title=f'{title(lang, "product_cardex")} — {product_name}',
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f"{date_from} — {date_to}",
+        columns=[
+            ReportColumn(label(lang, "date")),
+            ReportColumn(label(lang, "type")),
+            ReportColumn(label(lang, "source")),
+            ReportColumn(label(lang, "qty"), "end"),
+            ReportColumn(label(lang, "unit_cost"), "end"),
+            ReportColumn(label(lang, "running_qty"), "end"),
         ],
+        rows=[
+            ["", "", label(lang, "opening_balance"), "", "", format_qty(result["opening_qty"])],
+            *table_rows,
+        ],
+        totals=["", "", label(lang, "closing_balance"), "", "", format_qty(result["closing_qty"])],
+        rtl=lang == "ar",
     )
+    return build_export_response(format, f"product-cardex-{product_name}", table)
 
 
 @router.post("/transfers", response_model=list[StockMoveOut], status_code=status.HTTP_201_CREATED)

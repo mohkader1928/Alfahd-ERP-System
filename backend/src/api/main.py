@@ -59,6 +59,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Content-Disposition isn't in the browser's default CORS-safelisted
+    # response headers, so without this, JS on a cross-origin frontend
+    # (e.g. localhost:3000 -> localhost:8000) can never read the real
+    # filename off a file-download response (report exports, etc.) —
+    # found live while verifying the Standard Reporting Framework.
+    expose_headers=["Content-Disposition"],
 )
 
 register_error_handlers(app)

@@ -1,6 +1,7 @@
 """FastAPI routes for Accounting, per Phase 10 §6.2."""
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,12 +45,20 @@ from src.modules.accounting.infrastructure.repositories import (
     JournalEntryRepository,
     JournalRepository,
 )
-from src.modules.identity.infrastructure.repositories import AuditLogRepository
+from src.modules.identity.api.deps import get_company_repo
+from src.modules.identity.infrastructure.repositories import AuditLogRepository, CompanyRepository
 from src.shared.domain.base_entity import DomainError
 from src.shared.infrastructure.db.session import get_db
+from src.shared.reporting.company_name import resolve_company_name
+from src.shared.reporting.export_render import ReportColumn, ReportTable
+from src.shared.reporting.export_response import build_export_response
+from src.shared.reporting.formatting import format_amount, format_date_str
+from src.shared.reporting.labels import label, title
 from src.shared.security.auth_context import AuthContext
 
 router = APIRouter()
+
+ExportFormatParam = Literal["json", "pdf", "xlsx"]
 
 
 @router.get("/chart-of-accounts", response_model=list[AccountOut])
@@ -219,13 +228,71 @@ async def reverse_journal_entry(
 async def trial_balance(
     date_from: date,
     date_to: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.trial_balance.view")),
     entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
 ):
     service = ReportingService(entry_repo)
-    return await service.trial_balance(
+    rows = await service.trial_balance(
         company_id=ctx.company_id, date_from=date_from, date_to=date_to, branch_id=ctx.branch_id
     )
+    if format == "json":
+        return rows
+
+    debit_normal = {"asset", "expense"}
+    table_rows: list[list[str]] = []
+    highlight: set[int] = set()
+    total_debit = total_credit = 0
+    for i, r in enumerate(rows):
+        closing = r["closing_balance"]
+        opening = r["opening_balance"]
+        is_debit_normal = r["account_type_code"] in debit_normal
+        if (is_debit_normal and closing < 0) or (not is_debit_normal and closing > 0):
+            highlight.add(i)
+        dr_close = closing if closing > 0 else 0
+        cr_close = -closing if closing < 0 else 0
+        table_rows.append(
+            [
+                f"{r['account_code']} — {r['account_name']}",
+                format_amount(opening if opening > 0 else 0),
+                format_amount(-opening if opening < 0 else 0),
+                format_amount(r["period_debit"]),
+                format_amount(r["period_credit"]),
+                format_amount(dr_close),
+                format_amount(cr_close),
+            ]
+        )
+        total_debit += r["period_debit"]
+        total_credit += r["period_credit"]
+    table = ReportTable(
+        title=title(lang, "trial_balance"),
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f"{date_from} — {date_to}",
+        columns=[
+            ReportColumn(label(lang, "account")),
+            ReportColumn(f'{label(lang, "opening_balance")} ({label(lang, "debit")})', "end"),
+            ReportColumn(f'{label(lang, "opening_balance")} ({label(lang, "credit")})', "end"),
+            ReportColumn(label(lang, "debit"), "end"),
+            ReportColumn(label(lang, "credit"), "end"),
+            ReportColumn(f'{label(lang, "closing_balance")} ({label(lang, "debit")})', "end"),
+            ReportColumn(f'{label(lang, "closing_balance")} ({label(lang, "credit")})', "end"),
+        ],
+        rows=table_rows,
+        totals=[
+            label(lang, "total"),
+            "",
+            "",
+            format_amount(total_debit),
+            format_amount(total_credit),
+            "",
+            "",
+        ],
+        highlight_rows=highlight,
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, "trial-balance", table)
 
 
 @router.get("/reports/general-ledger", response_model=GeneralLedgerResponse)
@@ -233,9 +300,12 @@ async def general_ledger(
     account_id: str,
     date_from: date,
     date_to: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.general_ledger.view")),
     entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
     account_repo: AccountRepository = Depends(get_account_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
 ):
     import uuid as _uuid
 
@@ -251,38 +321,137 @@ async def general_ledger(
         date_to=date_to,
         branch_id=ctx.branch_id,
     )
-    return GeneralLedgerResponse(
-        account_id=account.id, account_code=account.code, account_name=account.name, **result
+    if format == "json":
+        return GeneralLedgerResponse(
+            account_id=account.id, account_code=account.code, account_name=account.name, **result
+        )
+
+    table_rows = [
+        [
+            format_date_str(line["entry_date"]),
+            line["reference"] or "",
+            line["description"] or "",
+            format_amount(line["debit"]),
+            format_amount(line["credit"]),
+            format_amount(line["running_balance"]),
+        ]
+        for line in result["lines"]
+    ]
+    table = ReportTable(
+        title=f'{title(lang, "general_ledger")} — {account.code} {account.name}',
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f"{date_from} — {date_to}",
+        columns=[
+            ReportColumn(label(lang, "date")),
+            ReportColumn(label(lang, "reference")),
+            ReportColumn(label(lang, "description")),
+            ReportColumn(label(lang, "debit"), "end"),
+            ReportColumn(label(lang, "credit"), "end"),
+            ReportColumn(label(lang, "running_balance"), "end"),
+        ],
+        rows=[
+            [
+                "",
+                "",
+                label(lang, "opening_balance"),
+                "",
+                "",
+                format_amount(result["opening_balance"]),
+            ],
+            *table_rows,
+        ],
+        totals=["", "", label(lang, "closing_balance"), "", "", format_amount(result["closing_balance"])],
+        rtl=lang == "ar",
     )
+    return build_export_response(format, f"general-ledger-{account.code}", table)
 
 
 @router.get("/reports/income-statement", response_model=IncomeStatementResponse)
 async def income_statement(
     date_from: date,
     date_to: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.income_statement.view")),
     entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
     account_repo: AccountRepository = Depends(get_account_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
 ):
     service = ReportingService(entry_repo, account_repo)
     result = await service.income_statement(
         company_id=ctx.company_id, date_from=date_from, date_to=date_to, branch_id=ctx.branch_id
     )
-    return IncomeStatementResponse(date_from=date_from, date_to=date_to, **result)
+    if format == "json":
+        return IncomeStatementResponse(date_from=date_from, date_to=date_to, **result)
+
+    def section(section_label: str, rows: list, section_total) -> list[list[str]]:
+        out = [[section_label, ""]]
+        out += [
+            [f"{r['account_code']} — {r['account_name']}", format_amount(r["amount"])] for r in rows
+        ]
+        out.append([f'{label(lang, "total")} — {section_label}', format_amount(section_total)])
+        return out
+
+    table_rows = (
+        section(label(lang, "revenue"), result["revenue_accounts"], result["revenue_total"])
+        + section("COGS", result["cogs_accounts"], result["cogs_total"])
+        + [["Gross Profit", format_amount(result["gross_profit"])]]
+        + section("OpEx", result["opex_accounts"], result["opex_total"])
+        + [["Operating Income", format_amount(result["operating_income"])]]
+    )
+    table = ReportTable(
+        title=title(lang, "income_statement"),
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f"{date_from} — {date_to}",
+        columns=[ReportColumn(label(lang, "account")), ReportColumn(label(lang, "amount"), "end")],
+        rows=table_rows,
+        totals=["Net Income", format_amount(result["net_income"])],
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, "income-statement", table)
 
 
 @router.get("/reports/balance-sheet", response_model=BalanceSheetResponse)
 async def balance_sheet(
     as_of_date: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.balance_sheet.view")),
     entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
     account_repo: AccountRepository = Depends(get_account_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
 ):
     service = ReportingService(entry_repo, account_repo)
     result = await service.balance_sheet(
         company_id=ctx.company_id, as_of_date=as_of_date, branch_id=ctx.branch_id
     )
-    return BalanceSheetResponse(as_of_date=as_of_date, **result)
+    if format == "json":
+        return BalanceSheetResponse(as_of_date=as_of_date, **result)
+
+    def section(section_label: str, rows: list, section_total) -> list[list[str]]:
+        out = [[section_label, ""]]
+        out += [
+            [f"{r['account_code']} — {r['account_name']}", format_amount(r["amount"])] for r in rows
+        ]
+        out.append([f'{label(lang, "total")} — {section_label}', format_amount(section_total)])
+        return out
+
+    table_rows = (
+        section("Assets", result["assets"], result["assets_total"])
+        + section("Liabilities", result["liabilities"], result["liabilities_total"])
+        + section("Equity", result["equity"], result["equity_total"])
+        + [["Current Earnings", format_amount(result["current_earnings"])]]
+    )
+    table = ReportTable(
+        title=title(lang, "balance_sheet"),
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f'{label(lang, "date")}: {as_of_date}',
+        columns=[ReportColumn(label(lang, "account")), ReportColumn(label(lang, "amount"), "end")],
+        rows=table_rows,
+        totals=["Total Liabilities & Equity", format_amount(result["total_liabilities_and_equity"])],
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, "balance-sheet", table)
 
 
 @router.post("/fiscal-periods", response_model=FiscalPeriodOut, status_code=status.HTTP_201_CREATED)

@@ -325,6 +325,8 @@
   "common.retry": "Retry",
   "common.confirm": "Confirm",
   "common.export": "Export",
+  "common.export_pdf": "Export PDF",
+  "common.export_excel": "Export Excel",
   "common.refresh": "Refresh",
   "common.print": "Print",
   "common.permission_denied": "You don't have access to this",

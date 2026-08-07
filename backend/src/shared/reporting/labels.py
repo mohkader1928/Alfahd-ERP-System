@@ -1,0 +1,106 @@
+"""Shared AR/EN column labels for report exports (PDF/Excel) — one place so
+the same term ("Debit", "Customer"...) isn't retranslated per report."""
+
+from __future__ import annotations
+
+_LABELS: dict[str, dict[str, str]] = {
+    "ar": {
+        "account": "الحساب",
+        "account_code": "رقم الحساب",
+        "debit": "مدين",
+        "credit": "دائن",
+        "balance": "الرصيد",
+        "opening_balance": "الرصيد الافتتاحي",
+        "closing_balance": "الرصيد الختامي",
+        "date": "التاريخ",
+        "reference": "المرجع",
+        "status": "الحالة",
+        "description": "البيان",
+        "source": "المصدر",
+        "customer": "العميل",
+        "vendor": "المورد",
+        "product": "الصنف",
+        "warehouse": "المستودع",
+        "qty": "الكمية",
+        "unit_cost": "تكلفة الوحدة",
+        "running_qty": "الرصيد الجاري",
+        "running_balance": "الرصيد الجاري",
+        "total": "الإجمالي",
+        "amount": "المبلغ",
+        "type": "النوع",
+        "period": "الفترة",
+        "invoice_count": "عدد الفواتير",
+        "revenue": "الإيرادات",
+        "days_overdue": "أيام التأخير",
+        "bucket": "الفئة العمرية",
+    },
+    "en": {
+        "account": "Account",
+        "account_code": "Account Code",
+        "debit": "Debit",
+        "credit": "Credit",
+        "balance": "Balance",
+        "opening_balance": "Opening Balance",
+        "closing_balance": "Closing Balance",
+        "date": "Date",
+        "reference": "Reference",
+        "status": "Status",
+        "description": "Description",
+        "source": "Source",
+        "customer": "Customer",
+        "vendor": "Vendor",
+        "product": "Product",
+        "warehouse": "Warehouse",
+        "qty": "Qty",
+        "unit_cost": "Unit Cost",
+        "running_qty": "Running Qty",
+        "running_balance": "Running Balance",
+        "total": "Total",
+        "amount": "Amount",
+        "type": "Type",
+        "period": "Period",
+        "invoice_count": "Invoices",
+        "revenue": "Revenue",
+        "days_overdue": "Days Overdue",
+        "bucket": "Aging Bucket",
+    },
+}
+
+_TITLES: dict[str, dict[str, str]] = {
+    "ar": {
+        "trial_balance": "ميزان المراجعة",
+        "general_ledger": "دفتر الأستاذ العام",
+        "income_statement": "قائمة الدخل",
+        "balance_sheet": "الميزانية العمومية",
+        "customer_subledger": "كشف حساب عميل",
+        "vendor_subledger": "كشف حساب مورد",
+        "ar_aging": "أعمار ذمم العملاء",
+        "ap_aging": "أعمار ذمم الموردين",
+        "sales_by_customer": "المبيعات حسب العميل",
+        "sales_by_product": "المبيعات حسب الصنف",
+        "sales_by_period": "المبيعات حسب الفترة",
+        "product_cardex": "بطاقة الصنف القياسية",
+    },
+    "en": {
+        "trial_balance": "Trial Balance",
+        "general_ledger": "General Ledger",
+        "income_statement": "Income Statement",
+        "balance_sheet": "Balance Sheet",
+        "customer_subledger": "Customer Statement",
+        "vendor_subledger": "Vendor Statement",
+        "ar_aging": "Accounts Receivable Aging",
+        "ap_aging": "Accounts Payable Aging",
+        "sales_by_customer": "Sales by Customer",
+        "sales_by_product": "Sales by Product",
+        "sales_by_period": "Sales by Period",
+        "product_cardex": "Standard Product Cardex",
+    },
+}
+
+
+def label(lang: str, key: str) -> str:
+    return _LABELS.get(lang, _LABELS["ar"]).get(key, key)
+
+
+def title(lang: str, report_key: str) -> str:
+    return _TITLES.get(lang, _TITLES["ar"]).get(report_key, report_key)

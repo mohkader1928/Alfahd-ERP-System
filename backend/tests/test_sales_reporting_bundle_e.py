@@ -161,3 +161,30 @@ async def test_sales_reports_require_permission(client):
         "/api/v1/reporting/sales/by-customer", params={"date_from": "2026-01-01", "date_to": "2026-12-31"}
     )
     assert resp.status_code == 401
+
+
+async def test_sales_reports_export_pdf_and_excel(client):
+    """Standard Reporting Framework — Sales reports must also serve real
+    PDF/Excel, matching every other report."""
+    _, headers = await _bootstrap_and_login(client)
+    await _invoice_one_sale(
+        client, headers,
+        partner_name="Export Report Customer", product_name="Export Widget", qty="2", unit_price="100.00",
+        invoice_date="2026-06-01",
+    )
+    params = {"date_from": "2026-01-01", "date_to": "2026-12-31"}
+
+    for path in ("by-customer", "by-product", "by-period"):
+        pdf_resp = await client.get(
+            f"/api/v1/reporting/sales/{path}", headers=headers, params={**params, "format": "pdf"}
+        )
+        assert pdf_resp.status_code == 200, pdf_resp.text
+        assert pdf_resp.content[:4] == b"%PDF"
+
+        xlsx_resp = await client.get(
+            f"/api/v1/reporting/sales/{path}",
+            headers=headers,
+            params={**params, "format": "xlsx", "lang": "en"},
+        )
+        assert xlsx_resp.status_code == 200, xlsx_resp.text
+        assert xlsx_resp.content[:2] == b"PK"

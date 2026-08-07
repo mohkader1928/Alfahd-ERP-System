@@ -24,6 +24,7 @@ import { inventoryApi } from "@/features/inventory/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
+import { reportExportHandlers } from "@/lib/report-export";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -692,6 +693,20 @@ function CardexTab() {
       }
       onApply={() => setRanAt({ productId, from: dateFrom, to: dateTo, warehouseId, sourceTable })}
       onPrint={ranAt && cardexQuery.data ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/inventory/stock/cardex",
+            {
+              product_id: ranAt.productId,
+              date_from: ranAt.from,
+              date_to: ranAt.to,
+              warehouse_id: ranAt.warehouseId || undefined,
+              source_table: ranAt.sourceTable || undefined,
+              lang: locale,
+            },
+            companyId
+          )
+        : {})}
       isLoading={cardexQuery.isLoading}
       isError={cardexQuery.isError}
       errorMessage={cardexQuery.error instanceof ApiError ? cardexQuery.error.detail : undefined}

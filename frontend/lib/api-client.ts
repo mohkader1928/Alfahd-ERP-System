@@ -82,6 +82,35 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload as T;
 }
 
+async function requestBlob(
+  path: string,
+  options: Omit<RequestOptions, "body"> = {}
+): Promise<{ blob: Blob; filename: string }> {
+  const { companyId, branchId, skipAuth, headers, ...rest } = options;
+  const finalHeaders: Record<string, string> = { ...(headers as Record<string, string> | undefined) };
+  if (!skipAuth) {
+    const token = getStoredAccessToken();
+    if (token) finalHeaders["Authorization"] = `Bearer ${token}`;
+  }
+  if (companyId) finalHeaders["X-Company-Id"] = companyId;
+  if (branchId) finalHeaders["X-Branch-Id"] = branchId;
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...rest, headers: finalHeaders });
+
+  if (!response.ok) {
+    const isJson = response.headers.get("content-type")?.includes("application/json");
+    const payload = isJson ? await response.json() : await response.text();
+    if (isJson && payload && typeof payload === "object") {
+      throw new ApiError(response.status, payload.title ?? "Error", payload.detail ?? "Request failed");
+    }
+    throw new ApiError(response.status, "Error", typeof payload === "string" ? payload : "Request failed");
+  }
+
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = disposition.match(/filename="?([^"]+)"?/)?.[1] ?? "report";
+  return { blob: await response.blob(), filename };
+}
+
 export const apiClient = {
   get: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "GET" }),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
@@ -91,4 +120,5 @@ export const apiClient = {
   put: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, { ...options, method: "PUT", body }),
   delete: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: "DELETE" }),
+  getBlob: (path: string, options?: RequestOptions) => requestBlob(path, { ...options, method: "GET" }),
 };

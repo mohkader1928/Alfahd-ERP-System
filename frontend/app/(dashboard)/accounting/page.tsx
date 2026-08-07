@@ -29,6 +29,7 @@ import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 import type { AgingRow, SubledgerLine } from "@/features/payments/api/types";
 import { ApiError } from "@/lib/api-client";
+import { reportExportHandlers } from "@/lib/report-export";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
 
 const ACCOUNT_TYPE_CODES = ["asset", "liability", "equity", "revenue", "expense"] as const;
@@ -355,7 +356,7 @@ function tbBalanceCells(row: { account_type_code: string; closing_balance: strin
 }
 
 function TrialBalanceTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
@@ -393,6 +394,13 @@ function TrialBalanceTab() {
       }
       onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
       onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/accounting/reports/trial-balance",
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
@@ -542,6 +550,13 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
       }
       onApply={accountId ? () => setRanAt({ account: accountId, from: dateFrom, to: dateTo }) : undefined}
       onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/accounting/reports/general-ledger",
+            { account_id: ranAt.account, date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
@@ -685,7 +700,7 @@ function FinancialSection({
 }
 
 function IncomeStatementTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
@@ -716,6 +731,13 @@ function IncomeStatementTab() {
       }
       onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
       onPrint={r ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/accounting/reports/income-statement",
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
@@ -789,7 +811,7 @@ function IncomeStatementTab() {
 }
 
 function BalanceSheetTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
   const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -813,6 +835,13 @@ function BalanceSheetTab() {
       }
       onApply={() => setRanAt(asOfDate)}
       onPrint={r ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/accounting/reports/balance-sheet",
+            { as_of_date: ranAt, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
@@ -953,7 +982,7 @@ function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
 }
 
 function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
 
@@ -1013,6 +1042,13 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
       }
       onApply={partnerId ? () => setRanAt({ partner: partnerId, from: dateFrom, to: dateTo }) : undefined}
       onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            `/api/v1/payments/subledger/customer/${ranAt.partner}`,
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
@@ -1041,7 +1077,7 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
 }
 
 function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
 
@@ -1096,6 +1132,13 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
       }
       onApply={partnerId ? () => setRanAt({ partner: partnerId, from: dateFrom, to: dateTo }) : undefined}
       onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            `/api/v1/payments/subledger/vendor/${ranAt.partner}`,
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
@@ -1185,7 +1228,7 @@ function AgingTable({
 }
 
 function ArAgingTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [ranAt, setRanAt] = useState<string | null>(null);
@@ -1207,6 +1250,9 @@ function ArAgingTab() {
       }
       onApply={() => setRanAt(asOfDate)}
       onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers("/api/v1/payments/aging/ar", { as_of_date: ranAt, lang: locale }, companyId)
+        : {})}
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}
@@ -1224,7 +1270,7 @@ function ArAgingTab() {
 }
 
 function ApAgingTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [ranAt, setRanAt] = useState<string | null>(null);
@@ -1246,6 +1292,9 @@ function ApAgingTab() {
       }
       onApply={() => setRanAt(asOfDate)}
       onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers("/api/v1/payments/aging/ap", { as_of_date: ranAt, lang: locale }, companyId)
+        : {})}
       isLoading={reportQuery.isLoading}
       isError={reportQuery.isError}
       onRetry={() => reportQuery.refetch()}

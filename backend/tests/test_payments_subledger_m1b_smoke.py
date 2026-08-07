@@ -635,3 +635,46 @@ async def test_unapproved_vendor_bill_never_appears_in_subledger_or_aging(client
 async def test_subledger_and_aging_require_permission(client):
     resp = await client.get("/api/v1/payments/aging/ar", params={"as_of_date": str(date.today())})
     assert resp.status_code == 401
+
+
+async def test_customer_subledger_and_ar_aging_export_pdf_and_excel(client):
+    """Standard Reporting Framework — Payments' subledger/aging reports
+    must also serve real PDF/Excel, matching every other report."""
+    _, headers = await _bootstrap_and_login(client)
+    today = date.today()
+    _invoice_id, _invoice_total, partner_id = await _issue_customer_invoice(
+        client, headers, "Export Customer"
+    )
+
+    sub_pdf = await client.get(
+        f"/api/v1/payments/subledger/customer/{partner_id}",
+        headers=headers,
+        params={"date_from": str(today), "date_to": str(today), "format": "pdf"},
+    )
+    assert sub_pdf.status_code == 200
+    assert sub_pdf.headers["content-type"] == "application/pdf"
+    assert sub_pdf.content[:4] == b"%PDF"
+
+    sub_xlsx = await client.get(
+        f"/api/v1/payments/subledger/vendor/{partner_id}",
+        headers=headers,
+        params={"date_from": str(today), "date_to": str(today), "format": "xlsx", "lang": "en"},
+    )
+    assert sub_xlsx.status_code == 200
+    assert sub_xlsx.content[:2] == b"PK"
+
+    aging_pdf = await client.get(
+        "/api/v1/payments/aging/ar",
+        headers=headers,
+        params={"as_of_date": str(today), "format": "pdf"},
+    )
+    assert aging_pdf.status_code == 200
+    assert aging_pdf.content[:4] == b"%PDF"
+
+    aging_xlsx = await client.get(
+        "/api/v1/payments/aging/ap",
+        headers=headers,
+        params={"as_of_date": str(today), "format": "xlsx"},
+    )
+    assert aging_xlsx.status_code == 200
+    assert aging_xlsx.content[:2] == b"PK"

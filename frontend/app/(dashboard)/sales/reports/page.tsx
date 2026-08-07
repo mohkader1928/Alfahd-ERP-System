@@ -20,6 +20,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { reportingApi } from "@/features/reporting/api/client";
 import { formatCurrency } from "@/lib/format-currency";
+import { reportExportHandlers } from "@/lib/report-export";
 import type {
   SalesByCustomerRow,
   SalesByPeriodRow,
@@ -79,7 +80,7 @@ function DateRangeFilter({
 // ── Tab: By Customer ──────────────────────────────────────────────────────────
 
 function ByCustomerTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const { dateFrom, setDateFrom, dateTo, setDateTo } = useDateRange();
   const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
@@ -116,6 +117,13 @@ function ByCustomerTab() {
       onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
       onReset={() => setRanAt(null)}
       onPrint={ranAt && rows.length > 0 ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/reporting/sales/by-customer",
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isFetching}
       isError={reportQuery.isError}
       errorMessage={String(reportQuery.error ?? "")}
@@ -180,7 +188,7 @@ function ByCustomerTab() {
 // ── Tab: By Product ───────────────────────────────────────────────────────────
 
 function ByProductTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const { dateFrom, setDateFrom, dateTo, setDateTo } = useDateRange();
   const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
@@ -217,6 +225,13 @@ function ByProductTab() {
       onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
       onReset={() => setRanAt(null)}
       onPrint={ranAt && rows.length > 0 ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/reporting/sales/by-product",
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isFetching}
       isError={reportQuery.isError}
       errorMessage={String(reportQuery.error ?? "")}
@@ -283,7 +298,7 @@ function ByProductTab() {
 // ── Tab: By Period ────────────────────────────────────────────────────────────
 
 function ByPeriodTab() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const { dateFrom, setDateFrom, dateTo, setDateTo } = useDateRange();
   const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
@@ -320,6 +335,13 @@ function ByPeriodTab() {
       onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
       onReset={() => setRanAt(null)}
       onPrint={ranAt && rows.length > 0 ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/reporting/sales/by-period",
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
       isLoading={reportQuery.isFetching}
       isError={reportQuery.isError}
       errorMessage={String(reportQuery.error ?? "")}
