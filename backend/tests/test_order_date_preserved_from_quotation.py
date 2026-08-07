@@ -11,8 +11,6 @@ it was silently absent from `SalesInvoiceOut`, so the frontend had no way
 to ever show it, which is part of why the discarded date went unnoticed.
 """
 
-from datetime import date
-
 from tests.conftest import unique_email, unique_vat
 
 TAX_RATE_PLACEHOLDER = "00000000-0000-0000-0000-000000000001"
@@ -116,7 +114,10 @@ async def test_invoice_response_exposes_its_own_invoice_date(client):
     assert invoice_resp.status_code == 201
     invoice = invoice_resp.json()["invoice"]
     # Previously absent from SalesInvoiceOut entirely — the frontend had no
-    # field to ever display, regardless of what the value was. Issuance date
-    # is deliberately real-time (ZATCA issue-date requirement), unlike the
-    # order date above, so this asserts today's date, not the quote date.
-    assert invoice["invoice_date"] == date.today().isoformat()
+    # field to ever display, regardless of what the value was. Also
+    # previously forced to date.today() on the mistaken assumption ZATCA's
+    # IssueDate required it — it doesn't (the ZATCA payload generates its
+    # own independent now_iso() timestamp, decoupled from this field), so
+    # this now inherits the order's own date instead of silently
+    # discarding it, same as order_date above.
+    assert invoice["invoice_date"] == "2026-01-15"

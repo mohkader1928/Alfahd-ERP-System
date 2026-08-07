@@ -269,7 +269,16 @@ class SalesInvoiceService:
             invoice_type=invoice_type,
             number=number,
             status="draft",
-            invoice_date=date.today(),
+            # Inherits the order's own date rather than date.today() — was
+            # previously forced to today on the mistaken assumption that
+            # ZATCA's IssueDate requires it; it doesn't, the ZATCA payload
+            # generates its own independent timestamp via now_iso() in
+            # _run_zatca_pipeline below, completely decoupled from this
+            # field. Forcing this silently discarded the order's date with
+            # zero indication to the user (Owner-reported, confirmed via
+            # SO-000020/INV-000015: order dated 2026-01-01, invoice dated
+            # today with no way to tell why).
+            invoice_date=order.order_date,
             subtotal_amount=subtotal,
             tax_amount=tax_total,
             total_amount=subtotal + tax_total,

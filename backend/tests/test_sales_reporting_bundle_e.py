@@ -5,8 +5,6 @@ Trial Balance Opening/Period/Closing redesign. Mirrors the bootstrap/login
 pattern in test_reporting_m5_smoke.py.
 """
 
-from datetime import date
-
 from tests.conftest import unique_email, unique_vat
 
 TAX_RATE_PLACEHOLDER = "00000000-0000-0000-0000-000000000001"
@@ -116,10 +114,10 @@ async def test_sales_by_product_aggregates_line_quantities(client):
 
 
 async def test_sales_by_period_groups_by_calendar_month(client):
-    # SalesInvoiceService always stamps invoice_date=date.today() regardless
-    # of the quotation/order dates (see application/services.py) -- so the
-    # invoice's real period is always the current month, not the quote_date
-    # passed below (which only affects the quotation record itself).
+    # SalesInvoiceService now inherits the order's own date (order_date,
+    # itself carried from the quotation's quote_date) rather than forcing
+    # date.today() -- so the invoice's real period follows the date
+    # actually entered on the quotation below, not the day the test runs.
     _, headers = await _bootstrap_and_login(client)
     await _invoice_one_sale(
         client, headers,
@@ -127,7 +125,6 @@ async def test_sales_by_period_groups_by_calendar_month(client):
         invoice_date="2026-07-10",
     )
 
-    current_period = date.today().strftime("%Y-%m")
     resp = await client.get(
         "/api/v1/reporting/sales/by-period",
         headers=headers,
@@ -135,8 +132,8 @@ async def test_sales_by_period_groups_by_calendar_month(client):
     )
     assert resp.status_code == 200
     rows = {row["period_label"]: row for row in resp.json()}
-    assert current_period in rows
-    assert rows[current_period]["total"] == "1150.0000"
+    assert "2026-07" in rows
+    assert rows["2026-07"]["total"] == "1150.0000"
 
 
 async def test_sales_reports_excludes_out_of_range_dates(client):
