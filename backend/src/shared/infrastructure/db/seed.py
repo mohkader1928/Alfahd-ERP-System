@@ -110,6 +110,7 @@ PERMISSION_CATALOG = [
     ("attachment.manage", "action"),
     ("search.use", "screen"),
     ("reporting.vat.view", "screen"),
+    ("reporting.inventory_valuation.view", "screen"),
 ]
 
 

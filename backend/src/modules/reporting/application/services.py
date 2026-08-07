@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.infrastructure.repositories import JournalEntryRepository
 from src.modules.identity.infrastructure.master_data_models import Partner, Product
+from src.modules.inventory.infrastructure.models import Location, StockLayer, StockQuant, Warehouse
 from src.modules.payments.infrastructure.repositories import PaymentRepository
 from src.modules.purchasing.infrastructure.models import PurchaseOrder, VendorBill
 from src.modules.purchasing.infrastructure.repositories import (
@@ -467,3 +468,107 @@ class VatReportingService:
             "purchases_total": purchases_total,
             "net_vat_payable": output_vat - input_vat,
         }
+
+
+# ── Inventory Valuation ────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class InventoryValuationRow:
+    product_id: UUID
+    product_code: str
+    product_name: str
+    warehouse_id: UUID
+    warehouse_name: str
+    qty_on_hand: Decimal
+    unit_cost: Decimal
+    total_value: Decimal
+
+
+class InventoryValuationReportService:
+    """Product Owner audit — "what is my stock worth right now?" is a
+    standard report in every reference ERP and was entirely absent here,
+    even though the costing engine to answer it correctly already existed
+    (`InventoryValuationService` in the inventory module maintains exactly
+    the two structures this report reads).
+
+    Correctness detail that matters: `StockQuant.moving_avg_cost` is only
+    ever updated for `average`-method companies (see
+    `InventoryValuationService.receive_stock`) — for a `fifo` company it
+    stays stale/zero, and the true remaining cost basis lives in
+    `StockLayer.qty_remaining * unit_cost` instead. Reading the wrong
+    structure for a company's actual valuation method would silently
+    understate or zero out the report, so this branches on
+    `company.valuation_method` exactly like the transactional engine does,
+    rather than picking one structure for every company.
+    """
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def valuation(
+        self, *, company_id: UUID, valuation_method: str, warehouse_id: UUID | None = None
+    ) -> list[InventoryValuationRow]:
+        if valuation_method == "fifo":
+            query = (
+                select(
+                    StockLayer.product_id,
+                    Location.warehouse_id,
+                    func.sum(StockLayer.qty_remaining).label("qty"),
+                    func.sum(StockLayer.qty_remaining * StockLayer.unit_cost).label("value"),
+                )
+                .join(Location, Location.id == StockLayer.location_id)
+                .where(StockLayer.company_id == company_id, StockLayer.qty_remaining > 0)
+                .group_by(StockLayer.product_id, Location.warehouse_id)
+            )
+        else:
+            query = (
+                select(
+                    StockQuant.product_id,
+                    Location.warehouse_id,
+                    func.sum(StockQuant.qty_on_hand).label("qty"),
+                    func.sum(StockQuant.qty_on_hand * StockQuant.moving_avg_cost).label("value"),
+                )
+                .join(Location, Location.id == StockQuant.location_id)
+                .where(StockQuant.company_id == company_id, StockQuant.qty_on_hand > 0)
+                .group_by(StockQuant.product_id, Location.warehouse_id)
+            )
+        if warehouse_id is not None:
+            query = query.where(Location.warehouse_id == warehouse_id)
+
+        rows = (await self.session.execute(query)).all()
+        if not rows:
+            return []
+
+        product_ids = {r.product_id for r in rows}
+        warehouse_ids = {r.warehouse_id for r in rows}
+        products = {
+            p.id: p
+            for p in (await self.session.execute(select(Product).where(Product.id.in_(product_ids)))).scalars()
+        }
+        warehouses = {
+            w.id: w
+            for w in (await self.session.execute(select(Warehouse).where(Warehouse.id.in_(warehouse_ids)))).scalars()
+        }
+
+        result = []
+        for r in rows:
+            product = products.get(r.product_id)
+            warehouse = warehouses.get(r.warehouse_id)
+            qty = Decimal(str(r.qty))
+            value = Decimal(str(r.value)).quantize(Decimal("0.0001"))
+            unit_cost = (value / qty).quantize(Decimal("0.0001")) if qty else Decimal("0")
+            result.append(
+                InventoryValuationRow(
+                    product_id=r.product_id,
+                    product_code=product.sku if product else "",
+                    product_name=product.name if product else "",
+                    warehouse_id=r.warehouse_id,
+                    warehouse_name=warehouse.name if warehouse else "",
+                    qty_on_hand=qty,
+                    unit_cost=unit_cost,
+                    total_value=value,
+                )
+            )
+        result.sort(key=lambda row: (row.warehouse_name, row.product_name))
+        return result

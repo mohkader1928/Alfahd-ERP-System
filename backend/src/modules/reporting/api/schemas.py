@@ -77,3 +77,14 @@ class VatSummaryOut(BaseModel):
     input_vat: Decimal
     purchases_total: Decimal
     net_vat_payable: Decimal
+
+
+class InventoryValuationRowOut(BaseModel):
+    product_id: UUID
+    product_code: str
+    product_name: str
+    warehouse_id: UUID
+    warehouse_name: str
+    qty_on_hand: Decimal
+    unit_cost: Decimal
+    total_value: Decimal

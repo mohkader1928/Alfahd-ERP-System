@@ -53,6 +53,19 @@ export interface SalesByPeriodRow {
   total: string;
 }
 
+// ── Inventory Valuation ──────────────────────────────────────────────────────
+
+export interface InventoryValuationRow {
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  qty_on_hand: string;
+  unit_cost: string;
+  total_value: string;
+}
+
 // ── VAT / Tax Summary ────────────────────────────────────────────────────────
 
 export interface VatSummary {

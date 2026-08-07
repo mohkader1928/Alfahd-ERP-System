@@ -1,6 +1,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   DashboardSummary,
+  InventoryValuationRow,
   SalesByCustomerRow,
   SalesByPeriodRow,
   SalesByProductRow,
@@ -44,4 +45,12 @@ export const reportingApi = {
 
   vatSummary: (companyId: string, dateFrom: string, dateTo: string) =>
     apiClient.get<VatSummary>(`${BASE}/vat-summary?date_from=${dateFrom}&date_to=${dateTo}`, { companyId }),
+
+  // ── Inventory Valuation ────────────────────────────────────────────────────────
+
+  inventoryValuation: (companyId: string, warehouseId?: string) =>
+    apiClient.get<InventoryValuationRow[]>(
+      `${BASE}/inventory-valuation${warehouseId ? `?warehouse_id=${warehouseId}` : ""}`,
+      { companyId }
+    ),
 };

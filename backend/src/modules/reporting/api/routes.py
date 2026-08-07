@@ -3,6 +3,7 @@
 from datetime import date
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,7 @@ from src.modules.identity.api.deps import get_company_repo
 from src.modules.identity.infrastructure.repositories import AuditLogRepository, CompanyRepository
 from src.modules.reporting.api.deps import (
     get_dashboard_service,
+    get_inventory_valuation_service,
     get_sales_reporting_service,
     get_search_service,
     get_vat_reporting_service,
@@ -18,6 +20,7 @@ from src.modules.reporting.api.deps import (
 )
 from src.modules.reporting.api.schemas import (
     DashboardSummaryOut,
+    InventoryValuationRowOut,
     SalesByCustomerRow,
     SalesByPeriodRow,
     SalesByProductRow,
@@ -26,6 +29,7 @@ from src.modules.reporting.api.schemas import (
 )
 from src.modules.reporting.application.services import (
     DashboardService,
+    InventoryValuationReportService,
     SalesReportingService,
     SearchService,
     VatReportingService,
@@ -281,3 +285,53 @@ async def vat_summary(
         rtl=lang == "ar",
     )
     return build_export_response(format, "vat-summary", table)
+
+
+# ── Inventory Valuation ────────────────────────────────────────────────────────
+
+@router.get("/inventory-valuation", response_model=list[InventoryValuationRowOut])
+async def inventory_valuation(
+    warehouse_id: UUID | None = None,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("reporting.inventory_valuation.view")),
+    service: InventoryValuationReportService = Depends(get_inventory_valuation_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """Product Owner audit — "what is my stock worth right now?": current
+    on-hand quantity and value per product/warehouse, using whichever
+    costing method (FIFO or moving average) this company actually runs."""
+    company = await company_repo.get_by_id(ctx.company_id)
+    valuation_method = company.valuation_method if company else "average"
+    rows = await service.valuation(
+        company_id=ctx.company_id, valuation_method=valuation_method, warehouse_id=warehouse_id
+    )
+    if format == "json":
+        return rows
+
+    total_value = sum((r.total_value for r in rows), Decimal("0"))
+    table = ReportTable(
+        title=title(lang, "inventory_valuation"),
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=None,
+        columns=[
+            ReportColumn(label(lang, "warehouse")),
+            ReportColumn(label(lang, "product")),
+            ReportColumn(label(lang, "qty"), "end"),
+            ReportColumn(label(lang, "unit_cost"), "end"),
+            ReportColumn(label(lang, "total"), "end"),
+        ],
+        rows=[
+            [
+                r.warehouse_name,
+                f"{r.product_code} — {r.product_name}",
+                format_qty(r.qty_on_hand),
+                format_amount(r.unit_cost),
+                format_amount(r.total_value),
+            ]
+            for r in rows
+        ],
+        totals=[label(lang, "total"), "", "", "", format_amount(total_value)],
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, "inventory-valuation", table)

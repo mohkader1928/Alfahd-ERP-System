@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
@@ -21,6 +21,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { inventoryApi } from "@/features/inventory/api/client";
+import { reportingApi } from "@/features/reporting/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
@@ -786,6 +787,116 @@ function CardexTab() {
   );
 }
 
+function ValuationTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const { warehouses } = useWarehouseLabel();
+
+  const [warehouseId, setWarehouseId] = useState("");
+  const [ranAt, setRanAt] = useState<{ warehouseId: string } | null>({ warehouseId: "" });
+
+  const valuationQuery = useQuery({
+    queryKey: ["inventory-valuation", companyId, ranAt?.warehouseId],
+    queryFn: () => reportingApi.inventoryValuation(companyId, ranAt!.warehouseId || undefined),
+    enabled: !!ranAt,
+  });
+
+  const rows = valuationQuery.data ?? [];
+  const totalValue = rows.reduce((sum, r) => sum + Number(r.total_value), 0);
+
+  return (
+    <ReportView
+      title={t("inventory.tabs.valuation")}
+      filterArea={
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs">{t("inventory.stock.warehouse")}</Label>
+          <Select value={warehouseId || "all"} onValueChange={(v) => setWarehouseId(v === "all" ? "" : (v ?? ""))}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder={t("inventory.cardex.all_warehouses")}>
+                {(value: string) =>
+                  value === "all"
+                    ? t("inventory.cardex.all_warehouses")
+                    : (warehouses.find((w) => w.id === value)?.name ?? value)
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("inventory.cardex.all_warehouses")}</SelectItem>
+              {warehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      }
+      onApply={() => setRanAt({ warehouseId })}
+      onPrint={ranAt && rows.length > 0 ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/reporting/inventory-valuation",
+            { warehouse_id: ranAt.warehouseId || undefined, lang: locale },
+            companyId
+          )
+        : {})}
+      isLoading={valuationQuery.isLoading}
+      isError={valuationQuery.isError}
+      errorMessage={valuationQuery.error instanceof ApiError ? valuationQuery.error.detail : undefined}
+      onRetry={() => valuationQuery.refetch()}
+      isEmpty={!!ranAt && !valuationQuery.isLoading && rows.length === 0}
+      kpis={
+        rows.length > 0
+          ? [
+              { label: t("inventory.valuation.products"), value: String(rows.length) },
+              { label: t("inventory.valuation.total_value"), value: formatCurrency(totalValue) },
+            ]
+          : undefined
+      }
+    >
+      {ranAt && rows.length > 0 && (
+        <>
+          <ReportPrintHeader reportTitle={t("inventory.tabs.valuation")} />
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("inventory.stock.warehouse")}</TableHead>
+                <TableHead>{t("inventory.stock.product")}</TableHead>
+                <TableHead className="text-end">{t("inventory.stock.qty_on_hand")}</TableHead>
+                <TableHead className="text-end">{t("inventory.valuation.unit_cost")}</TableHead>
+                <TableHead className="text-end font-semibold">{t("inventory.valuation.total_value")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={`${r.product_id}-${r.warehouse_id}`}>
+                  <TableCell>{r.warehouse_name}</TableCell>
+                  <TableCell>
+                    <Link href={`/inventory/stock-card/${r.product_id}`} className="underline-offset-4 hover:underline">
+                      {r.product_code} — {r.product_name}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-end tabular-nums">{r.qty_on_hand}</TableCell>
+                  <TableCell className="text-end tabular-nums">{formatCurrency(r.unit_cost)}</TableCell>
+                  <TableCell className="text-end tabular-nums font-semibold">{formatCurrency(r.total_value)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell colSpan={4} className="font-bold">
+                  {t("inventory.valuation.total_value")}
+                </TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totalValue)}</TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
+        </>
+      )}
+    </ReportView>
+  );
+}
+
 export default function InventoryPage() {
   const { t } = useI18n();
   // See the same note in accounting/page.tsx — Base UI's Tabs.Panel doesn't
@@ -803,6 +914,7 @@ export default function InventoryPage() {
           <TabsTrigger value="transfer">{t("inventory.tabs.transfer")}</TabsTrigger>
           <TabsTrigger value="cycle-counts">{t("inventory.tabs.cycle_counts")}</TabsTrigger>
           <TabsTrigger value="cardex">{t("inventory.tabs.cardex")}</TabsTrigger>
+          <TabsTrigger value="valuation">{t("inventory.tabs.valuation")}</TabsTrigger>
         </TabsList>
         <TabsContent value="warehouses">{tab === "warehouses" && <WarehousesTab />}</TabsContent>
         <TabsContent value="stock">{tab === "stock" && <StockTab />}</TabsContent>
@@ -810,6 +922,7 @@ export default function InventoryPage() {
         <TabsContent value="transfer">{tab === "transfer" && <TransferTab />}</TabsContent>
         <TabsContent value="cycle-counts">{tab === "cycle-counts" && <CycleCountsTab />}</TabsContent>
         <TabsContent value="cardex">{tab === "cardex" && <CardexTab />}</TabsContent>
+        <TabsContent value="valuation">{tab === "valuation" && <ValuationTab />}</TabsContent>
       </Tabs>
     </div>
   );

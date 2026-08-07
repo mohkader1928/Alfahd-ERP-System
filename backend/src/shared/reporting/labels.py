@@ -95,6 +95,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "sales_by_period": "المبيعات حسب الفترة",
         "product_cardex": "بطاقة الصنف القياسية",
         "vat_summary": "ملخص ضريبة القيمة المضافة",
+        "inventory_valuation": "تقييم المخزون",
     },
     "en": {
         "trial_balance": "Trial Balance",
@@ -110,6 +111,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "sales_by_period": "Sales by Period",
         "product_cardex": "Standard Product Cardex",
         "vat_summary": "VAT Summary",
+        "inventory_valuation": "Inventory Valuation",
     },
 }
 
