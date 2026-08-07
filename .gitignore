@@ -20,6 +20,10 @@ __pycache__/
 # on the host at backend/media/ — never real content to commit).
 backend/media/
 
+# Uploaded document attachments — same reasoning, separate directory (see
+# Settings.attachments_root's docstring for why it's not under media/).
+backend/attachments/
+
 # Frontend
 node_modules/
 .next/

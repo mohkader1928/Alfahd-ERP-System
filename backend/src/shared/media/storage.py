@@ -79,3 +79,71 @@ def build_media_url(relative_path: str | None) -> str | None:
     if not relative_path:
         return None
     return f"/media/{relative_path}"
+
+
+# Attachments (Professional Workspace Layer) — deliberately a wider allowlist
+# than entity images (real business documents: scanned POs, signed delivery
+# notes, vendor invoice PDFs) and a separate storage root (see
+# Settings.attachments_root's docstring — never served by the public /media
+# mount, only through the authenticated download endpoint).
+ALLOWED_ATTACHMENT_CONTENT_TYPES = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "text/csv": "csv",
+    "text/plain": "txt",
+}
+
+
+class InvalidAttachmentError(ValueError):
+    pass
+
+
+async def save_attachment_file(file: UploadFile, *, company_id: str) -> tuple[str, int]:
+    """Validates and stores an uploaded document, returning
+    (relative_path, size_bytes). Same shape of guarantees as
+    `save_entity_image` (no path traversal — company_id is always a UUID
+    the route already parsed), but under `attachments_root`, not
+    `media_root`."""
+    content_type = file.content_type or ""
+    extension = ALLOWED_ATTACHMENT_CONTENT_TYPES.get(content_type)
+    if extension is None:
+        raise InvalidAttachmentError(
+            f"Unsupported file type: {content_type or 'unknown'}. "
+            "Allowed: PDF, JPEG, PNG, WEBP, Word, Excel, CSV, TXT."
+        )
+
+    settings = get_settings()
+    contents = await file.read()
+    if len(contents) == 0:
+        raise InvalidAttachmentError("Uploaded file is empty.")
+    if len(contents) > settings.attachment_max_bytes:
+        max_mb = settings.attachment_max_bytes / (1024 * 1024)
+        raise InvalidAttachmentError(f"File exceeds the {max_mb:.0f}MB limit.")
+
+    relative_dir = Path(company_id)
+    absolute_dir = Path(settings.attachments_root) / relative_dir
+    absolute_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{uuid.uuid4().hex}.{extension}"
+    (absolute_dir / filename).write_bytes(contents)
+
+    return str(relative_dir / filename).replace("\\", "/"), len(contents)
+
+
+def delete_attachment_file(relative_path: str) -> None:
+    """Best-effort delete, same stance as `delete_entity_image`."""
+    settings = get_settings()
+    try:
+        (Path(settings.attachments_root) / relative_path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def attachment_file_path(relative_path: str) -> Path:
+    return Path(get_settings().attachments_root) / relative_path

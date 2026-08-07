@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Can } from "@/components/erp/permissions/can";
+import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { salesApi } from "@/features/sales/api/client";
@@ -107,6 +108,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               </div>
             </Can>
           )}
+
+          <AttachmentsPanel entityType="sales_invoice" entityId={invoice.id} />
         </CardContent>
       </Card>
     </div>

@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     media_root: str = "/app/media"
     media_max_bytes: int = 2 * 1024 * 1024
 
+    # Attachments (Professional Workspace Layer): deliberately a *separate*
+    # directory from media_root, never nested under it — media_root is
+    # served unauthenticated at /media (see api/main.py's mount comment),
+    # and attachments (invoice PDFs, contracts, scanned documents) must
+    # only ever be reachable through the authenticated, permission-checked
+    # download endpoint.
+    attachments_root: str = "/app/attachments"
+    attachment_max_bytes: int = 10 * 1024 * 1024
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

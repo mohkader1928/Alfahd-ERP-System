@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Can } from "@/components/erp/permissions/can";
+import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -166,6 +167,8 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
             )}
           </div>
           {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+
+          <AttachmentsPanel entityType="purchase_order" entityId={order.id} />
         </CardContent>
       </Card>
     </div>

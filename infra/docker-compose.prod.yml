@@ -55,6 +55,11 @@ services:
       # image COPYs it in), so uploaded images need their own volume or
       # they'd vanish on every redeploy.
       - media_data:/app/media
+      # Attachments (Professional Workspace Layer): a separate volume, not
+      # a subfolder of media_data — /app/media is served unauthenticated by
+      # the /media StaticFiles mount, and attachments (invoices, contracts)
+      # must not be reachable that way.
+      - attachment_data:/app/attachments
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -106,3 +111,4 @@ services:
 volumes:
   postgres_data:
   media_data:
+  attachment_data:

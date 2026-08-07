@@ -100,6 +100,12 @@ PERMISSION_CATALOG = [
     # Phase 17D — Payments
     ("payment.view", "screen"),
     ("payment.create", "action"),
+    # Professional Workspace Layer — Attachments: one pair of permissions
+    # for the whole cross-cutting concern (view/download vs upload/delete),
+    # not one per document type — matches the same "single permission for
+    # a cross-module concern" precedent `audit_log.view` already set.
+    ("attachment.view", "screen"),
+    ("attachment.manage", "action"),
 ]
 
 
@@ -139,17 +145,36 @@ async def seed_core_data(session: AsyncSession) -> None:
     # roles *indirectly* — any role already holding a permission only an
     # Admin role would have — works unconditionally, regardless of DB user
     # or company context.
-    await session.execute(text("""
+    # Performance note (found live: this query saturated a dev DB that had
+    # accumulated ~9,000 roles from repeated test bootstrapping — every
+    # role x every catalog permission with a correlated NOT EXISTS is
+    # O(roles x permissions), and this runs on every API startup). Narrow
+    # to *incomplete* Admin roles first with a cheap GROUP BY/HAVING (index-
+    # only on the role_permission PK) — in steady state that's ~0 rows, so
+    # the expensive CROSS JOIN below only ever runs against roles that
+    # actually need it (freshly created, or a permission was just added to
+    # the catalog).
+    catalog_size = len(PERMISSION_CATALOG)
+    await session.execute(
+        text("""
         INSERT INTO role_permission (role_id, permission_id)
-        SELECT DISTINCT admin_rp.role_id, p_missing.id
-        FROM role_permission admin_rp
-        JOIN permission p_marker ON p_marker.id = admin_rp.permission_id
-                                  AND p_marker.code = 'reporting.dashboard.view'
+        SELECT incomplete.role_id, p_missing.id
+        FROM (
+            SELECT admin_rp.role_id
+            FROM role_permission admin_rp
+            JOIN permission p_marker ON p_marker.id = admin_rp.permission_id
+                                      AND p_marker.code = 'reporting.dashboard.view'
+            JOIN role_permission rp_count ON rp_count.role_id = admin_rp.role_id
+            GROUP BY admin_rp.role_id
+            HAVING COUNT(*) < :catalog_size
+        ) incomplete
         CROSS JOIN permission p_missing
         WHERE NOT EXISTS (
             SELECT 1 FROM role_permission rp2
-            WHERE rp2.role_id = admin_rp.role_id AND rp2.permission_id = p_missing.id
+            WHERE rp2.role_id = incomplete.role_id AND rp2.permission_id = p_missing.id
         )
-    """))
+    """),
+        {"catalog_size": catalog_size},
+    )
 
     await session.commit()

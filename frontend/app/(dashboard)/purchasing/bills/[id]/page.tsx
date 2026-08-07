@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Can } from "@/components/erp/permissions/can";
+import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -120,6 +121,8 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
               </Button>
             </Can>
           )}
+
+          <AttachmentsPanel entityType="vendor_bill" entityId={bill.id} />
         </CardContent>
       </Card>
     </div>
