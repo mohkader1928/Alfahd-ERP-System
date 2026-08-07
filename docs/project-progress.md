@@ -8,17 +8,19 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `dc94a9a` (`main`) —
-**Attachments (Professional Workspace Layer)** (see dated entry below for
-full detail). 228/228 backend tests, `ruff`/`tsc`/`eslint` all clean.
+**Last verified**: 2026-08-07, on top of committed `a8d3ed3` (`main`) —
+**Global Search (Professional Workspace Layer)** (see dated entry below
+for full detail). 233/233 backend tests, `ruff`/`tsc`/`eslint` all clean.
 
-**Prior**: 2026-08-07, `7c3adb2` — **Users Management (Identity/Access/
-Governance)**; `3138b5c` — **Standard Reporting Framework** (see dated
-entries below for full detail).
-217/217 backend tests, `ruff`/`tsc`/`eslint` all clean. Owner Acceptance
-pending — this and the prior slice's on-screen walkthroughs are both
-still owed (blocked on the Browser preview pane, a tooling issue, not
-an application bug — see the dated entry).
+**Prior, same day, continuous execution per Owner directive** (see each
+dated entry below for full detail): `dc94a9a` — Attachments; `7c3adb2` —
+Users Management (Identity/Access/Governance); `3138b5c` — Standard
+Reporting Framework. Owner Acceptance is pending for all of these — the
+on-screen browser walkthrough specifically remains owed (blocked on the
+Browser preview pane, a tooling/environment issue this session, not an
+application bug); every bundle below was instead verified for real
+through direct authenticated HTTP calls against live company data plus
+full automated test coverage, and documented as such rather than assumed.
 
 **Full-project re-audit (2026-08-07)**: Owner directive to stop
 report-by-report execution, review the whole system (backend modules, DB,
@@ -382,6 +384,43 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Global Search — Professional Workspace Layer (2026-08-07)**, committed
+as `a8d3ed3`: every reference ERP has one search box that crosses entity
+types; a user had to already know which module a customer/invoice/product
+lived in to find it before this.
+
+- **Backend**: new `SearchService` in the `reporting` module — the one
+  module already permitted to query other modules' tables directly
+  (`DashboardService`/`SalesReportingService` already establish this
+  rule). Queries partners (by name, AR/EN), products (by name/SKU),
+  sales quotations/orders/invoices, purchase orders, and vendor bills (by
+  number) — 5 results per type, `ILIKE` substring match. `GET
+  /reporting/search?q=...`, gated by one new `search.use` permission —
+  RLS still fully scopes every underlying query to `company_id`
+  regardless (no cross-company leak even though the permission itself
+  isn't split per-entity-type — the same coarse-grain tradeoff
+  `audit_log.view` already made).
+- **Frontend**: one `GlobalSearch` box added to the `Topbar` (250ms
+  debounce, click-outside-to-close, grouped results with a type label per
+  row) — wired in exactly once since the Topbar is already global to
+  every authenticated page. Extended the existing `source-document-links`
+  map (already used for Journal Entry drill-down) with the entity types
+  Global Search needed routes for (`partner`, `product`,
+  `sales_quotation`, `sales_order`, `purchase_order`).
+- **Tests**: 5 new (finds a partner and product by name in one query,
+  finds a sales invoice by its real generated number, isolated across
+  companies, single-character queries correctly return nothing on both
+  ends of the `>=2`-char gate, 401 without auth). 233/233 backend total,
+  `ruff`/`tsc`/`eslint` all clean.
+- **Verified for real, not simulated**: run directly against the live
+  demo company's actual data — `"A4"` found the real "A4 Paper Ream"
+  product used throughout this session's own testing; `"trading"` found
+  three real customers ("Ahmed Trading Co.", "Al-Faisal Trading Co.",
+  "Madinah Textile Trading"); confirmed multiple entity types return
+  together in one query (`partner` + `product` for `"de"`).
 
 **Owner Accepted: pending.**
 
