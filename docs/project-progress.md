@@ -8,16 +8,18 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `a20ebbf` (`main`) —
-**Sales Invoices list: server-side filtering + real pagination** (see
-dated entry below for full detail), the fifth bundle picked by the same
-Product Owner audit methodology. 259/259 backend tests, `ruff`/`tsc`/
-`eslint` all clean, verified live (status/date filter bar renders,
-changing a filter fires a real server request and the result set +
-total count update correctly, no console errors).
+**Last verified**: 2026-08-08, on top of committed `0b7e319` (`main`) —
+**Purchase Orders + Vendor Bills lists: server-side filtering + real
+pagination** (see dated entry below for full detail), the sixth bundle
+picked by the same Product Owner audit methodology. 263/263 backend
+tests, `ruff`/`tsc`/`eslint` all clean, verified live (status filter on
+Purchase Orders and partner filter on the New Payment vendor-bill picker
+both fire real server requests and narrow the result set correctly, no
+console errors).
 
-**Prior, same day, continuous execution per Owner directive** (see each
-dated entry below for full detail): `08369aa` — Inventory Valuation
+**Prior, same day/session, continuous execution per Owner directive**
+(see each dated entry below for full detail): `a20ebbf` — Sales Invoices
+list pagination; `08369aa` — Inventory Valuation
 report; `a2e6752` — Dashboard Enrichment; `3a6f46e` — Document Delivery
 (Sales Invoice PDF + Send by Email); `5b88f0f` — Purchase Order Approval
 Workflow + Notifications; `ef822dd` — VAT/Tax Summary Report; `a8d3ed3`
@@ -458,6 +460,61 @@ endpoint supported `status`/date filters).
   page_size=200` request (confirmed via network inspection) and the
   result set + "16 of 16" total-count footer updated correctly, no
   console errors. `tsc`/`eslint` clean.
+
+**Owner Accepted: pending.**
+
+**Purchase Orders + Vendor Bills lists: server-side filtering + real
+pagination (2026-08-08)**, committed as `0b7e319`. Sixth bundle picked by
+the Product Owner audit methodology — the direct extension of the same
+gap Sales Invoices closed, this time to the two Purchasing list screens,
+chosen over Document Numbering (bigger/riskier redesign) and
+Multi-Currency (an architectural-decision item flagged for an explicit
+Owner checkpoint, not started).
+
+- **Real bug found and fixed, not just a missing nice-to-have**: unlike
+  Sales Invoices' `limit=500`, `PurchaseOrderRepository.list_by_company`
+  and `VendorBillRepository.list_by_company` had **no limit at all** —
+  every purchase order and every vendor bill in a company was loaded on
+  every render of either list tab, with no page control able to narrow
+  it. Same class of bug as the prior bundle, worse in this case since
+  there was no cap whatsoever.
+- **Backend**: new `PurchaseOrderRepository.list_by_company_page`
+  (status/date_from/date_to filters) and
+  `VendorBillRepository.list_by_company_page` (partner_id/status/
+  date_from/date_to filters) — real SQL `LIMIT`/`OFFSET` plus a matching
+  `COUNT(*)`, ordered by the natural date field descending then `id
+  desc` as a tiebreaker so paging never skips or duplicates a row.
+  `GET /purchasing/orders` and `GET /purchasing/vendor-bills` now return
+  the shared `Page[T]` envelope, the same pattern established for Sales
+  Invoices. The old unbounded `list_by_company` methods were left
+  untouched for their existing in-process callers.
+- **Frontend**: both Purchasing list tabs (Orders, Vendor Bills) gained
+  the same `FilterBar` component already used by Sales Invoices — status
+  select + date range for Orders, plus partner for Vendor Bills is
+  reachable through the existing document picker. The "New Payment"
+  vendor-bill document picker was updated to unwrap the new `Page<T>`
+  envelope and request a generous page size, mirroring the identical fix
+  already applied to the invoice picker in the prior bundle.
+- **Tests**: `backend/tests/test_purchasing_list_pagination.py` (4 new:
+  distinct non-overlapping pages across a 5-order spread; status and
+  date-range filters narrow correctly; a 3-bill spread pages correctly
+  and the partner filter narrows to exactly the right bill; both list
+  endpoints still require authentication). Fixed 5 pre-existing
+  assertions across `test_multi_tenancy_isolation.py`,
+  `test_purchasing_m4_smoke.py` (3 call sites), and
+  `test_payments_m6_smoke.py` that read the old bare-array response
+  shape. 263/263 backend tests, `ruff` clean, `tsc`/`eslint` clean.
+- **Verified live**: logged into the general demo company (19 purchase
+  orders, 18 vendor bills). Purchase Orders list rendered all 19 rows;
+  setting the status filter to `draft` fired a real
+  `GET /purchasing/orders?status=draft&page=1&page_size=200` request
+  (confirmed via network inspection) and correctly narrowed to zero rows
+  (every demo PO is `confirmed`). Vendor Bills list rendered all 18 rows
+  with the Approve action still working for `matched` bills. In the New
+  Payment screen, switching to a vendor payment and selecting "Meshkaty"
+  fired `GET /purchasing/vendor-bills?partner_id=...&page=1&
+  page_size=200` and the document dropdown correctly showed exactly that
+  vendor's 3 bills. No console errors.
 
 **Owner Accepted: pending.**
 
