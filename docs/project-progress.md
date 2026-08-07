@@ -8,19 +8,22 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `a8d3ed3` (`main`) —
-**Global Search (Professional Workspace Layer)** (see dated entry below
-for full detail). 233/233 backend tests, `ruff`/`tsc`/`eslint` all clean.
+**Last verified**: 2026-08-07, on top of committed `ef822dd` (`main`) —
+**VAT/Tax Summary Report** (see dated entry below for full detail).
+237/237 backend tests, `ruff`/`tsc`/`eslint` all clean. This one was
+verified with a real on-screen browser walkthrough (login, run report,
+read live numbers) — the Browser preview pane recovered this session.
 
 **Prior, same day, continuous execution per Owner directive** (see each
-dated entry below for full detail): `dc94a9a` — Attachments; `7c3adb2` —
-Users Management (Identity/Access/Governance); `3138b5c` — Standard
-Reporting Framework. Owner Acceptance is pending for all of these — the
-on-screen browser walkthrough specifically remains owed (blocked on the
-Browser preview pane, a tooling/environment issue this session, not an
-application bug); every bundle below was instead verified for real
-through direct authenticated HTTP calls against live company data plus
-full automated test coverage, and documented as such rather than assumed.
+dated entry below for full detail): `a8d3ed3` — Global Search; `dc94a9a`
+— Attachments; `7c3adb2` — Users Management (Identity/Access/Governance);
+`3138b5c` — Standard Reporting Framework. Owner Acceptance is pending for
+these four — the on-screen browser walkthrough specifically remains owed
+(was blocked on the Browser preview pane, a tooling/environment issue for
+that stretch of the session, not an application bug); every one of those
+bundles was instead verified for real through direct authenticated HTTP
+calls against live company data plus full automated test coverage, and
+documented as such rather than assumed.
 
 **Full-project re-audit (2026-08-07)**: Owner directive to stop
 report-by-report execution, review the whole system (backend modules, DB,
@@ -384,6 +387,54 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**VAT/Tax Summary Report (2026-08-07)**, committed as `ef822dd`: the
+standard baseline every Saudi business needs before filing a ZATCA VAT
+return — output VAT (sales) vs. input VAT (purchases) for a period,
+netted to what's actually owed or refundable. Was an open gap on the
+reporting roadmap (flagged, not silently dropped, in the Standard
+Reporting Framework entry below).
+
+- **Backend**: new `VatReportingService` in the `reporting` module (same
+  cross-module-read precedent as `DashboardService`/`SearchService`).
+  Sums sales-invoice and vendor-bill subtotal/tax/total for a date range,
+  filtered to documents that actually posted to the books
+  (`journal_entry_id is not None` — the same "real accounting impact, not
+  a draft" filter AR/AP Aging already applies), and nets credit notes
+  against gross sales. `GET /reporting/vat-summary` with the standard
+  `format=json|pdf|xlsx` / `lang=ar|en` export support, gated by one new
+  `reporting.vat.view` permission.
+- **Frontend**: new "VAT Summary" tab on the Accounting page, reusing
+  `ReportView`/`ReportPrintHeader` exactly like Trial Balance/Income
+  Statement/Balance Sheet — date-range filter, KPI cards (Output VAT,
+  Input VAT, and a Net Payable/Refundable card that swaps its own label
+  depending on the sign), full breakdown table, PDF/Excel/print export.
+- **Real bug found and fixed**: while writing the test for this report,
+  discovered the test's own vendor-bill helper never created a default
+  warehouse before posting a goods receipt — the goods-receipt endpoint
+  correctly 422's without one, which silently left the bill's received
+  qty at 0 and the bill stuck in `mismatched` status, so `:approve`
+  correctly 409'd. Not a report bug — a test-fixture gap masking the real
+  procure-to-pay precondition. Fixed by creating a default warehouse
+  before posting, and by asserting intermediate status codes so this
+  class of failure surfaces immediately instead of as an opaque 409 three
+  calls later. Separately confirmed `SalesInvoice.invoice_date` /
+  `VendorBill.bill_date` are always `date.today()` at post time
+  (documents are dated when actually issued, not when quoted/ordered) —
+  a deliberate design, not a bug, but the test's fixed historical dates
+  had to be replaced with dynamic `date.today()`-relative ranges to match
+  it.
+- **Tests**: `backend/tests/test_vat_summary.py` (4 new: nets output vs.
+  input VAT across a real sale + a real procure-to-pay cycle; excludes
+  out-of-range documents; PDF/Excel export; permission gate). 237/237
+  backend tests, `ruff` clean.
+- **Verified live**: full browser walkthrough — logged in as the general
+  demo user, opened Accounting → VAT Summary, ran the report against the
+  demo company's real data, confirmed the KPI cards and breakdown table
+  render correct SAR figures and the Refundable/Payable label switches
+  correctly on sign, no console errors.
 
 **Owner Accepted: pending.**
 
