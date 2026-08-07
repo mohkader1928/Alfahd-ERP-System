@@ -8,20 +8,21 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-07, on top of committed `3a6f46e` (`main`) —
-**Document Delivery: Sales Invoice PDF + Send by Email** (see dated entry
-below for full detail), the second bundle picked by the same Product
-Owner audit methodology. 248/248 backend tests, `ruff`/`tsc`/`eslint` all
-clean, verified live end-to-end (real PDF download in-browser, Send-by-
-Email dialog surfacing the exact backend error when SMTP is unconfigured
-in dev).
+**Last verified**: 2026-08-07, on top of committed `a2e6752` (`main`) —
+**Dashboard Enrichment** (see dated entry below for full detail), the
+third bundle picked by the same Product Owner audit methodology.
+250/250 backend tests, `ruff`/`tsc`/`eslint` all clean, verified live
+end-to-end in the browser against real demo-company data (KPI cards,
+pending-approvals alert, 6-month trend chart, and recent-activity feed
+all rendering correctly with no console errors).
 
 **Prior, same day, continuous execution per Owner directive** (see each
-dated entry below for full detail): `5b88f0f` — Purchase Order Approval
+dated entry below for full detail): `3a6f46e` — Document Delivery (Sales
+Invoice PDF + Send by Email); `5b88f0f` — Purchase Order Approval
 Workflow + Notifications; `ef822dd` — VAT/Tax Summary Report; `a8d3ed3` —
 Global Search; `dc94a9a` — Attachments; `7c3adb2` — Users Management
 (Identity/Access/Governance); `3138b5c` — Standard Reporting Framework.
-Owner Acceptance is pending for the earlier four of these — the
+Owner Acceptance is pending for the earliest four of these — the
 on-screen browser walkthrough specifically remains owed (was blocked on
 the Browser preview pane, a tooling/environment issue for that stretch of
 the session, not an application bug); every one of those bundles was
@@ -391,6 +392,55 @@ Sales & Purchasing & Inventory reports), not "just add a column":
   Purchasing/Inventory report sets (valuation, low-stock, purchases-by-
   vendor, etc.) are still open and are the next priority items, not
   silently dropped.
+
+**Owner Accepted: pending.**
+
+**Dashboard Enrichment (2026-08-07)**, committed as `a2e6752`. Third
+bundle picked by the Product Owner audit methodology — the dashboard
+was 4 static KPI cards with no drill-down, no trend, no exceptions, and
+no activity feed, the single most visible gap against SAP B1/Dynamics
+365 BC/Odoo/ERPNext (every one of which opens on more than plain
+numbers) and literally the first screen every user sees on login.
+
+- **Backend**: `DashboardService.get_summary` now also returns a real
+  6-month sales trend (reuses the existing `sum_total_in_range` per
+  calendar month — no new aggregation logic invented), a
+  `pending_approvals_count` sourced directly from the Approval Workflow
+  built earlier this session (`PurchaseOrderRepository.list_by_company
+  (status="pending_approval")` — the dashboard now surfaces exactly the
+  gate that bundle built, closing the loop instead of leaving it only
+  reachable from the Purchasing screen), and a `recent_activity` feed
+  merging the latest sales invoices, purchase orders, and payments
+  across three modules, sorted by date. Fully backward compatible — the
+  existing `DashboardSummaryOut` fields are untouched, only extended.
+- **Frontend**: a hand-rolled SVG bar chart for the trend (six data
+  points don't justify a new charting-library dependency), an amber
+  actionable alert card that only appears when approvals are actually
+  pending (links to Purchasing), a recent-activity feed with per-type
+  icons and real drill-down links (reuses the existing
+  `source-document-links` map from the Journal Entry traceability work,
+  not a new one), and quick-action shortcuts (New Quotation, New
+  Purchase Order, Record Payment) — the same "let the user act, not just
+  observe" principle the Approval Workflow bundle already established.
+- **Tests**: `backend/tests/test_dashboard_enrichment.py` (2 new: a
+  company with a real invoice and a real PO stuck above its approval
+  threshold shows the correct trend total, the correct pending count,
+  and both documents in recent activity, most-recent-first; a company
+  with zero activity reports clean zeros rather than erroring). 250/250
+  backend tests, `ruff` clean.
+- **Verified live**: logged into the real demo company in-browser — KPI
+  cards, the amber pending-approvals banner (correctly showing the one
+  real PO created earlier this session), the 6-month trend chart
+  (Mar–Aug, real totals), quick actions, and a recent-activity feed
+  showing real invoices/POs/payments with correct icons, dates, and
+  amounts, all with zero console errors. `tsc`/`eslint` clean.
+- **Flagged for later, not blocking this bundle**: list-view server-side
+  filtering, document-numbering configuration, multi-currency, Inventory
+  Valuation report, recurring documents, per-record audit-trail UI, and
+  extending Document Delivery / Approval Workflow to Purchase
+  Orders/Vendor Bills and Sales Orders/Journal Entries respectively all
+  remain open from the two prior audits and are un-reassessed, per the
+  Owner's instruction not to re-run analysis.
 
 **Owner Accepted: pending.**
 
