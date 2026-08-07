@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
+import { GlobalSearch } from "@/components/layout/global-search";
 import { useI18n } from "@/lib/i18n/config";
 import { useTheme } from "@/lib/theme";
 import { useAuthStore } from "@/stores/auth-store";
@@ -50,6 +51,9 @@ export function Topbar() {
         <EntityImage src={company?.logo_path} name={companyName ?? ""} shape="square" size="xs" isLoading={companyLoading} />
         <span>{companyName ?? " "}</span>
       </Link>
+      <div className="hidden flex-1 justify-center px-4 sm:flex">
+        <GlobalSearch />
+      </div>
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" onClick={toggleLocale} title={t("locale.toggle")}>
           <Languages className="h-4 w-4" />

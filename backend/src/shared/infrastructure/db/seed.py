@@ -106,6 +106,7 @@ PERMISSION_CATALOG = [
     # a cross-module concern" precedent `audit_log.view` already set.
     ("attachment.view", "screen"),
     ("attachment.manage", "action"),
+    ("search.use", "screen"),
 ]
 
 

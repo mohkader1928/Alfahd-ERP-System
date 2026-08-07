@@ -42,3 +42,10 @@ class SalesByPeriodRow(BaseModel):
     subtotal: Decimal
     tax_amount: Decimal
     total: Decimal
+
+
+class SearchResultRow(BaseModel):
+    type: str
+    id: UUID
+    label: str
+    sublabel: str | None

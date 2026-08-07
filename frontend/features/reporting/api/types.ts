@@ -36,3 +36,12 @@ export interface SalesByPeriodRow {
   tax_amount: string;
   total: string;
 }
+
+// ── Global Search ─────────────────────────────────────────────────────────────
+
+export interface SearchResultRow {
+  type: string;
+  id: string;
+  label: string;
+  sublabel: string | null;
+}

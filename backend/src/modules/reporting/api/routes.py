@@ -12,6 +12,7 @@ from src.modules.identity.infrastructure.repositories import AuditLogRepository,
 from src.modules.reporting.api.deps import (
     get_dashboard_service,
     get_sales_reporting_service,
+    get_search_service,
     require_permission,
 )
 from src.modules.reporting.api.schemas import (
@@ -19,8 +20,13 @@ from src.modules.reporting.api.schemas import (
     SalesByCustomerRow,
     SalesByPeriodRow,
     SalesByProductRow,
+    SearchResultRow,
 )
-from src.modules.reporting.application.services import DashboardService, SalesReportingService
+from src.modules.reporting.application.services import (
+    DashboardService,
+    SalesReportingService,
+    SearchService,
+)
 from src.modules.reporting.infrastructure.csv_exporter import rows_to_csv
 from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
 from src.shared.infrastructure.db.session import get_db
@@ -44,6 +50,20 @@ async def get_dashboard(
     service: DashboardService = Depends(get_dashboard_service),
 ):
     return await service.get_summary(company_id=ctx.company_id, period_start=period_start, period_end=period_end)
+
+
+@router.get("/search", response_model=list[SearchResultRow])
+async def search(
+    q: str,
+    ctx: AuthContext = Depends(require_permission("search.use")),
+    service: SearchService = Depends(get_search_service),
+):
+    """Professional Workspace Layer — Global Search across partners,
+    products, sales quotations/orders/invoices, purchase orders, and
+    vendor bills. See SearchService's docstring for the permission model."""
+    if len(q.strip()) < 2:
+        return []
+    return await service.search(company_id=ctx.company_id, query=q.strip())
 
 
 @router.get("/export/sales-invoices")

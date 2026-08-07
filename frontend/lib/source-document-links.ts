@@ -15,6 +15,13 @@ const SOURCE_DOCUMENT_HREF: Record<string, (id: string) => string> = {
   payment: (id) => `/payments/${id}`,
   vendor_bill: (id) => `/purchasing/bills/${id}`,
   cycle_count: (id) => `/inventory/cycle-counts/${id}`,
+  // Global Search result types (Professional Workspace Layer) — not JE
+  // source documents, but the same "type -> real detail page" map.
+  partner: (id) => `/master-data/partners/${id}`,
+  product: (id) => `/master-data/products/${id}`,
+  sales_quotation: (id) => `/sales/quotations/${id}`,
+  sales_order: (id) => `/sales/orders/${id}`,
+  purchase_order: (id) => `/purchasing/orders/${id}`,
 };
 
 export function sourceDocumentHref(sourceTable: string | null, sourceId: string | null): string | null {

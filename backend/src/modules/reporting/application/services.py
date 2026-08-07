@@ -8,13 +8,19 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.infrastructure.repositories import JournalEntryRepository
 from src.modules.identity.infrastructure.master_data_models import Partner, Product
+from src.modules.purchasing.infrastructure.models import PurchaseOrder, VendorBill
 from src.modules.purchasing.infrastructure.repositories import VendorBillRepository
-from src.modules.sales.infrastructure.models import SalesInvoice, SalesInvoiceLine
+from src.modules.sales.infrastructure.models import (
+    Quotation,
+    SalesInvoice,
+    SalesInvoiceLine,
+    SalesOrder,
+)
 from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
 
 ACCOUNT_CODE_AR = "1200"
@@ -207,3 +213,74 @@ class SalesReportingService:
             }
             for row in result.all()
         ]
+
+
+class SearchService:
+    """Professional Workspace Layer — Global Search. Every reference ERP
+    has a single search box that crosses entity types instead of making
+    the user already know which module a customer/invoice/product lives
+    in; this system had none. Read-only, cross-module — same rule as the
+    rest of this file (Reporting is the one module allowed to query other
+    modules' tables directly). RLS still fully applies per-table (each
+    query is `company_id`-scoped), so this can't leak cross-company data
+    even though it isn't gated per-entity-type like a full permission
+    model would be — a coarse `search.use` permission is the gate, matching
+    the `audit_log.view`-style "one permission for a cross-cutting concern"
+    precedent already used elsewhere in this codebase."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def search(self, *, company_id: UUID, query: str, limit_per_type: int = 5) -> list[dict]:
+        pattern = f"%{query}%"
+        results: list[dict] = []
+
+        partner_rows = await self.session.execute(
+            select(Partner.id, Partner.name, Partner.email)
+            .where(
+                Partner.company_id == company_id,
+                Partner.deleted_at.is_(None),
+                or_(Partner.name.ilike(pattern), Partner.name_ar.ilike(pattern)),
+            )
+            .order_by(Partner.name)
+            .limit(limit_per_type)
+        )
+        results += [
+            {"type": "partner", "id": r.id, "label": r.name, "sublabel": r.email}
+            for r in partner_rows.all()
+        ]
+
+        product_rows = await self.session.execute(
+            select(Product.id, Product.name, Product.sku)
+            .where(
+                Product.company_id == company_id,
+                Product.deleted_at.is_(None),
+                or_(Product.name.ilike(pattern), Product.sku.ilike(pattern)),
+            )
+            .order_by(Product.name)
+            .limit(limit_per_type)
+        )
+        results += [
+            {"type": "product", "id": r.id, "label": r.name, "sublabel": r.sku}
+            for r in product_rows.all()
+        ]
+
+        for model, type_name in (
+            (Quotation, "sales_quotation"),
+            (SalesOrder, "sales_order"),
+            (SalesInvoice, "sales_invoice"),
+            (PurchaseOrder, "purchase_order"),
+            (VendorBill, "vendor_bill"),
+        ):
+            rows = await self.session.execute(
+                select(model.id, model.number, model.status)
+                .where(model.company_id == company_id, model.number.ilike(pattern))
+                .order_by(model.number)
+                .limit(limit_per_type)
+            )
+            results += [
+                {"type": type_name, "id": r.id, "label": r.number, "sublabel": r.status}
+                for r in rows.all()
+            ]
+
+        return results

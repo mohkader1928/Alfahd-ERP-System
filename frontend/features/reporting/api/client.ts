@@ -4,6 +4,7 @@ import type {
   SalesByCustomerRow,
   SalesByPeriodRow,
   SalesByProductRow,
+  SearchResultRow,
 } from "./types";
 
 const BASE = "/api/v1/reporting";
@@ -34,4 +35,7 @@ export const reportingApi = {
       `${BASE}/sales/by-period?date_from=${dateFrom}&date_to=${dateTo}`,
       { companyId }
     ),
+
+  search: (companyId: string, q: string) =>
+    apiClient.get<SearchResultRow[]>(`${BASE}/search?q=${encodeURIComponent(q)}`, { companyId }),
 };
