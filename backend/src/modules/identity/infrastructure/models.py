@@ -2,12 +2,14 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     ForeignKey,
     Index,
+    Numeric,
     SmallInteger,
     String,
     Text,
@@ -62,6 +64,11 @@ class Company(Base):
     valuation_method: Mapped[str] = mapped_column(Text, nullable=False)
     zatca_environment: Mapped[str] = mapped_column(Text, nullable=False, server_default="sandbox")
     logo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Approval Workflow (Product Owner directive, 2026-08-07): a Purchase
+    # Order whose total exceeds this amount routes to `pending_approval`
+    # instead of auto-confirming — NULL means no gate (existing
+    # auto-confirm behavior, unchanged for companies that haven't opted in).
+    po_approval_threshold: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=text("now()"), onupdate=text("now()"), nullable=False

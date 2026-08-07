@@ -192,6 +192,21 @@ class RoleRepository:
         )
         return set(result.scalars().all())
 
+    async def list_user_ids_with_permission(self, company_id: UUID, permission_code: str) -> list[UUID]:
+        """Inverse of `get_user_permission_codes` — every user in
+        `company_id` who holds `permission_code` via any role. Used by the
+        Approval Workflow to find who to notify when a document needs
+        approval, without hardcoding a fixed "approver" concept."""
+        result = await self.session.execute(
+            select(UserRole.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .join(RolePermission, RolePermission.role_id == Role.id)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(Role.company_id == company_id, Permission.code == permission_code)
+            .distinct()
+        )
+        return list(result.scalars().all())
+
     async def list_by_company(self, company_id: UUID) -> list[Role]:
         result = await self.session.execute(
             select(Role).where(Role.company_id == company_id).order_by(Role.name)

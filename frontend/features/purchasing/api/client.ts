@@ -25,6 +25,12 @@ export const purchasingApi = {
   confirmOrder: (companyId: string, id: string) =>
     apiClient.post<PurchaseOrder>(`${BASE}/orders/${id}:confirm`, undefined, { companyId }),
 
+  approveOrder: (companyId: string, id: string) =>
+    apiClient.post<PurchaseOrder>(`${BASE}/orders/${id}:approve`, undefined, { companyId }),
+
+  rejectOrder: (companyId: string, id: string, reason: string) =>
+    apiClient.post<PurchaseOrder>(`${BASE}/orders/${id}:reject`, { reason }, { companyId }),
+
   recordGoodsReceipt: (
     companyId: string,
     branchId: string,

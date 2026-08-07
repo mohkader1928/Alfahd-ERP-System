@@ -58,6 +58,7 @@ function CompanySettingsForm({ company, companyId }: { company: Company; company
   const [legalNameAr, setLegalNameAr] = useState(company.legal_name_ar);
   const [vatNumber, setVatNumber] = useState(company.vat_number);
   const [crNumber, setCrNumber] = useState(company.cr_number ?? "");
+  const [poApprovalThreshold, setPoApprovalThreshold] = useState(company.po_approval_threshold ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["company", companyId] });
@@ -69,6 +70,7 @@ function CompanySettingsForm({ company, companyId }: { company: Company; company
         legal_name_ar: legalNameAr,
         vat_number: vatNumber,
         cr_number: crNumber || null,
+        po_approval_threshold: poApprovalThreshold || null,
       }),
     onSuccess: () => {
       invalidate();
@@ -157,6 +159,19 @@ function CompanySettingsForm({ company, companyId }: { company: Company; company
           <div className="space-y-1">
             <Label>{t("settings.company.cr_number")}</Label>
             <Input value={crNumber} onChange={(e) => setCrNumber(e.target.value)} />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label>{t("settings.company.po_approval_threshold")}</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder={t("settings.company.po_approval_threshold_placeholder")}
+              value={poApprovalThreshold}
+              onChange={(e) => setPoApprovalThreshold(e.target.value)}
+              className="max-w-xs"
+            />
+            <p className="text-xs text-muted-foreground">{t("settings.company.po_approval_threshold_hint")}</p>
           </div>
         </div>
       </Can>

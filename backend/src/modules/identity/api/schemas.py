@@ -79,6 +79,7 @@ class CompanyOut(BaseModel):
     cr_number: str | None = None
     valuation_method: str
     logo_path: str | None = None
+    po_approval_threshold: Decimal | None = None
 
     model_config = {"from_attributes": True}
 
@@ -91,12 +92,15 @@ class CompanyUpdateRequest(BaseModel):
     guarded migration path, not a plain field edit. zatca_environment is
     excluded too — switching to "production" has real e-invoicing
     consequences and deserves its own deliberate flow, not a side effect of
-    a general company-details save."""
+    a general company-details save. po_approval_threshold has none of
+    those constraints — it's a forward-looking policy switch, not a
+    reinterpretation of historical data — so it's editable here."""
 
     legal_name: str
     legal_name_ar: str
     vat_number: str = Field(min_length=15, max_length=15)
     cr_number: str | None = None
+    po_approval_threshold: Decimal | None = None
 
 
 class BranchCreateRequest(BaseModel):

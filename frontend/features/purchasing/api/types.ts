@@ -10,9 +10,14 @@ export interface PurchaseOrder {
   company_id: string;
   partner_id: string;
   number: string;
-  status: "draft" | "confirmed" | "done" | "cancelled";
+  status: "draft" | "pending_approval" | "confirmed" | "done" | "cancelled";
   order_date: string;
   total_amount: string;
+  created_by_user_id: string | null;
+  approval_status: "not_required" | "pending" | "approved" | "rejected";
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
 }
 
 export interface PurchaseOrderLine {

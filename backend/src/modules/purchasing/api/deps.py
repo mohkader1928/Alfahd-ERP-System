@@ -11,7 +11,11 @@ from src.modules.accounting.infrastructure.repositories import (
     JournalRepository,
 )
 from src.modules.identity.api.deps import require_permission  # noqa: F401 (re-exported for routes)
-from src.modules.identity.infrastructure.repositories import CompanyRepository, ProductRepository
+from src.modules.identity.infrastructure.repositories import (
+    CompanyRepository,
+    ProductRepository,
+    RoleRepository,
+)
 from src.modules.inventory.application.services import InventoryValuationService
 from src.modules.inventory.infrastructure.repositories import (
     LocationRepository,
@@ -20,6 +24,7 @@ from src.modules.inventory.infrastructure.repositories import (
     StockQuantRepository,
     WarehouseRepository,
 )
+from src.modules.notifications.infrastructure.repositories import NotificationRepository
 from src.modules.purchasing.application.services import (
     GoodsReceiptService,
     PurchaseOrderService,
@@ -47,9 +52,15 @@ def get_vendor_bill_repo(db: AsyncSession = Depends(get_db)) -> VendorBillReposi
 
 
 def get_purchase_order_service(
+    db: AsyncSession = Depends(get_db),
     order_repo: PurchaseOrderRepository = Depends(get_purchase_order_repo),
 ) -> PurchaseOrderService:
-    return PurchaseOrderService(order_repo)
+    return PurchaseOrderService(
+        order_repo,
+        company_repo=CompanyRepository(db),
+        role_repo=RoleRepository(db),
+        notification_repo=NotificationRepository(db),
+    )
 
 
 async def get_goods_receipt_service(

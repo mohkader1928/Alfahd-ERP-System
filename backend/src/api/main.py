@@ -18,6 +18,7 @@ import src.modules.accounting as accounting_module
 import src.modules.attachments as attachments_module
 import src.modules.identity as identity_module
 import src.modules.inventory as inventory_module
+import src.modules.notifications as notifications_module
 import src.modules.payments as payments_module
 import src.modules.purchasing as purchasing_module
 import src.modules.reporting as reporting_module
@@ -33,6 +34,7 @@ settings = get_settings()
 ENABLED_MODULES = [
     identity_module,
     attachments_module,
+    notifications_module,
     accounting_module,
     inventory_module,
     sales_module,

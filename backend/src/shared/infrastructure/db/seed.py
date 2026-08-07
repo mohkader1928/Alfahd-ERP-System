@@ -88,6 +88,7 @@ PERMISSION_CATALOG = [
     # M4 — Purchasing
     ("purchasing.order.create", "action"),
     ("purchasing.order.confirm", "action"),
+    ("purchasing.order.approve", "action"),
     ("purchasing.order.view", "screen"),
     ("purchasing.goods_receipt.create", "action"),
     ("purchasing.vendor_bill.create", "action"),

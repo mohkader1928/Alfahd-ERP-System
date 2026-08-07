@@ -43,6 +43,7 @@ export interface Company {
   cr_number: string | null;
   valuation_method: string;
   logo_path: string | null;
+  po_approval_threshold: string | null;
 }
 
 export interface CompanyWriteInput {
@@ -50,6 +51,7 @@ export interface CompanyWriteInput {
   legal_name_ar: string;
   vat_number: string;
   cr_number?: string | null;
+  po_approval_threshold?: string | null;
 }
 
 export interface Branch {

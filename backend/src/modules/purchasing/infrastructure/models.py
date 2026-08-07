@@ -14,6 +14,12 @@ from src.shared.infrastructure.db.base import Base
 
 DOC_STATUSES = ("draft", "confirmed", "done", "cancelled")
 BILL_STATUSES = ("draft", "matched", "mismatched", "approved", "posted")
+# Purchase Order gets its own status set (not the shared DOC_STATUSES, which
+# goods_receipt also uses and doesn't need this state): "pending_approval"
+# is the Approval Workflow gate — a PO whose total exceeds the company's
+# po_approval_threshold routes here instead of auto-confirming.
+PO_STATUSES = ("draft", "pending_approval", "confirmed", "done", "cancelled")
+PO_APPROVAL_STATUSES = ("not_required", "pending", "approved", "rejected")
 
 
 class PurchaseOrder(Base):
@@ -31,9 +37,17 @@ class PurchaseOrder(Base):
     order_date: Mapped[date] = mapped_column(nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("app_user.id"), nullable=True
+    )
+    approval_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="not_required")
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
-        CheckConstraint(f"status IN {DOC_STATUSES}", name="ck_purchase_order_status"),
+        CheckConstraint(f"status IN {PO_STATUSES}", name="ck_purchase_order_status"),
+        CheckConstraint(f"approval_status IN {PO_APPROVAL_STATUSES}", name="ck_purchase_order_approval_status"),
         UniqueConstraint("company_id", "number", name="ux_purchase_order_number"),
     )
 

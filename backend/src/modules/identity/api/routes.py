@@ -352,11 +352,13 @@ async def update_company(
         "legal_name_ar": company.legal_name_ar,
         "vat_number": company.vat_number,
         "cr_number": company.cr_number,
+        "po_approval_threshold": company.po_approval_threshold,
     }
     company.legal_name = payload.legal_name
     company.legal_name_ar = payload.legal_name_ar
     company.vat_number = payload.vat_number
     company.cr_number = payload.cr_number
+    company.po_approval_threshold = payload.po_approval_threshold
 
     audit_repo = AuditLogRepository(db)
     new_values = {
@@ -364,6 +366,7 @@ async def update_company(
         "legal_name_ar": company.legal_name_ar,
         "vat_number": company.vat_number,
         "cr_number": company.cr_number,
+        "po_approval_threshold": company.po_approval_threshold,
     }
     try:
         for field_name, old_value in old_values.items():
@@ -376,8 +379,8 @@ async def update_company(
                     target_table="company",
                     target_id=company.id,
                     field_name=field_name,
-                    old_value=old_value,
-                    new_value=new_value,
+                    old_value=str(old_value) if old_value is not None else None,
+                    new_value=str(new_value) if new_value is not None else None,
                 )
         # No db.refresh(): same RLS/transaction-scoping reason documented on
         # upload_company_logo() below — company already reflects the new

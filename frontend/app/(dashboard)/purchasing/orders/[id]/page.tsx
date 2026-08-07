@@ -7,8 +7,11 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { Can } from "@/components/erp/permissions/can";
 import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
@@ -28,6 +31,8 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
   const [actionError, setActionError] = useState<string | null>(null);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["purchase-order", companyId, id],
@@ -52,9 +57,32 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
 
   const confirmMutation = useMutation({
     mutationFn: () => purchasingApi.confirmOrder(companyId, id),
+    onSuccess: (updated) => {
+      invalidate();
+      toastSuccess(
+        t("toast.success_title"),
+        updated.status === "pending_approval" ? t("purchasing.orders.sent_for_approval") : t("purchasing.orders.confirm")
+      );
+    },
+    onError: handleError,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: () => purchasingApi.approveOrder(companyId, id),
     onSuccess: () => {
       invalidate();
-      toastSuccess(t("toast.success_title"), t("purchasing.orders.confirm"));
+      toastSuccess(t("toast.success_title"), t("purchasing.orders.approve"));
+    },
+    onError: handleError,
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: () => purchasingApi.rejectOrder(companyId, id, rejectReason),
+    onSuccess: () => {
+      invalidate();
+      setRejectOpen(false);
+      setRejectReason("");
+      toastSuccess(t("toast.success_title"), t("purchasing.orders.reject"));
     },
     onError: handleError,
   });
@@ -119,6 +147,16 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
             <dt className="text-muted-foreground">{t("purchasing.orders.total")}</dt>
             <dd>{formatCurrency(order.total_amount)}</dd>
           </dl>
+          {order.status === "pending_approval" && (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+              {t("purchasing.orders.pending_approval_notice")}
+            </p>
+          )}
+          {order.approval_status === "rejected" && order.rejection_reason && (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {t("purchasing.orders.rejected_notice")} {order.rejection_reason}
+            </p>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -165,12 +203,46 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
                 </Button>
               </Can>
             )}
+            {order.status === "pending_approval" && (
+              <Can permission="purchasing.order.approve">
+                <Button onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending}>
+                  {approveMutation.isPending ? t("common.loading") : t("purchasing.orders.approve")}
+                </Button>
+                <Button variant="outline" onClick={() => setRejectOpen(true)}>
+                  {t("purchasing.orders.reject")}
+                </Button>
+              </Can>
+            )}
           </div>
           {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
           <AttachmentsPanel entityType="purchase_order" entityId={order.id} />
         </CardContent>
       </Card>
+
+      <Dialog open={rejectOpen} onOpenChange={(open) => !open && setRejectOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("purchasing.orders.reject_dialog_title")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label>{t("purchasing.orders.reject_reason")}</Label>
+            <Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} autoFocus />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!rejectReason.trim() || rejectMutation.isPending}
+              onClick={() => rejectMutation.mutate()}
+            >
+              {rejectMutation.isPending ? t("common.loading") : t("purchasing.orders.reject")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

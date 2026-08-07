@@ -49,12 +49,11 @@ class PurchaseOrderRepository:
         count = result.scalar_one()
         return f"PO-{count + 1:06d}"
 
-    async def list_by_company(self, company_id: UUID) -> list[PurchaseOrder]:
-        result = await self.session.execute(
-            select(PurchaseOrder)
-            .where(PurchaseOrder.company_id == company_id)
-            .order_by(PurchaseOrder.order_date.desc())
-        )
+    async def list_by_company(self, company_id: UUID, *, status: str | None = None) -> list[PurchaseOrder]:
+        query = select(PurchaseOrder).where(PurchaseOrder.company_id == company_id)
+        if status is not None:
+            query = query.where(PurchaseOrder.status == status)
+        result = await self.session.execute(query.order_by(PurchaseOrder.order_date.desc()))
         return list(result.scalars().all())
 
 

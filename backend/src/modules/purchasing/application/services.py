@@ -5,18 +5,23 @@ module map — same "legitimate direct dependency" pattern Sales uses.
 """
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository
-from src.modules.identity.infrastructure.repositories import ProductRepository
+from src.modules.identity.infrastructure.repositories import (
+    CompanyRepository,
+    ProductRepository,
+    RoleRepository,
+)
 from src.modules.inventory.application.services import InventoryValuationService
 from src.modules.inventory.infrastructure.repositories import (
     LocationRepository,
     WarehouseRepository,
 )
+from src.modules.notifications.infrastructure.repositories import NotificationRepository
 from src.modules.purchasing.domain.entities import (
     MatchLine,
     ThreeWayMatchError,
@@ -36,6 +41,8 @@ from src.modules.purchasing.infrastructure.repositories import (
     VendorBillRepository,
 )
 
+APPROVE_PERMISSION_CODE = "purchasing.order.approve"
+
 ACCOUNT_CODE_INVENTORY = "1300"
 ACCOUNT_CODE_GRNI = "2300"  # Goods Received Not Invoiced
 ACCOUNT_CODE_AP = "2100"
@@ -43,20 +50,40 @@ ACCOUNT_CODE_VAT = "2200"  # shared control account for output + input VAT
 
 
 class PurchaseOrderService:
-    """UC-PUR-01 (part 1) — create and confirm a Purchase Order.
+    """UC-PUR-01 (part 1) — create, confirm, approve and reject a Purchase
+    Order.
 
-    Approval routing (FR-CORE-052, "PO amount exceeds threshold") is
-    deferred — the nucleus auto-confirms every PO. The Approval Workflow
-    engine itself was scoped out of M0 (see M0's report) and nothing since
-    has built it; wiring PO confirmation through a stub would just move the
-    same gap around, so it's flagged here instead.
+    Approval Workflow (FR-CORE-052, "PO amount exceeds threshold"): if the
+    company has set `po_approval_threshold` and this PO's total exceeds it,
+    confirming routes the order to `pending_approval` instead of
+    auto-confirming, and every user holding `purchasing.order.approve` in
+    this company (except the PO's own creator) gets notified. Approving or
+    rejecting notifies the creator back. A company with no threshold set
+    keeps the original auto-confirm behavior unchanged — this is additive,
+    not a breaking change to existing companies.
     """
 
-    def __init__(self, order_repo: PurchaseOrderRepository):
+    def __init__(
+        self,
+        order_repo: PurchaseOrderRepository,
+        company_repo: CompanyRepository | None = None,
+        role_repo: RoleRepository | None = None,
+        notification_repo: NotificationRepository | None = None,
+    ):
         self.order_repo = order_repo
+        self.company_repo = company_repo
+        self.role_repo = role_repo
+        self.notification_repo = notification_repo
 
     async def create_purchase_order(
-        self, *, company_id: UUID, branch_id: UUID, partner_id: UUID, order_date: date, lines: list[dict]
+        self,
+        *,
+        company_id: UUID,
+        branch_id: UUID,
+        partner_id: UUID,
+        order_date: date,
+        lines: list[dict],
+        created_by: UUID | None = None,
     ) -> PurchaseOrder:
         if not lines:
             raise ValueError("A purchase order needs at least one line")
@@ -72,6 +99,7 @@ class PurchaseOrderService:
             status="draft",
             order_date=order_date,
             total_amount=total,
+            created_by_user_id=created_by,
         )
         orm_lines = [
             PurchaseOrderLine(
@@ -92,8 +120,93 @@ class PurchaseOrderService:
             raise ValueError("Purchase order not found")
         if order.status != "draft":
             raise ValueError("Only a draft purchase order can be confirmed")
-        order.status = "confirmed"
+
+        threshold = None
+        if self.company_repo is not None:
+            company = await self.company_repo.get_by_id(company_id)
+            threshold = company.po_approval_threshold if company else None
+
+        if threshold is not None and order.total_amount > threshold:
+            order.status = "pending_approval"
+            order.approval_status = "pending"
+            await self._notify_approvers(order)
+        else:
+            order.status = "confirmed"
         return order
+
+    async def approve_purchase_order(self, *, order_id: UUID, company_id: UUID, approved_by: UUID) -> PurchaseOrder:
+        order = await self.order_repo.get_by_id(order_id)
+        if order is None or order.company_id != company_id:
+            raise ValueError("Purchase order not found")
+        if order.status != "pending_approval":
+            raise ValueError("Only a purchase order pending approval can be approved")
+        order.status = "confirmed"
+        order.approval_status = "approved"
+        order.approved_by = approved_by
+        order.approved_at = datetime.now(UTC).replace(tzinfo=None)
+        await self._notify_creator(order, approved=True)
+        return order
+
+    async def reject_purchase_order(
+        self, *, order_id: UUID, company_id: UUID, rejected_by: UUID, reason: str
+    ) -> PurchaseOrder:
+        order = await self.order_repo.get_by_id(order_id)
+        if order is None or order.company_id != company_id:
+            raise ValueError("Purchase order not found")
+        if order.status != "pending_approval":
+            raise ValueError("Only a purchase order pending approval can be rejected")
+        order.status = "draft"
+        order.approval_status = "rejected"
+        order.approved_by = rejected_by
+        order.approved_at = datetime.now(UTC).replace(tzinfo=None)
+        order.rejection_reason = reason
+        await self._notify_creator(order, approved=False)
+        return order
+
+    async def _notify_approvers(self, order: PurchaseOrder) -> None:
+        if self.role_repo is None or self.notification_repo is None:
+            return
+        approver_ids = await self.role_repo.list_user_ids_with_permission(order.company_id, APPROVE_PERMISSION_CODE)
+        recipients = [uid for uid in approver_ids if uid != order.created_by_user_id]
+        notifications = [
+            self.notification_repo.build(
+                company_id=order.company_id,
+                recipient_user_id=uid,
+                type="po_approval_requested",
+                title=f"Purchase Order {order.number} needs approval",
+                body=f"{order.number} totals {order.total_amount} and exceeds the approval threshold.",
+                entity_type="purchase_order",
+                entity_id=order.id,
+                link=f"/purchasing/orders/{order.id}",
+            )
+            for uid in recipients
+        ]
+        await self.notification_repo.add_many(notifications)
+
+    async def _notify_creator(self, order: PurchaseOrder, *, approved: bool) -> None:
+        if self.notification_repo is None or order.created_by_user_id is None:
+            return
+        title = (
+            f"Purchase Order {order.number} was approved"
+            if approved
+            else f"Purchase Order {order.number} was rejected"
+        )
+        body = (
+            f"{order.number} is confirmed and ready to send to the vendor."
+            if approved
+            else f"{order.number} was sent back to draft: {order.rejection_reason}"
+        )
+        notification = self.notification_repo.build(
+            company_id=order.company_id,
+            recipient_user_id=order.created_by_user_id,
+            type="po_approved" if approved else "po_rejected",
+            title=title,
+            body=body,
+            entity_type="purchase_order",
+            entity_id=order.id,
+            link=f"/purchasing/orders/{order.id}",
+        )
+        await self.notification_repo.add_many([notification])
 
 
 class GoodsReceiptService:

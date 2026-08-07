@@ -20,6 +20,7 @@ from src.modules.purchasing.api.schemas import (
     PurchaseOrderCreateRequest,
     PurchaseOrderDetailResponse,
     PurchaseOrderOut,
+    RejectPurchaseOrderRequest,
     VendorBillCreateRequest,
     VendorBillDetailResponse,
     VendorBillOut,
@@ -42,10 +43,11 @@ router = APIRouter()
 
 @router.get("/orders", response_model=list[PurchaseOrderOut])
 async def list_purchase_orders(
+    status: str | None = None,
     ctx: AuthContext = Depends(require_permission("purchasing.order.view")),
     order_repo: PurchaseOrderRepository = Depends(get_purchase_order_repo),
 ):
-    return await order_repo.list_by_company(ctx.company_id)
+    return await order_repo.list_by_company(ctx.company_id, status=status)
 
 
 @router.get("/vendor-bills", response_model=list[VendorBillOut])
@@ -84,6 +86,7 @@ async def create_purchase_order(
             partner_id=payload.partner_id,
             order_date=payload.order_date,
             lines=[line.model_dump() for line in payload.lines],
+            created_by=ctx.user_id,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -99,8 +102,46 @@ async def confirm_purchase_order(
     ctx: AuthContext = Depends(require_permission("purchasing.order.confirm")),
     service: PurchaseOrderService = Depends(get_purchase_order_service),
 ):
+    """Auto-confirms unless the company has set `po_approval_threshold` and
+    this order's total exceeds it, in which case it routes to
+    `pending_approval` (Approval Workflow) — see PurchaseOrderService."""
     try:
         order = await service.confirm_purchase_order(order_id=order_id, company_id=ctx.company_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return order
+
+
+@router.post("/orders/{order_id}:approve", response_model=PurchaseOrderOut)
+async def approve_purchase_order(
+    order_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("purchasing.order.approve")),
+    service: PurchaseOrderService = Depends(get_purchase_order_service),
+):
+    try:
+        order = await service.approve_purchase_order(order_id=order_id, company_id=ctx.company_id, approved_by=ctx.user_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return order
+
+
+@router.post("/orders/{order_id}:reject", response_model=PurchaseOrderOut)
+async def reject_purchase_order(
+    order_id: UUID,
+    payload: RejectPurchaseOrderRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("purchasing.order.approve")),
+    service: PurchaseOrderService = Depends(get_purchase_order_service),
+):
+    try:
+        order = await service.reject_purchase_order(
+            order_id=order_id, company_id=ctx.company_id, rejected_by=ctx.user_id, reason=payload.reason
+        )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 

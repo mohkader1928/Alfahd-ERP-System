@@ -1,6 +1,6 @@
 """Pydantic schemas for Purchasing, per Phase 10 §6.5."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -39,6 +39,11 @@ class PurchaseOrderOut(BaseModel):
     status: str
     order_date: date
     total_amount: Decimal
+    created_by_user_id: UUID | None
+    approval_status: str
+    approved_by: UUID | None
+    approved_at: datetime | None
+    rejection_reason: str | None
 
     model_config = {"from_attributes": True}
 
@@ -46,6 +51,10 @@ class PurchaseOrderOut(BaseModel):
 class PurchaseOrderDetailResponse(BaseModel):
     order: PurchaseOrderOut
     lines: list[PurchaseOrderLineOut]
+
+
+class RejectPurchaseOrderRequest(BaseModel):
+    reason: str
 
 
 class GoodsReceiptLineIn(BaseModel):

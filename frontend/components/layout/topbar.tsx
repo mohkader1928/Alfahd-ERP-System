@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { GlobalSearch } from "@/components/layout/global-search";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { useI18n } from "@/lib/i18n/config";
 import { useTheme } from "@/lib/theme";
 import { useAuthStore } from "@/stores/auth-store";
@@ -61,6 +62,7 @@ export function Topbar() {
         <Button variant="ghost" size="icon" onClick={toggleTheme} title={t("theme.toggle")}>
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
+        <NotificationBell />
         <DropdownMenu>
           {/* This stack is Base UI (@base-ui/react), not Radix — polymorphism
               goes through the `render` prop, not `asChild`. Passing `asChild`
