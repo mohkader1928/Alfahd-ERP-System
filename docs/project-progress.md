@@ -8,8 +8,41 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `24ef1b9` (`main`) —
-**Vendor Debit Note** (commit `24ef1b9`), a self-selected Product Owner
+**Last verified**: 2026-08-09, on top of committed `e8dc57e` (`main`) —
+**Purchase Order partial receipt short-close** (commit `e8dc57e`), P0-1
+of a 3-Day Sellable Product Execution Brief the Owner issued covering 8
+P0 items (this bundle, then pausing after each for the Owner's own
+review/testing before continuing — not the prior continuous-execution
+mode). Audited first: real partial receipt already worked at the data
+layer (`purchase_order_line.qty_received` already accumulated
+correctly across multiple goods receipts, over-receipt already
+blocked). What was missing was a way to deliberately stop short of the
+ordered qty instead of leaving a partially-received PO open forever.
+Added `purchase_order_line.short_closed` and a new `closed` PO status
+(migration `c9d0e1f2a3b4`, distinct from `done` = everything ordered
+actually arrived), `short_close_purchase_order` (marks every
+still-short line, moves the order to `closed`) and
+`reopen_purchase_order_line` (admin-only way back in — separate
+permission, clears `short_closed`, restores `confirmed`).
+`record_receipt` now rejects receiving against a short-closed line and
+auto-transitions the order to `done` once everything's in — a PO no
+longer sits `confirmed` forever after full delivery. Vendor billing
+was already bounded by `qty_received`, so Payables needed no separate
+change. Both new actions write to the existing `AuditLogRepository`
+(same field-level old/new pattern already used for role assignment).
+Frontend: PO detail page gained a Remaining column, a per-line
+editable "qty to receive" input (previously hardcoded to "receive
+everything" in one click), and a dialog that asks — automatically,
+right after any receipt that still leaves a gap — whether the rest
+will come later or should be short-closed now, with short-closed lines
+showing a badge and an admin-only reopen action. 291/291 backend tests
+(6 new), ruff clean, tsc/eslint clean. Verified live end-to-end through
+the real UI: partial receipt (8/20) → prompt appeared automatically →
+short-closed with a reason → `closed` → reopened → `confirmed` again →
+received the remaining 12 → auto-closed to `done`.
+
+**Immediately prior, same session — Vendor Debit Note** (commit
+`24ef1b9`), a self-selected Product Owner
 audit bundle (next-highest-value gap identified after closing out the
 Owner's live pricing/accounting requests): Sales already had a Credit
 Note (reverses a posted invoice) but Purchasing had no equivalent for
