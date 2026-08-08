@@ -8,8 +8,52 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `c21d6ce` (`main`) —
-**low-stock/reorder-point alerts** (commit `c21d6ce`), a Product Owner
+**Last verified**: 2026-08-08, on top of committed `161d5c1` (`main`) —
+**a batch of Owner-requested pricing defaults and accounting/reporting
+fixes** (commits `7c69f58`, `161d5c1`), submitted directly by the Owner
+as one list of five items while live-testing شركة المحمود:
+
+- **Pricing defaults** (`7c69f58`): Purchase Order lines now default to
+  `product.last_purchase_price` (updated whenever a new PO line is
+  created for that product) instead of starting at 0; Sales Quotation
+  lines now default to `product.sales_price` when a product is picked
+  (previously always started at 0 — a real, unwired gap); the product
+  master gained two new optional reference prices, `price_high` and
+  `price_low`, alongside the existing `sales_price` (kept as the
+  medium/default tier) — matching the tiered price-list pattern in SAP
+  B1/Odoo. Migration `e5f6a7b8c9d0`.
+- **Journal entry description** (`161d5c1`): `JournalEntry` gained a
+  header-level `description` field (migration `f6a7b8c9d0e1`) —
+  previously only line-level descriptions existed, with no way to
+  record what a manual entry as a whole was for. Verified live
+  end-to-end via the API and the entry detail page.
+- **AR/AP Aging total rows** (`161d5c1`): the Owner reported Accounts
+  Receivable/Payable in the Trial Balance not matching customer/vendor
+  balances. Investigated directly against شركة المحمود's real ledger
+  using the Owner's own numbers pasted live into chat — both
+  reconcile exactly (AR: 7,770,435.00 in both places; AP: 182,300.00
+  in both places). The actual gap was that AR/AP Aging never showed a
+  total to compare against the Trial Balance with — added. Also
+  surfaced as a process note (not a bug): 10 of شركة المحمود's 16
+  vendor bills (4,020,400 SAR) are matched but not yet posted, so
+  they don't appear in Accounts Payable yet.
+- **Sales by Customer: payments + balance** (`161d5c1`): this report
+  previously showed period sales only, which the Owner was directly
+  comparing against the Trial Balance's cumulative AR figure and
+  finding a mismatch (8,135,330 gross invoiced vs. 7,770,435 net
+  balance — the difference being exactly the 364,895 in payments
+  received, confirmed live with the Owner). Added
+  `payments_received` and a cumulative `balance` column per customer
+  so this reconciliation is visible directly in the Sales report,
+  without needing to cross into Accounting.
+
+281/281 backend tests, ruff clean, tsc/eslint clean, all four features
+verified live (last-purchase-price default, quotation price default,
+journal entry description round-trip, Sales-by-Customer totals
+reconciling against the Owner's own real numbers).
+
+**Immediately prior, same session — low-stock/reorder-point alerts**
+(commit `c21d6ce`), a Product Owner
 audit finding: "what's below reorder point right now?" is table-stakes
 in every reference ERP (SAP B1, Dynamics 365 BC, Odoo) and was entirely
 absent — no `reorder_point` on the product master, no low-stock query,
