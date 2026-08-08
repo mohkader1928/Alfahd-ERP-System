@@ -8,16 +8,28 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `3d5c913` (`main`) —
-**Document-numbering races now return a clean error instead of a raw
-500** (see dated entry below): every numbered document already had
-`UNIQUE(company_id, number)` as the real duplicate-prevention guarantee,
-but only sales invoice issuance translated the resulting
-`IntegrityError` into a clean 422 — quotation, sales order, purchase
-order, goods receipt, vendor bill, and payment creation all let it
-bubble up as an unhandled 500 under real concurrent creation. Wrapped
-all 6 remaining paths the same way. 271/271 backend tests, ruff clean, 3
-new concurrent tests (6 simultaneous creates per document type) assert
+**Last verified**: 2026-08-08, on top of committed `c937a7a` (`main`) —
+**Idempotency-Key mechanism, applied to credit note issuance** (see
+dated entry below): the one MUST-priority endpoint from docs/16b that
+genuinely needed the full mechanism (not the simpler status-guard
+pattern already closing invoice issuance) — a second credit note against
+the same invoice can be legitimate, so blocking retries outright would
+be a regression, not a fix. New `shared/idempotency/` module (model,
+repository, service), opt-in `Idempotency-Key` header, fully backward
+compatible. 276/276 backend tests, ruff clean, 5 new tests including a
+genuine concurrent-identical-request test. Verified live against the
+running dev server.
+
+**Immediately prior, same session — document-numbering races now
+return a clean error instead of a raw 500** (commit `3d5c913`): every
+numbered document already had `UNIQUE(company_id, number)` as the real
+duplicate-prevention guarantee, but only sales invoice issuance
+translated the resulting `IntegrityError` into a clean 422 — quotation,
+sales order, purchase order, goods receipt, vendor bill, and payment
+creation all let it bubble up as an unhandled 500 under real concurrent
+creation. Wrapped all 6 remaining paths the same way. 271/271 backend
+tests, ruff clean, 3 new concurrent tests (6 simultaneous creates per
+document type) assert
 no request ever 500s and every created document has a unique number.
 
 **Immediately prior, same session — concurrency-correctness bundle**
