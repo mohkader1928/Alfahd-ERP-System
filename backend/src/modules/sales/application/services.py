@@ -95,7 +95,10 @@ class QuotationService:
             )
             for line in lines
         ]
-        return await self.quotation_repo.add(quotation, orm_lines)
+        try:
+            return await self.quotation_repo.add(quotation, orm_lines)
+        except IntegrityError as e:
+            raise ValueError("A quotation was created concurrently with the same number — please retry") from e
 
     async def confirm_to_sales_order(self, *, quotation_id: UUID, company_id: UUID) -> SalesOrder:
         quotation = await self.quotation_repo.get_by_id(quotation_id)
@@ -135,7 +138,10 @@ class QuotationService:
             )
             for line in lines
         ]
-        await self.order_repo.add(order, order_lines)
+        try:
+            await self.order_repo.add(order, order_lines)
+        except IntegrityError as e:
+            raise ValueError("A sales order was created concurrently with the same number — please retry") from e
 
         quotation.status = "confirmed"
         return order

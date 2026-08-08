@@ -14,6 +14,8 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
+
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository
 from src.modules.identity.infrastructure.repositories import PartnerRepository
@@ -139,7 +141,10 @@ class PaymentService:
             reference=reference,
             created_by=created_by,
         )
-        await self.payment_repo.add(payment, prepared_allocations)
+        try:
+            await self.payment_repo.add(payment, prepared_allocations)
+        except IntegrityError as e:
+            raise ValueError("A payment was created concurrently with the same number — please retry") from e
         await self._post_journal_entry(payment, branch_id=branch_id, created_by=created_by)
         return payment
 

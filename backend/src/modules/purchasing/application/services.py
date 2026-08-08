@@ -9,6 +9,8 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
+
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository
 from src.modules.identity.infrastructure.repositories import (
@@ -112,7 +114,14 @@ class PurchaseOrderService:
             )
             for line in lines
         ]
-        return await self.order_repo.add(order, orm_lines)
+        try:
+            return await self.order_repo.add(order, orm_lines)
+        except IntegrityError as e:
+            # Belt-and-suspenders against the count(*)+1 numbering race
+            # (docs/16b): the partial unique index is the actual guarantee
+            # against a duplicate number; this only translates its
+            # violation into a clean, retryable error instead of a raw 500.
+            raise ValueError("A purchase order was created concurrently with the same number — please retry") from e
 
     async def confirm_purchase_order(self, *, order_id: UUID, company_id: UUID) -> PurchaseOrder:
         order = await self.order_repo.get_by_id(order_id)
@@ -308,7 +317,10 @@ class GoodsReceiptService:
                 )
             )
 
-        await self.receipt_repo.add(receipt, receipt_lines)
+        try:
+            await self.receipt_repo.add(receipt, receipt_lines)
+        except IntegrityError as e:
+            raise ValueError("A goods receipt was created concurrently with the same number — please retry") from e
 
         if total_value > 0:
             inventory_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_INVENTORY)
@@ -429,7 +441,10 @@ class VendorBillService:
             total_amount=subtotal + tax_total,
             mismatch_reasons="; ".join(mismatch_reasons) if mismatch_reasons else None,
         )
-        await self.bill_repo.add(bill, bill_lines)
+        try:
+            await self.bill_repo.add(bill, bill_lines)
+        except IntegrityError as e:
+            raise ValueError("A vendor bill was created concurrently with the same number — please retry") from e
 
         for line in lines:
             po_line = await self.order_repo.get_line_by_id_for_update(line["purchase_order_line_id"])
