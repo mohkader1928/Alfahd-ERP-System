@@ -276,7 +276,7 @@ class GoodsReceiptService:
         total_value = Decimal("0")
 
         for line in lines:
-            po_line = await self.order_repo.get_line_by_id(line["purchase_order_line_id"])
+            po_line = await self.order_repo.get_line_by_id_for_update(line["purchase_order_line_id"])
             if po_line is None or po_line.purchase_order_id != order.id:
                 raise ValueError("Purchase order line not found on this order")
             qty = Decimal(str(line["qty"]))
@@ -432,7 +432,7 @@ class VendorBillService:
         await self.bill_repo.add(bill, bill_lines)
 
         for line in lines:
-            po_line = await self.order_repo.get_line_by_id(line["purchase_order_line_id"])
+            po_line = await self.order_repo.get_line_by_id_for_update(line["purchase_order_line_id"])
             po_line.qty_billed += Decimal(str(line["qty"]))
 
         return bill

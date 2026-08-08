@@ -80,10 +80,41 @@ class StockQuantRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_for_update(self, product_id: UUID, location_id: UUID) -> StockQuant | None:
+        """Same lookup as `get`, but takes a row-level lock — for the two
+        mutation paths (`receive_stock`/`issue_stock`) that read
+        `qty_on_hand` and then write it back in the same transaction.
+        Without this, two concurrent moves against the same product+location
+        can both read the same starting quantity and one write silently
+        overwrites the other's (a lost update — see docs/16b, finding #2).
+        Never use this for a read-only query (reports, cycle-count
+        snapshots): a lock held for no write is pure unnecessary contention.
+        """
+        result = await self.session.execute(
+            select(StockQuant)
+            .where(StockQuant.product_id == product_id, StockQuant.location_id == location_id)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def get_or_create(self, company_id: UUID, product_id: UUID, location_id: UUID) -> StockQuant:
         quant = await self.get(product_id, location_id)
         if quant is not None:
             return quant
+        return await self._create(company_id, product_id, location_id)
+
+    async def get_or_create_for_update(self, company_id: UUID, product_id: UUID, location_id: UUID) -> StockQuant:
+        quant = await self.get_for_update(product_id, location_id)
+        if quant is not None:
+            return quant
+        # A fresh row has no concurrent writer to race with yet — the INSERT
+        # itself is what makes it visible, so no separate lock is needed
+        # before this point; the row now exists for the rest of this
+        # transaction to mutate without any other transaction able to see it
+        # (uncommitted) or lock it out from under this one.
+        return await self._create(company_id, product_id, location_id)
+
+    async def _create(self, company_id: UUID, product_id: UUID, location_id: UUID) -> StockQuant:
         import uuid as _uuid
 
         quant = StockQuant(id=_uuid.uuid4(), company_id=company_id, product_id=product_id, location_id=location_id)

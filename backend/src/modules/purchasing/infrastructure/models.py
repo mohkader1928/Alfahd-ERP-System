@@ -85,7 +85,15 @@ class GoodsReceipt(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
     receipt_date: Mapped[date] = mapped_column(nullable=False)
 
-    __table_args__ = (CheckConstraint(f"status IN {DOC_STATUSES}", name="ck_goods_receipt_status"),)
+    __table_args__ = (
+        CheckConstraint(f"status IN {DOC_STATUSES}", name="ck_goods_receipt_status"),
+        # The one document type in this module that shipped without its
+        # sibling PurchaseOrder/VendorBill's UNIQUE(company_id, number) —
+        # confirmed via direct pg_constraint query (docs/16b, finding #5) to
+        # be the sole numbered document with zero backstop against a
+        # duplicate number.
+        UniqueConstraint("company_id", "number", name="ux_goods_receipt_number"),
+    )
 
 
 class GoodsReceiptLine(Base):

@@ -101,7 +101,10 @@ class InventoryValuationService:
         if qty <= 0:
             raise ValueError("Received quantity must be positive")
 
-        quant = await self.quant_repo.get_or_create(company_id, product_id, location_id)
+        # Row-level lock (docs/16b, finding #2): without it, two concurrent
+        # receipts against the same product+location can both read the same
+        # starting qty_on_hand and one write silently overwrites the other's.
+        quant = await self.quant_repo.get_or_create_for_update(company_id, product_id, location_id)
 
         if valuation_method == "fifo":
             layer = StockLayer(
@@ -155,7 +158,10 @@ class InventoryValuationService:
         if qty <= 0:
             raise ValueError("Issued quantity must be positive")
 
-        quant = await self.quant_repo.get_or_create(company_id, product_id, location_id)
+        # Same row-level lock as receive_stock, and for the same reason —
+        # also serializes FIFO layer consumption for this product+location,
+        # since layers are only ever touched in service of one quant's issue.
+        quant = await self.quant_repo.get_or_create_for_update(company_id, product_id, location_id)
         strategy = get_valuation_strategy(valuation_method)
 
         if valuation_method == "fifo":

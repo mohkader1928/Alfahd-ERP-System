@@ -44,6 +44,19 @@ class PurchaseOrderRepository:
         result = await self.session.execute(select(PurchaseOrderLine).where(PurchaseOrderLine.id == line_id))
         return result.scalar_one_or_none()
 
+    async def get_line_by_id_for_update(self, line_id: UUID) -> PurchaseOrderLine | None:
+        """Same lookup as `get_line_by_id`, but row-locked — for the goods
+        receipt / vendor bill registration paths that read `qty_received`/
+        `qty_billed` and write it back in the same transaction. Without
+        this, two concurrent receipts (or bills) against the same PO line
+        can both read the same cumulative qty and both pass the
+        not-over-ordered check, over-receiving/over-billing past what was
+        actually ordered (docs/16b, finding #4)."""
+        result = await self.session.execute(
+            select(PurchaseOrderLine).where(PurchaseOrderLine.id == line_id).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def next_number(self, company_id: UUID) -> str:
         result = await self.session.execute(select(func.count()).where(PurchaseOrder.company_id == company_id))
         count = result.scalar_one()
