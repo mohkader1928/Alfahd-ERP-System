@@ -8,9 +8,32 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `09069b2` (`main`) —
-**WEBP images served with the wrong Content-Type, silently failing to
-display** (commit `09069b2`), reported directly by the Owner while
+**Last verified**: 2026-08-08, on top of committed `c21d6ce` (`main`) —
+**low-stock/reorder-point alerts** (commit `c21d6ce`), a Product Owner
+audit finding: "what's below reorder point right now?" is table-stakes
+in every reference ERP (SAP B1, Dynamics 365 BC, Odoo) and was entirely
+absent — no `reorder_point` on the product master, no low-stock query,
+no proactive alert; a stockout was only discoverable by manually
+checking every product's on-hand balance one at a time. Added an opt-in
+`product.reorder_point`, a `GET /inventory/stock/low-stock` endpoint
+(every product at or below threshold, summed across all
+warehouses/locations, with its shortfall), a one-time `low_stock`
+notification fired exactly when a sale crosses a product from above to
+at-or-below threshold (reusing the existing Notifications module and
+`RoleRepository.list_user_ids_with_permission` targeting, the same
+pattern already established for PO approvals), and a new "نواقص
+المخزون" (Low Stock) tab on the Inventory page. Fixed a real bug found
+while building this: the crossing check's aggregate SELECT couldn't see
+the same transaction's in-memory `qty_on_hand` decrement because
+`AsyncSessionLocal` is configured `autoflush=False` — fixed with an
+explicit `session.flush()`. 281/281 backend tests, ruff clean, tsc/eslint
+clean, verified live end-to-end (set a real product's reorder_point
+above its actual stock, confirmed it appeared on the Low Stock tab with
+the correct shortfall, reverted the test value afterward).
+
+**Immediately prior, same session — WEBP images served with the wrong
+Content-Type, silently failing to display** (commit `09069b2`), reported
+directly by the Owner while
 testing (شركة المحمود: uploaded a photo for customer "Awtad Elfahd
 Contracting", got the upload-success toast, but the photo never
 displayed anywhere — no error surfaced). Traced live: DB row and on-disk
