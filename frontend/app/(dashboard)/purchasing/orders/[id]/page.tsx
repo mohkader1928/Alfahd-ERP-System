@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -33,6 +34,9 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
   const [actionError, setActionError] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [receiveQtys, setReceiveQtys] = useState<Record<string, string>>({});
+  const [remainingPromptOpen, setRemainingPromptOpen] = useState(false);
+  const [shortCloseReason, setShortCloseReason] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["purchase-order", companyId, id],
@@ -88,15 +92,48 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
   });
 
   const receiveMutation = useMutation({
-    mutationFn: () => {
-      const remaining = data!.lines
-        .map((l) => ({ purchase_order_line_id: l.id, qty: String(Number(l.qty) - Number(l.qty_received)) }))
+    mutationFn: async () => {
+      let stillRemaining = false;
+      const toReceive = data!.lines
+        .map((l) => {
+          const remaining = Number(l.qty) - Number(l.qty_received);
+          const requested = receiveQtys[l.id] !== undefined ? Number(receiveQtys[l.id]) : remaining;
+          const qty = Math.min(Math.max(requested, 0), remaining);
+          if (remaining - qty > 0) stillRemaining = true;
+          return { purchase_order_line_id: l.id, qty: String(qty) };
+        })
         .filter((l) => Number(l.qty) > 0);
-      return purchasingApi.recordGoodsReceipt(companyId, branchId, id, { lines: remaining });
+      const receipt = await purchasingApi.recordGoodsReceipt(companyId, branchId, id, { lines: toReceive });
+      return { receipt, stillRemaining };
     },
+    onSuccess: ({ stillRemaining }) => {
+      invalidate();
+      setReceiveQtys({});
+      toastSuccess(t("toast.success_title"), t("purchasing.orders.receive_submitted"));
+      // P0-1: after a partial receipt, ask right away whether the rest
+      // will be received later or should be short-closed now, instead of
+      // leaving the PO open indefinitely with no clear next step.
+      if (stillRemaining) setRemainingPromptOpen(true);
+    },
+    onError: handleError,
+  });
+
+  const shortCloseMutation = useMutation({
+    mutationFn: () => purchasingApi.shortCloseOrder(companyId, id, shortCloseReason),
     onSuccess: () => {
       invalidate();
-      toastSuccess(t("toast.success_title"), t("purchasing.orders.receive_all"));
+      setRemainingPromptOpen(false);
+      setShortCloseReason("");
+      toastSuccess(t("toast.success_title"), t("purchasing.orders.short_close"));
+    },
+    onError: handleError,
+  });
+
+  const reopenMutation = useMutation({
+    mutationFn: (lineId: string) => purchasingApi.reopenOrderLine(companyId, id, lineId),
+    onSuccess: () => {
+      invalidate();
+      toastSuccess(t("toast.success_title"), t("purchasing.orders.reopen_line"));
     },
     onError: handleError,
   });
@@ -124,8 +161,9 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
 
   const { order, lines } = data;
   const productLabel = (productId: string) => productsQuery.data?.find((p) => p.id === productId)?.name ?? productId;
-  const hasRemainingToReceive = lines.some((l) => Number(l.qty_received) < Number(l.qty));
+  const hasRemainingToReceive = lines.some((l) => Number(l.qty_received) < Number(l.qty) && !l.short_closed);
   const hasReceivedUnbilled = lines.some((l) => Number(l.qty_billed) < Number(l.qty_received));
+  const remainingFor = (l: (typeof lines)[number]) => Number(l.qty) - Number(l.qty_received);
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -163,18 +201,57 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
                 <TableHead>{t("purchasing.orders.select_product")}</TableHead>
                 <TableHead className="text-end">{t("purchasing.orders.qty")}</TableHead>
                 <TableHead className="text-end">{t("purchasing.orders.received")}</TableHead>
+                <TableHead className="text-end">{t("purchasing.orders.remaining")}</TableHead>
                 <TableHead className="text-end">{t("purchasing.orders.billed")}</TableHead>
+                {order.status === "confirmed" && hasRemainingToReceive && (
+                  <TableHead className="text-end">{t("purchasing.orders.receive_qty")}</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lines.map((l) => (
+              {lines.map((l) => {
+                const remaining = remainingFor(l);
+                return (
                 <TableRow key={l.id}>
-                  <TableCell>{productLabel(l.product_id)}</TableCell>
+                  <TableCell>
+                    {productLabel(l.product_id)}
+                    {l.short_closed && (
+                      <div className="mt-1 flex items-center gap-2">
+                        <Badge variant="secondary">{t("purchasing.orders.short_closed")}</Badge>
+                        <Can permission="purchasing.order.reopen">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => reopenMutation.mutate(l.id)}
+                            disabled={reopenMutation.isPending}
+                          >
+                            {t("purchasing.orders.reopen_line")}
+                          </Button>
+                        </Can>
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="text-end">{l.qty}</TableCell>
                   <TableCell className="text-end">{l.qty_received}</TableCell>
+                  <TableCell className="text-end">{remaining > 0 ? remaining : "0"}</TableCell>
                   <TableCell className="text-end">{l.qty_billed}</TableCell>
+                  {order.status === "confirmed" && hasRemainingToReceive && (
+                    <TableCell className="text-end">
+                      {remaining > 0 && !l.short_closed ? (
+                        <Input
+                          className="w-20 text-end"
+                          value={receiveQtys[l.id] ?? String(remaining)}
+                          onChange={(e) => setReceiveQtys((prev) => ({ ...prev, [l.id]: e.target.value }))}
+                        />
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
           <div className="flex flex-wrap gap-2">
@@ -188,7 +265,14 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
             {order.status === "confirmed" && hasRemainingToReceive && (
               <Can permission="purchasing.goods_receipt.create">
                 <Button onClick={() => receiveMutation.mutate()} disabled={receiveMutation.isPending}>
-                  {receiveMutation.isPending ? t("common.loading") : t("purchasing.orders.receive_all")}
+                  {receiveMutation.isPending ? t("common.loading") : t("purchasing.orders.receive")}
+                </Button>
+              </Can>
+            )}
+            {order.status === "confirmed" && hasRemainingToReceive && (
+              <Can permission="purchasing.order.short_close">
+                <Button variant="outline" onClick={() => setRemainingPromptOpen(true)}>
+                  {t("purchasing.orders.short_close")}
                 </Button>
               </Can>
             )}
@@ -239,6 +323,31 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
               onClick={() => rejectMutation.mutate()}
             >
               {rejectMutation.isPending ? t("common.loading") : t("purchasing.orders.reject")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={remainingPromptOpen} onOpenChange={(open) => !open && setRemainingPromptOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("purchasing.orders.remaining_prompt_title")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{t("purchasing.orders.remaining_prompt_body")}</p>
+          <div className="space-y-1">
+            <Label>{t("purchasing.orders.short_close_reason")}</Label>
+            <Textarea value={shortCloseReason} onChange={(e) => setShortCloseReason(e.target.value)} rows={3} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemainingPromptOpen(false)}>
+              {t("purchasing.orders.will_receive_later")}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!shortCloseReason.trim() || shortCloseMutation.isPending}
+              onClick={() => shortCloseMutation.mutate()}
+            >
+              {shortCloseMutation.isPending ? t("common.loading") : t("purchasing.orders.short_close")}
             </Button>
           </DialogFooter>
         </DialogContent>

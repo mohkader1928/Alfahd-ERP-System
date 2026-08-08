@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.identity.infrastructure.repositories import AuditLogRepository
 from src.modules.purchasing.api.deps import (
     get_company_valuation_method,
     get_goods_receipt_service,
@@ -23,6 +24,7 @@ from src.modules.purchasing.api.schemas import (
     PurchaseOrderDetailResponse,
     PurchaseOrderOut,
     RejectPurchaseOrderRequest,
+    ShortClosePurchaseOrderRequest,
     VendorBillCreateRequest,
     VendorBillDetailResponse,
     VendorBillOut,
@@ -177,6 +179,62 @@ async def reject_purchase_order(
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
+    await db.commit()
+    return order
+
+
+@router.post("/orders/{order_id}:short-close", response_model=PurchaseOrderOut)
+async def short_close_purchase_order(
+    order_id: UUID,
+    payload: ShortClosePurchaseOrderRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("purchasing.order.short_close")),
+    service: PurchaseOrderService = Depends(get_purchase_order_service),
+):
+    try:
+        order = await service.short_close_purchase_order(
+            order_id=order_id, company_id=ctx.company_id, reason=payload.reason
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="purchase_order",
+        target_id=order_id,
+        field_name="status",
+        old_value="confirmed",
+        new_value=f"closed ({payload.reason})",
+    )
+    await db.commit()
+    return order
+
+
+@router.post("/orders/{order_id}/lines/{line_id}:reopen", response_model=PurchaseOrderOut)
+async def reopen_purchase_order_line(
+    order_id: UUID,
+    line_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("purchasing.order.reopen")),
+    service: PurchaseOrderService = Depends(get_purchase_order_service),
+):
+    try:
+        order = await service.reopen_purchase_order_line(order_id=order_id, line_id=line_id, company_id=ctx.company_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="purchase_order_line",
+        target_id=line_id,
+        field_name="short_closed",
+        old_value="true",
+        new_value="false",
+    )
     await db.commit()
     return order
 

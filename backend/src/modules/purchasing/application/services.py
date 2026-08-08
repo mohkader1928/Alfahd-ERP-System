@@ -184,6 +184,56 @@ class PurchaseOrderService:
         await self._notify_creator(order, approved=False)
         return order
 
+    async def short_close_purchase_order(
+        self, *, order_id: UUID, company_id: UUID, reason: str
+    ) -> PurchaseOrder:
+        """3-Day Brief P0-1: the user's answer to "will you receive the
+        rest later?" was no — every line still short of its ordered qty
+        is marked short_closed so it can never be received again without
+        an explicit reopen, and the order itself moves to 'closed'
+        (distinct from 'done', which means everything ordered actually
+        arrived). Vendor billing is already bounded by qty_received
+        (register_bill's 3-way match), so a short-closed line simply can
+        never be billed for more than what actually arrived — no
+        separate Payables-side change needed."""
+        order = await self.order_repo.get_by_id(order_id)
+        if order is None or order.company_id != company_id:
+            raise ValueError("Purchase order not found")
+        if order.status != "confirmed":
+            raise ValueError("Only a confirmed purchase order can be short-closed")
+
+        lines = await self.order_repo.get_lines(order_id)
+        remaining_lines = [line for line in lines if line.qty_received < line.qty and not line.short_closed]
+        if not remaining_lines:
+            raise ValueError("This purchase order has nothing left to short-close")
+
+        for line in remaining_lines:
+            line.short_closed = True
+        order.status = "closed"
+        return order
+
+    async def reopen_purchase_order_line(
+        self, *, order_id: UUID, line_id: UUID, company_id: UUID
+    ) -> PurchaseOrder:
+        """Administrative-only counterpart to short_close_purchase_order
+        (FR: "prevent receiving the closed qty except through a clear
+        administrative action") — clears short_closed on one line and, if
+        the order had moved to 'closed', puts it back to 'confirmed' so
+        goods receipts against it are accepted again."""
+        order = await self.order_repo.get_by_id(order_id)
+        if order is None or order.company_id != company_id:
+            raise ValueError("Purchase order not found")
+        line = await self.order_repo.get_line_by_id(line_id)
+        if line is None or line.purchase_order_id != order_id:
+            raise ValueError("Purchase order line not found on this order")
+        if not line.short_closed:
+            raise ValueError("This line is not short-closed")
+
+        line.short_closed = False
+        if order.status == "closed":
+            order.status = "confirmed"
+        return order
+
     async def _notify_approvers(self, order: PurchaseOrder) -> None:
         if self.role_repo is None or self.notification_repo is None:
             return
@@ -303,6 +353,11 @@ class GoodsReceiptService:
             qty = Decimal(str(line["qty"]))
             if po_line.qty_received + qty > po_line.qty:
                 raise ValueError(f"Receiving {qty} would exceed the ordered qty for product {po_line.product_id}")
+            if po_line.short_closed:
+                raise ValueError(
+                    f"The remaining qty for product {po_line.product_id} was short-closed — "
+                    "reopen the line before receiving against it"
+                )
 
             product = await self.product_repo.get_by_id(po_line.product_id)
             if product is not None and product.is_stockable:
@@ -333,6 +388,17 @@ class GoodsReceiptService:
             await self.receipt_repo.add(receipt, receipt_lines)
         except IntegrityError as e:
             raise ValueError("A goods receipt was created concurrently with the same number — please retry") from e
+
+        # 3-Day Brief P0-1: a PO that's now fully received as ordered
+        # shouldn't sit in "confirmed" forever — auto-close it. Only when
+        # every line is either fully received or already short_closed
+        # from an earlier deliberate decision (which "done" never
+        # represents — that stays "closed", set by short_close_purchase_order).
+        all_lines = await self.order_repo.get_lines(order.id)
+        if all(line.qty_received >= line.qty for line in all_lines) and not any(
+            line.short_closed for line in all_lines
+        ):
+            order.status = "done"
 
         if total_value > 0:
             inventory_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_INVENTORY)

@@ -27,8 +27,13 @@ class PurchaseOrderLineOut(BaseModel):
     unit_price: Decimal
     qty_received: Decimal
     qty_billed: Decimal
+    short_closed: bool
 
     model_config = {"from_attributes": True}
+
+
+class ShortClosePurchaseOrderRequest(BaseModel):
+    reason: str
 
 
 class PurchaseOrderOut(BaseModel):

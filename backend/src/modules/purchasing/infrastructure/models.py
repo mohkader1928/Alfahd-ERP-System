@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Numeric, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Numeric, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,7 +18,7 @@ BILL_STATUSES = ("draft", "matched", "mismatched", "approved", "posted")
 # goods_receipt also uses and doesn't need this state): "pending_approval"
 # is the Approval Workflow gate — a PO whose total exceeds the company's
 # po_approval_threshold routes here instead of auto-confirming.
-PO_STATUSES = ("draft", "pending_approval", "confirmed", "done", "cancelled")
+PO_STATUSES = ("draft", "pending_approval", "confirmed", "done", "closed", "cancelled")
 PO_APPROVAL_STATUSES = ("not_required", "pending", "approved", "rejected")
 
 
@@ -68,6 +68,11 @@ class PurchaseOrderLine(Base):
     tax_rate_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     qty_received: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False, server_default=text("0"))
     qty_billed: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False, server_default=text("0"))
+    # 3-Day Brief P0-1: deliberately stops short of the ordered qty
+    # instead of leaving a partially-received PO open forever. Once set,
+    # the remaining (qty - qty_received) can no longer be received until
+    # an explicit admin reopen action clears this flag.
+    short_closed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
 
 class GoodsReceipt(Base):

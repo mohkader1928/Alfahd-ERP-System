@@ -57,6 +57,12 @@ export const purchasingApi = {
   rejectOrder: (companyId: string, id: string, reason: string) =>
     apiClient.post<PurchaseOrder>(`${BASE}/orders/${id}:reject`, { reason }, { companyId }),
 
+  shortCloseOrder: (companyId: string, id: string, reason: string) =>
+    apiClient.post<PurchaseOrder>(`${BASE}/orders/${id}:short-close`, { reason }, { companyId }),
+
+  reopenOrderLine: (companyId: string, orderId: string, lineId: string) =>
+    apiClient.post<PurchaseOrder>(`${BASE}/orders/${orderId}/lines/${lineId}:reopen`, undefined, { companyId }),
+
   recordGoodsReceipt: (
     companyId: string,
     branchId: string,

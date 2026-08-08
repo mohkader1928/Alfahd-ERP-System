@@ -10,7 +10,7 @@ export interface PurchaseOrder {
   company_id: string;
   partner_id: string;
   number: string;
-  status: "draft" | "pending_approval" | "confirmed" | "done" | "cancelled";
+  status: "draft" | "pending_approval" | "confirmed" | "done" | "closed" | "cancelled";
   order_date: string;
   total_amount: string;
   created_by_user_id: string | null;
@@ -27,6 +27,7 @@ export interface PurchaseOrderLine {
   unit_price: string;
   qty_received: string;
   qty_billed: string;
+  short_closed: boolean;
 }
 
 export interface PurchaseOrderDetail {

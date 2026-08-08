@@ -91,6 +91,8 @@ PERMISSION_CATALOG = [
     ("purchasing.order.confirm", "action"),
     ("purchasing.order.approve", "action"),
     ("purchasing.order.view", "screen"),
+    ("purchasing.order.short_close", "action"),
+    ("purchasing.order.reopen", "action"),
     ("purchasing.goods_receipt.create", "action"),
     ("purchasing.vendor_bill.create", "action"),
     ("purchasing.vendor_bill.view", "screen"),
