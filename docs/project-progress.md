@@ -8,16 +8,39 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `63033b5` (`main`) —
-**Sales order date silently reset to today** (see dated entry below),
-reported directly by the Owner while testing (a Sales Order they dated
-2026-01-01, SO-000012, never showed up anywhere dated January). Root
-cause: `confirm_to_sales_order()` stamped `date.today()` instead of
-carrying the quotation's own date forward. Fixed, plus `invoice_date` was
-found completely absent from the API response schema — added and
-surfaced on the invoice list/detail screens. 265/265 backend tests,
-`ruff`/`tsc`/`eslint` clean, verified live via direct API calls (a fresh
-January-dated quotation now confirms into an order that keeps
+**Last verified**: 2026-08-08, on top of committed `2ec4865` (`main`) —
+**Concurrency-correctness bundle** (see dated entry below): closed the
+stock_quant lost-update race and the purchase_order_line qty_received/
+qty_billed race with row-level `SELECT ... FOR UPDATE` locks (docs/16b
+findings #2/#4), plus added the one missing `UNIQUE(company_id, number)`
+constraint on `goods_receipt` (finding #5). 268/268 backend tests, ruff
+clean, 3 new genuine-concurrency tests (`asyncio.gather` over real
+simultaneous HTTP requests).
+
+**Immediately prior, same session — sales invoice date forced to today**
+(commit `8239919`), a second Owner-reported issue on the heels of the
+order-date fix above: `issue_invoice_from_order` forced
+`invoice_date = date.today()` on the mistaken assumption ZATCA's
+IssueDate required it — it doesn't; `_run_zatca_pipeline` already
+generates its own independent `now_iso()` timestamp, fully decoupled
+from this field. The Owner directly rejected the "this is intentional"
+explanation ("هذا خطأ") after seeing SO-000020 (order_date 2026-01-01)
+produce an invoice dated today with no way to override it — correctly,
+since the field serves no compliance purpose. Now inherits the order's
+own date. 268/268 backend tests, ruff clean, verified live end-to-end
+(a fresh 2026-02-14 quotation → order → invoice produced an invoice
+dated 2026-02-14, not today).
+
+**Immediately prior — sales order date silently reset to today**
+(commit `63033b5`), reported directly by the Owner while testing (a
+Sales Order they dated 2026-01-01, SO-000012, never showed up anywhere
+dated January). Root cause: `confirm_to_sales_order()` stamped
+`date.today()` instead of carrying the quotation's own date forward.
+Fixed, plus `invoice_date` was found completely absent from the API
+response schema — added and surfaced on the invoice list/detail
+screens. 265/265 backend tests, `ruff`/`tsc`/`eslint` clean, verified
+live via direct API calls (a fresh January-dated quotation now confirms
+into an order that keeps
 `order_date: "2026-01-20"` instead of today).
 
 **Also same session**: the Dashboard's sales trend chart was reported as
