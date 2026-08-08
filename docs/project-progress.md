@@ -8,8 +8,34 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `161d5c1` (`main`) —
-**a batch of Owner-requested pricing defaults and accounting/reporting
+**Last verified**: 2026-08-08, on top of committed `aa2c8b3` (`main`) —
+**backfilled `product.last_purchase_price` from existing purchase order
+history** (commit `aa2c8b3`). Owner-reported follow-up to the pricing-
+defaults bundle below: a real product with plenty of purchase history
+still showed no default price on a new Purchase Order line, because
+`last_purchase_price` only ever gets set going forward from a new PO
+line onward — it was never backfilled from purchase orders that
+already existed before that migration landed, so every product in a
+company with real pre-existing purchase history (like شركة المحمود)
+stayed NULL until someone happened to buy it again after the deploy.
+The first backfill attempt (same session) silently updated almost
+nothing: `product`/`purchase_order`/`purchase_order_line` all carry
+FORCE ROW LEVEL SECURITY, and Alembic's `erp_migrate` role is
+deliberately NOBYPASSRLS — the exact same silent-no-op trap already
+documented in migration `d3e4f5a6b7c8`. Fixed by temporarily lifting
+FORCE ROW LEVEL SECURITY for the duration of the backfill (owner-only
+DDL — `erp_migrate` owns all three tables) and restoring it
+immediately after, mirroring the pattern migration `8957d3c39d54`
+already established. Verified live: re-ran via the correct `migrate`
+service (erp_migrate role — the `api` container's `erp_app` role
+correctly failed with `InsufficientPrivilege`, caught before being
+mistaken for success); confirmed every one of شركة المحمود's products
+with purchase history now carries the correct `last_purchase_price`,
+and confirmed FORCE ROW LEVEL SECURITY is restored afterward. 281/281
+backend tests, ruff clean.
+
+**Immediately prior, same session — a batch of Owner-requested pricing
+defaults and accounting/reporting
 fixes** (commits `7c69f58`, `161d5c1`), submitted directly by the Owner
 as one list of five items while live-testing شركة المحمود:
 
