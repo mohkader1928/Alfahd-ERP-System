@@ -35,8 +35,13 @@ from src.modules.zatca.application.zatca_service import ZatcaInvoiceProcessor
 from src.modules.zatca.infrastructure.gateways.sandbox_gateway import SandboxZatcaGateway
 from src.modules.zatca.infrastructure.signing import DevSigningService
 from src.shared.email.mailer import send_email
+from src.shared.idempotency.repositories import IdempotencyKeyRepository
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext, get_auth_context
+
+
+def get_idempotency_key_repo(db: AsyncSession = Depends(get_db)) -> IdempotencyKeyRepository:
+    return IdempotencyKeyRepository(db)
 
 
 def get_mailer():

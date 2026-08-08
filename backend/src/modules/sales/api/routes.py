@@ -3,11 +3,13 @@
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.inventory.domain.entities import InsufficientStockError
 from src.modules.sales.api.deps import (
+    get_idempotency_key_repo,
     get_mailer,
     get_quotation_repo,
     get_quotation_service,
@@ -35,6 +37,12 @@ from src.modules.sales.infrastructure.repositories import (
 )
 from src.shared.api.pagination import Page, PageParams
 from src.shared.email.mailer import EmailNotConfiguredError
+from src.shared.idempotency.repositories import IdempotencyKeyRepository
+from src.shared.idempotency.service import (
+    IdempotencyKeyConflictError,
+    IdempotentReplay,
+    begin_idempotent_request,
+)
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext
 
@@ -143,7 +151,32 @@ async def issue_credit_note(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_permission("sales.invoice.credit_note", require_branch=True)),
     service: SalesInvoiceService = Depends(get_sales_invoice_service),
+    idempotency_repo: IdempotencyKeyRepository = Depends(get_idempotency_key_repo),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    # Unlike sales invoice issuance (closed via a status guard + DB
+    # constraint), a second credit note against the same invoice is a
+    # legitimate business action (partial returns, separate corrections) —
+    # so this is the one MUST-priority endpoint from docs/16b that genuinely
+    # needs the full Idempotency-Key mechanism rather than a simple guard.
+    # Opt-in: omitting the header behaves exactly as before.
+    endpoint = "POST /sales/invoices/{id}:credit-note"
+    try:
+        guard = await begin_idempotent_request(
+            idempotency_repo,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            endpoint=endpoint,
+            idempotency_key=idempotency_key,
+            body=payload.model_dump(mode="json"),
+        )
+    except IdempotencyKeyConflictError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+
+    if isinstance(guard, IdempotentReplay):
+        await db.commit()
+        return JSONResponse(status_code=guard.response_status, content=guard.response_body)
+
     try:
         credit_note, submission = await service.issue_credit_note(
             original_invoice_id=invoice_id,
@@ -155,6 +188,13 @@ async def issue_credit_note(
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
+    response = InvoiceIssueResponse(invoice=credit_note, zatca_submission=submission)
+
+    if guard is not None:
+        await idempotency_repo.mark_completed(
+            guard, response_status=status.HTTP_201_CREATED, response_body=response.model_dump(mode="json")
+        )
+
     await db.commit()
 
     if submission.status == "pending_submission":
@@ -162,7 +202,7 @@ async def issue_credit_note(
 
         report_invoice_task.delay(str(credit_note.id), company_id=str(ctx.company_id), tenant_id=str(ctx.tenant_id))
 
-    return InvoiceIssueResponse(invoice=credit_note, zatca_submission=submission)
+    return response
 
 
 @router.get("/invoices", response_model=Page[SalesInvoiceOut])
