@@ -37,6 +37,8 @@ export default function NewProductPage() {
   const [isStockable, setIsStockable] = useState(true);
   const [salesPrice, setSalesPrice] = useState("0.00");
   const [costPrice, setCostPrice] = useState("0.00");
+  const [priceHigh, setPriceHigh] = useState("");
+  const [priceLow, setPriceLow] = useState("");
   const [reorderPoint, setReorderPoint] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -51,6 +53,8 @@ export default function NewProductPage() {
         is_stockable: isStockable,
         sales_price: salesPrice,
         cost_price: costPrice,
+        price_high: priceHigh || null,
+        price_low: priceLow || null,
         reorder_point: reorderPoint || null,
       }),
     onSuccess: (product) => {
@@ -126,6 +130,14 @@ export default function NewProductPage() {
         <div className="space-y-1">
           <Label>{t("master_data.products.cost_price")}</Label>
           <Input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>{t("master_data.products.price_high")}</Label>
+          <Input value={priceHigh} onChange={(e) => setPriceHigh(e.target.value)} placeholder={t("master_data.products.price_optional_placeholder")} />
+        </div>
+        <div className="space-y-1">
+          <Label>{t("master_data.products.price_low")}</Label>
+          <Input value={priceLow} onChange={(e) => setPriceLow(e.target.value)} placeholder={t("master_data.products.price_optional_placeholder")} />
         </div>
         <div className="space-y-1">
           <Label>{t("master_data.products.reorder_point")}</Label>

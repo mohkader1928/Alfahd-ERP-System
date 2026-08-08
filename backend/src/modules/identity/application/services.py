@@ -469,6 +469,8 @@ class ProductService:
         is_stockable: bool = True,
         sales_price: Decimal = Decimal("0"),
         cost_price: Decimal = Decimal("0"),
+        price_high: Decimal | None = None,
+        price_low: Decimal | None = None,
         default_tax_rate_id: UUID | None = None,
         reorder_point: Decimal | None = None,
     ) -> Product:
@@ -488,6 +490,8 @@ class ProductService:
             is_stockable=is_stockable,
             sales_price=sales_price,
             cost_price=cost_price,
+            price_high=price_high,
+            price_low=price_low,
             default_tax_rate_id=default_tax_rate_id,
             reorder_point=reorder_point,
         )
@@ -507,6 +511,8 @@ class ProductService:
         sales_price: Decimal,
         cost_price: Decimal,
         default_tax_rate_id: UUID | None,
+        price_high: Decimal | None = None,
+        price_low: Decimal | None = None,
         reorder_point: Decimal | None = None,
     ) -> Product:
         product = await self.product_repo.get_by_id(product_id)
@@ -525,6 +531,8 @@ class ProductService:
         product.is_stockable = is_stockable
         product.sales_price = sales_price
         product.cost_price = cost_price
+        product.price_high = price_high
+        product.price_low = price_low
         product.default_tax_rate_id = default_tax_rate_id
         product.reorder_point = reorder_point
         return product

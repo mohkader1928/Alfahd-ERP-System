@@ -71,11 +71,13 @@ class PurchaseOrderService:
         company_repo: CompanyRepository | None = None,
         role_repo: RoleRepository | None = None,
         notification_repo: NotificationRepository | None = None,
+        product_repo: ProductRepository | None = None,
     ):
         self.order_repo = order_repo
         self.company_repo = company_repo
         self.role_repo = role_repo
         self.notification_repo = notification_repo
+        self.product_repo = product_repo
 
     async def create_purchase_order(
         self,
@@ -115,13 +117,23 @@ class PurchaseOrderService:
             for line in lines
         ]
         try:
-            return await self.order_repo.add(order, orm_lines)
+            created = await self.order_repo.add(order, orm_lines)
         except IntegrityError as e:
             # Belt-and-suspenders against the count(*)+1 numbering race
             # (docs/16b): the partial unique index is the actual guarantee
             # against a duplicate number; this only translates its
             # violation into a clean, retryable error instead of a raw 500.
             raise ValueError("A purchase order was created concurrently with the same number — please retry") from e
+
+        # Owner-requested: the next Purchase Order for this product should
+        # default to what was just paid for it, not start from 0 again.
+        # A UI convenience cache (last write wins), not an audited figure.
+        if self.product_repo is not None:
+            for line in lines:
+                product = await self.product_repo.get_by_id(line["product_id"])
+                if product is not None and product.company_id == company_id:
+                    product.last_purchase_price = Decimal(str(line["unit_price"]))
+        return created
 
     async def confirm_purchase_order(self, *, order_id: UUID, company_id: UUID) -> PurchaseOrder:
         order = await self.order_repo.get_by_id(order_id)

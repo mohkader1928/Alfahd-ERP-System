@@ -365,6 +365,8 @@ class ProductCreateRequest(BaseModel):
     is_stockable: bool = True
     sales_price: Decimal = Decimal("0")
     cost_price: Decimal = Decimal("0")
+    price_high: Decimal | None = None
+    price_low: Decimal | None = None
     default_tax_rate_id: UUID | None = None
     reorder_point: Decimal | None = None
 
@@ -378,6 +380,8 @@ class ProductUpdateRequest(BaseModel):
     is_stockable: bool = True
     sales_price: Decimal = Decimal("0")
     cost_price: Decimal = Decimal("0")
+    price_high: Decimal | None = None
+    price_low: Decimal | None = None
     default_tax_rate_id: UUID | None = None
     reorder_point: Decimal | None = None
 
@@ -393,6 +397,9 @@ class ProductOut(BaseModel):
     is_stockable: bool
     sales_price: Decimal
     cost_price: Decimal
+    price_high: Decimal | None = None
+    price_low: Decimal | None = None
+    last_purchase_price: Decimal | None = None
     default_tax_rate_id: UUID | None
     reorder_point: Decimal | None = None
     image_path: str | None = None

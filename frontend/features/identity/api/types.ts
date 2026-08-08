@@ -146,6 +146,9 @@ export interface Product {
   is_stockable: boolean;
   sales_price: string;
   cost_price: string;
+  price_high: string | null;
+  price_low: string | null;
+  last_purchase_price: string | null;
   default_tax_rate_id: string | null;
   reorder_point: string | null;
   image_path: string | null;
@@ -160,6 +163,8 @@ export interface ProductWriteInput {
   is_stockable?: boolean;
   sales_price?: string;
   cost_price?: string;
+  price_high?: string | null;
+  price_low?: string | null;
   default_tax_rate_id?: string | null;
   reorder_point?: string | null;
 }

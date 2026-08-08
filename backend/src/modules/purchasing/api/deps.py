@@ -60,6 +60,7 @@ def get_purchase_order_service(
         company_repo=CompanyRepository(db),
         role_repo=RoleRepository(db),
         notification_repo=NotificationRepository(db),
+        product_repo=ProductRepository(db),
     )
 
 

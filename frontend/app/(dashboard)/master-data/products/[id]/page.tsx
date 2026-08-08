@@ -91,6 +91,8 @@ function ProductEditForm({
   const [isStockable, setIsStockable] = useState(product.is_stockable);
   const [salesPrice, setSalesPrice] = useState(product.sales_price);
   const [costPrice, setCostPrice] = useState(product.cost_price);
+  const [priceHigh, setPriceHigh] = useState(product.price_high ?? "");
+  const [priceLow, setPriceLow] = useState(product.price_low ?? "");
   const [reorderPoint, setReorderPoint] = useState(product.reorder_point ?? "");
   const [error, setError] = useState<string | null>(null);
 
@@ -105,6 +107,8 @@ function ProductEditForm({
         is_stockable: isStockable,
         sales_price: salesPrice,
         cost_price: costPrice,
+        price_high: priceHigh || null,
+        price_low: priceLow || null,
         reorder_point: reorderPoint || null,
       }),
     onSuccess: () => {
@@ -222,6 +226,20 @@ function ProductEditForm({
                   <Label>{t("master_data.products.cost_price")}</Label>
                   <Input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
                 </div>
+                <div className="space-y-1">
+                  <Label>{t("master_data.products.price_high")}</Label>
+                  <Input value={priceHigh} onChange={(e) => setPriceHigh(e.target.value)} placeholder={t("master_data.products.price_optional_placeholder")} />
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("master_data.products.price_low")}</Label>
+                  <Input value={priceLow} onChange={(e) => setPriceLow(e.target.value)} placeholder={t("master_data.products.price_optional_placeholder")} />
+                </div>
+                {product.last_purchase_price && (
+                  <div className="space-y-1">
+                    <Label>{t("master_data.products.last_purchase_price")}</Label>
+                    <p className="flex h-8 items-center text-sm text-muted-foreground">{product.last_purchase_price}</p>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <Label>{t("master_data.products.reorder_point")}</Label>
                   <Input

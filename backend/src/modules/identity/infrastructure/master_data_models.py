@@ -162,6 +162,15 @@ class Product(Base):
     is_stockable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sales_price: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     cost_price: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
+    # sales_price above is the medium/default tier (also what quotation
+    # lines pre-fill from); these two are optional reference points either
+    # side of it for negotiating with different customer segments.
+    price_high: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    price_low: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    # Owner-requested: Purchase Order lines default to this instead of 0.
+    # Updated whenever a PO line for this product is created (last write
+    # wins - a UI convenience default, not a costed/audited figure).
+    last_purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
     default_tax_rate_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     reorder_point: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     image_path: Mapped[str | None] = mapped_column(Text, nullable=True)

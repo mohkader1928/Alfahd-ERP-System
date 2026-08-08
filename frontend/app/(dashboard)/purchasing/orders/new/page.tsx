@@ -130,7 +130,19 @@ export default function NewPurchaseOrderPage() {
               <div key={index} className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
                   <Label className="text-xs">{t("purchasing.orders.select_product")}</Label>
-                  <Select value={line.product_id} onValueChange={(v) => updateLine(index, { product_id: v ?? "" })}>
+                  <Select
+                    value={line.product_id}
+                    onValueChange={(v) => {
+                      const product = productsQuery.data?.find((p) => p.id === v);
+                      // Owner-requested default: picking a product pre-fills
+                      // the line price from its last purchase price instead
+                      // of leaving the buyer typing "0" from scratch.
+                      updateLine(index, {
+                        product_id: v ?? "",
+                        unit_price: product?.last_purchase_price ?? line.unit_price,
+                      });
+                    }}
+                  >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder={t("purchasing.orders.select_product")}>
                         {(value: string) => {

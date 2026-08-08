@@ -1100,6 +1100,8 @@ async def create_product(
             is_stockable=payload.is_stockable,
             sales_price=payload.sales_price,
             cost_price=payload.cost_price,
+            price_high=payload.price_high,
+            price_low=payload.price_low,
             default_tax_rate_id=payload.default_tax_rate_id,
             reorder_point=payload.reorder_point,
         )
@@ -1133,6 +1135,8 @@ async def update_product(
             is_stockable=payload.is_stockable,
             sales_price=payload.sales_price,
             cost_price=payload.cost_price,
+            price_high=payload.price_high,
+            price_low=payload.price_low,
             default_tax_rate_id=payload.default_tax_rate_id,
             reorder_point=payload.reorder_point,
         )
