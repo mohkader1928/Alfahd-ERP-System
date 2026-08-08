@@ -20,7 +20,7 @@ import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 import type { PurchaseOrder, VendorBill } from "@/features/purchasing/api/types";
 
-const PO_STATUSES = ["draft", "pending_approval", "confirmed", "done", "cancelled"];
+const PO_STATUSES = ["draft", "pending_approval", "confirmed", "partially_received", "done", "closed", "cancelled"];
 const BILL_STATUSES = ["draft", "matched", "mismatched", "approved", "posted"];
 
 /**
@@ -68,7 +68,7 @@ function OrdersTab() {
       key: "status",
       label: t("purchasing.orders.status"),
       type: "select",
-      options: PO_STATUSES.map((s) => ({ value: s, label: s })),
+      options: PO_STATUSES.map((s) => ({ value: s, label: t(`purchasing.orders.status_${s}`) })),
       width: "w-44",
     },
     { key: "date_from", label: t("sales.reports.date_from"), type: "date" },
@@ -92,7 +92,7 @@ function OrdersTab() {
     {
       key: "status",
       header: t("purchasing.orders.status"),
-      render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge>,
+      render: (r) => <Badge variant={statusVariant(r.status)}>{t(`purchasing.orders.status_${r.status}`)}</Badge>,
     },
     {
       key: "total_amount",

@@ -80,8 +80,9 @@ async def test_po_auto_closes_to_done_when_fully_received_across_two_receipts(cl
     )
     assert r1.status_code == 201
     mid = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()
-    assert mid["order"]["status"] == "confirmed"
+    assert mid["order"]["status"] == "partially_received"
     assert mid["lines"][0]["qty_received"] == "4.000000"
+    assert mid["lines"][0]["qty_billed"] == "4.000000"  # auto-billed on receipt
 
     r2 = await client.post(
         f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
@@ -161,7 +162,9 @@ async def test_reopen_allows_receiving_again(client):
         f"/api/v1/purchasing/orders/{order_id}/lines/{po_line_id}:reopen", headers=headers
     )
     assert reopen_resp.status_code == 200
-    assert reopen_resp.json()["status"] == "confirmed"
+    # qty_received is already 6 > 0 at this point, so reopen restores the
+    # honest "partially_received" state rather than "confirmed".
+    assert reopen_resp.json()["status"] == "partially_received"
 
     detail = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()
     assert detail["lines"][0]["short_closed"] is False

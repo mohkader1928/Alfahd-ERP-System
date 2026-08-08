@@ -18,7 +18,7 @@ BILL_STATUSES = ("draft", "matched", "mismatched", "approved", "posted")
 # goods_receipt also uses and doesn't need this state): "pending_approval"
 # is the Approval Workflow gate — a PO whose total exceeds the company's
 # po_approval_threshold routes here instead of auto-confirming.
-PO_STATUSES = ("draft", "pending_approval", "confirmed", "done", "closed", "cancelled")
+PO_STATUSES = ("draft", "pending_approval", "confirmed", "partially_received", "done", "closed", "cancelled")
 PO_APPROVAL_STATUSES = ("not_required", "pending", "approved", "rejected")
 
 

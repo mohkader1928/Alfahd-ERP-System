@@ -77,6 +77,19 @@ async def get_goods_receipt_service(
     inventory_service = InventoryValuationService(
         StockQuantRepository(db), StockLayerRepository(db), StockMoveRepository(db)
     )
+    # Owner-requested: every goods receipt auto-bills itself, so
+    # GoodsReceiptService needs its own VendorBillService instance —
+    # same construction get_vendor_bill_service uses below.
+    vendor_bill_service = VendorBillService(
+        bill_repo=VendorBillRepository(db),
+        order_repo=order_repo,
+        receipt_repo=receipt_repo,
+        product_repo=product_repo,
+        account_repo=account_repo,
+        journal_entry_service=JournalEntryService(
+            JournalEntryRepository(db), JournalRepository(db), AccountRepository(db), FiscalPeriodRepository(db)
+        ),
+    )
     return GoodsReceiptService(
         receipt_repo=receipt_repo,
         order_repo=order_repo,
@@ -86,6 +99,7 @@ async def get_goods_receipt_service(
         inventory_service=inventory_service,
         warehouse_repo=WarehouseRepository(db),
         location_repo=LocationRepository(db),
+        vendor_bill_service=vendor_bill_service,
     )
 
 

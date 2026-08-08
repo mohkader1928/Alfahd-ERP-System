@@ -199,8 +199,8 @@ class PurchaseOrderService:
         order = await self.order_repo.get_by_id(order_id)
         if order is None or order.company_id != company_id:
             raise ValueError("Purchase order not found")
-        if order.status != "confirmed":
-            raise ValueError("Only a confirmed purchase order can be short-closed")
+        if order.status not in ("confirmed", "partially_received"):
+            raise ValueError("Only a confirmed or partially-received purchase order can be short-closed")
 
         lines = await self.order_repo.get_lines(order_id)
         remaining_lines = [line for line in lines if line.qty_received < line.qty and not line.short_closed]
@@ -218,8 +218,9 @@ class PurchaseOrderService:
         """Administrative-only counterpart to short_close_purchase_order
         (FR: "prevent receiving the closed qty except through a clear
         administrative action") — clears short_closed on one line and, if
-        the order had moved to 'closed', puts it back to 'confirmed' so
-        goods receipts against it are accepted again."""
+        the order had moved to 'closed', restores whichever status
+        honestly reflects the data (partially_received if anything's
+        already arrived, confirmed if nothing has)."""
         order = await self.order_repo.get_by_id(order_id)
         if order is None or order.company_id != company_id:
             raise ValueError("Purchase order not found")
@@ -231,7 +232,10 @@ class PurchaseOrderService:
 
         line.short_closed = False
         if order.status == "closed":
-            order.status = "confirmed"
+            all_lines = await self.order_repo.get_lines(order_id)
+            order.status = (
+                "partially_received" if any(ln.qty_received > 0 for ln in all_lines) else "confirmed"
+            )
         return order
 
     async def _notify_approvers(self, order: PurchaseOrder) -> None:
@@ -299,6 +303,7 @@ class GoodsReceiptService:
         inventory_service: InventoryValuationService,
         warehouse_repo: WarehouseRepository,
         location_repo: LocationRepository,
+        vendor_bill_service: "VendorBillService | None" = None,
     ):
         self.receipt_repo = receipt_repo
         self.order_repo = order_repo
@@ -308,6 +313,13 @@ class GoodsReceiptService:
         self.inventory_service = inventory_service
         self.warehouse_repo = warehouse_repo
         self.location_repo = location_repo
+        # Owner-requested: billing is no longer a separate manual step —
+        # every receipt (partial or full) immediately produces its own
+        # vendor bill for exactly what was received, at the PO's own
+        # price. Optional only so existing tests/call sites that build
+        # GoodsReceiptService directly without wiring VendorBillService
+        # keep working unchanged (receipt-only, no auto-bill).
+        self.vendor_bill_service = vendor_bill_service
 
     async def record_receipt(
         self,
@@ -322,8 +334,8 @@ class GoodsReceiptService:
         order = await self.order_repo.get_by_id(purchase_order_id)
         if order is None or order.company_id != company_id:
             raise ValueError("Purchase order not found")
-        if order.status != "confirmed":
-            raise ValueError("Only a confirmed purchase order can receive goods")
+        if order.status not in ("confirmed", "partially_received"):
+            raise ValueError("Only a confirmed or partially-received purchase order can receive goods")
 
         warehouse = await self.warehouse_repo.get_default_for_company(company_id)
         if warehouse is None:
@@ -346,6 +358,7 @@ class GoodsReceiptService:
         receipt_lines: list[GoodsReceiptLine] = []
         total_value = Decimal("0")
 
+        billed_lines: list[dict] = []
         for line in lines:
             po_line = await self.order_repo.get_line_by_id_for_update(line["purchase_order_line_id"])
             if po_line is None or po_line.purchase_order_id != order.id:
@@ -383,22 +396,38 @@ class GoodsReceiptService:
                     qty=qty,
                 )
             )
+            billed_lines.append(
+                {"purchase_order_line_id": po_line.id, "qty": qty, "unit_price": po_line.unit_price}
+            )
 
         try:
             await self.receipt_repo.add(receipt, receipt_lines)
         except IntegrityError as e:
             raise ValueError("A goods receipt was created concurrently with the same number — please retry") from e
 
-        # 3-Day Brief P0-1: a PO that's now fully received as ordered
-        # shouldn't sit in "confirmed" forever — auto-close it. Only when
-        # every line is either fully received or already short_closed
-        # from an earlier deliberate decision (which "done" never
-        # represents — that stays "closed", set by short_close_purchase_order).
+        # Owner-requested: this receipt's own vendor bill, for exactly
+        # what was just received, at the PO's own price — always a clean
+        # 3-way match by construction, so it lands as "matched" the same
+        # way a manually-entered identical bill would (approval/posting
+        # stays a separate step, unchanged).
+        if self.vendor_bill_service is not None and billed_lines:
+            await self.vendor_bill_service.register_bill(
+                purchase_order_id=order.id,
+                company_id=company_id,
+                branch_id=branch_id,
+                vendor_reference=None,
+                lines=billed_lines,
+            )
+
+        # 3-Day Brief P0-1 (revised per Owner feedback): the PO's status
+        # must honestly reflect its data at all times, not sit in
+        # "confirmed" through a partial receipt as if nothing happened.
         all_lines = await self.order_repo.get_lines(order.id)
-        if all(line.qty_received >= line.qty for line in all_lines) and not any(
-            line.short_closed for line in all_lines
-        ):
+        fully_resolved = all(line.qty_received >= line.qty or line.short_closed for line in all_lines)
+        if fully_resolved and not any(line.short_closed for line in all_lines):
             order.status = "done"
+        elif any(line.qty_received > 0 for line in all_lines):
+            order.status = "partially_received"
 
         if total_value > 0:
             inventory_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_INVENTORY)

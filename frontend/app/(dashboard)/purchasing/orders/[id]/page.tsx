@@ -164,6 +164,11 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
   const hasRemainingToReceive = lines.some((l) => Number(l.qty_received) < Number(l.qty) && !l.short_closed);
   const hasReceivedUnbilled = lines.some((l) => Number(l.qty_billed) < Number(l.qty_received));
   const remainingFor = (l: (typeof lines)[number]) => Number(l.qty) - Number(l.qty_received);
+  // Owner-requested: the order's status now honestly reflects its data
+  // (confirmed -> partially_received -> done/closed), so anywhere the
+  // old code only checked for "confirmed" must also accept
+  // "partially_received" -- both are "still receivable" states.
+  const canReceive = order.status === "confirmed" || order.status === "partially_received";
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -175,7 +180,9 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             {order.number}
-            <Badge variant={statusVariant(order.status)}>{order.status}</Badge>
+            <Badge variant={statusVariant(order.status)} className="h-auto px-3 py-1 text-sm">
+              {t(`purchasing.orders.status_${order.status}`)}
+            </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -203,7 +210,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
                 <TableHead className="text-end">{t("purchasing.orders.received")}</TableHead>
                 <TableHead className="text-end">{t("purchasing.orders.remaining")}</TableHead>
                 <TableHead className="text-end">{t("purchasing.orders.billed")}</TableHead>
-                {order.status === "confirmed" && hasRemainingToReceive && (
+                {canReceive && hasRemainingToReceive && (
                   <TableHead className="text-end">{t("purchasing.orders.receive_qty")}</TableHead>
                 )}
               </TableRow>
@@ -236,7 +243,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
                   <TableCell className="text-end">{l.qty_received}</TableCell>
                   <TableCell className="text-end">{remaining > 0 ? remaining : "0"}</TableCell>
                   <TableCell className="text-end">{l.qty_billed}</TableCell>
-                  {order.status === "confirmed" && hasRemainingToReceive && (
+                  {canReceive && hasRemainingToReceive && (
                     <TableCell className="text-end">
                       {remaining > 0 && !l.short_closed ? (
                         <Input
@@ -262,21 +269,14 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
                 </Button>
               </Can>
             )}
-            {order.status === "confirmed" && hasRemainingToReceive && (
+            {canReceive && hasRemainingToReceive && (
               <Can permission="purchasing.goods_receipt.create">
                 <Button onClick={() => receiveMutation.mutate()} disabled={receiveMutation.isPending}>
                   {receiveMutation.isPending ? t("common.loading") : t("purchasing.orders.receive")}
                 </Button>
               </Can>
             )}
-            {order.status === "confirmed" && hasRemainingToReceive && (
-              <Can permission="purchasing.order.short_close">
-                <Button variant="outline" onClick={() => setRemainingPromptOpen(true)}>
-                  {t("purchasing.orders.short_close")}
-                </Button>
-              </Can>
-            )}
-            {order.status === "confirmed" && hasReceivedUnbilled && (
+            {canReceive && hasReceivedUnbilled && (
               <Can permission="purchasing.vendor_bill.create">
                 <Button
                   variant="outline"
@@ -284,6 +284,19 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
                   disabled={billMutation.isPending}
                 >
                   {billMutation.isPending ? t("common.loading") : t("purchasing.orders.bill_all")}
+                </Button>
+              </Can>
+            )}
+            {canReceive && hasRemainingToReceive && (
+              <Can permission="purchasing.order.short_close">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShortCloseReason("");
+                    setRemainingPromptOpen(true);
+                  }}
+                >
+                  {t("purchasing.orders.close_remaining")}
                 </Button>
               </Can>
             )}
