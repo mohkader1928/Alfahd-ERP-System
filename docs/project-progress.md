@@ -8,14 +8,26 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `2ec4865` (`main`) —
-**Concurrency-correctness bundle** (see dated entry below): closed the
-stock_quant lost-update race and the purchase_order_line qty_received/
-qty_billed race with row-level `SELECT ... FOR UPDATE` locks (docs/16b
-findings #2/#4), plus added the one missing `UNIQUE(company_id, number)`
-constraint on `goods_receipt` (finding #5). 268/268 backend tests, ruff
-clean, 3 new genuine-concurrency tests (`asyncio.gather` over real
-simultaneous HTTP requests).
+**Last verified**: 2026-08-08, on top of committed `3d5c913` (`main`) —
+**Document-numbering races now return a clean error instead of a raw
+500** (see dated entry below): every numbered document already had
+`UNIQUE(company_id, number)` as the real duplicate-prevention guarantee,
+but only sales invoice issuance translated the resulting
+`IntegrityError` into a clean 422 — quotation, sales order, purchase
+order, goods receipt, vendor bill, and payment creation all let it
+bubble up as an unhandled 500 under real concurrent creation. Wrapped
+all 6 remaining paths the same way. 271/271 backend tests, ruff clean, 3
+new concurrent tests (6 simultaneous creates per document type) assert
+no request ever 500s and every created document has a unique number.
+
+**Immediately prior, same session — concurrency-correctness bundle**
+(commit `2ec4865`): closed the stock_quant lost-update race and the
+purchase_order_line qty_received/qty_billed race with row-level
+`SELECT ... FOR UPDATE` locks (docs/16b findings #2/#4), plus added the
+one missing `UNIQUE(company_id, number)` constraint on `goods_receipt`
+(finding #5). 268/268 backend tests, ruff clean, 3 new genuine-
+concurrency tests (`asyncio.gather` over real simultaneous HTTP
+requests).
 
 **Immediately prior, same session — sales invoice date forced to today**
 (commit `8239919`), a second Owner-reported issue on the heels of the
