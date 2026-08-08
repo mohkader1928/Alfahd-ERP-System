@@ -8,17 +8,39 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `c937a7a` (`main`) —
-**Idempotency-Key mechanism, applied to credit note issuance** (see
-dated entry below): the one MUST-priority endpoint from docs/16b that
-genuinely needed the full mechanism (not the simpler status-guard
-pattern already closing invoice issuance) — a second credit note against
-the same invoice can be legitimate, so blocking retries outright would
-be a regression, not a fix. New `shared/idempotency/` module (model,
-repository, service), opt-in `Idempotency-Key` header, fully backward
-compatible. 276/276 backend tests, ruff clean, 5 new tests including a
-genuine concurrent-identical-request test. Verified live against the
-running dev server.
+**Last verified**: 2026-08-08, on top of committed `eab2f10` (`main`) —
+**ZATCA ICV sequencing race closed** (see dated entry below): the last
+open finding from the docs/16b concurrency audit. Two concurrent invoice
+issuances for the same company (different orders) could read the same
+hash-chain tail and compute the same next ICV, breaking the chain's
+required total order — fixed by locking the company row as a
+serialization anchor. Also fixed a real bug found while testing:
+`issue_invoice_from_order`'s error handler mislabeled an invoice-number
+collision between two different orders as "already invoiced" — now
+distinguishes by constraint name and reports the accurate, retryable
+error. 278/278 backend tests, ruff clean.
+
+Also this session: a live production-usage report from the Owner ("This
+page could not be found — 404" on `/master-data/vendors` and
+`/master-data/customers`) turned out to be a stale frontend dev-server
+process that hadn't picked up routes already present on disk — confirmed
+by a raw fetch returning Next.js's own built-in 404 shell with HTTP 200,
+proving the server's own route table was stale, not a missing/broken
+route. Fixed by restarting the dev server; not a code defect and
+structurally cannot occur in a production build (which compiles a fixed
+route manifest once, with no long-running incremental cache to go
+stale).
+
+**Immediately prior, same session — Idempotency-Key mechanism, applied
+to credit note issuance** (commit `c937a7a`): the one MUST-priority
+endpoint from docs/16b that genuinely needed the full mechanism (not the
+simpler status-guard pattern already closing invoice issuance) — a
+second credit note against the same invoice can be legitimate, so
+blocking retries outright would be a regression, not a fix. New
+`shared/idempotency/` module (model, repository, service), opt-in
+`Idempotency-Key` header, fully backward compatible. 276/276 backend
+tests, ruff clean, 5 new tests including a genuine concurrent-identical-
+request test. Verified live against the running dev server.
 
 **Immediately prior, same session — document-numbering races now
 return a clean error instead of a raw 500** (commit `3d5c913`): every
