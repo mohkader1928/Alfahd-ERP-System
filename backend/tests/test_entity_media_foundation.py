@@ -173,6 +173,15 @@ async def test_upload_and_delete_partner_image(client):
 
     media_resp = await client.get(f"/media/{image_path}")
     assert media_resp.status_code == 200
+    # Owner-reported bug: this exact scenario (webp upload + fetch) already
+    # passed here on status code alone while the response's actual
+    # Content-Type silently came back as application/octet-stream instead
+    # of image/webp — status 200 was never enough to catch it. Browsers
+    # refuse to render an <img> whose Content-Type isn't image/*, so the
+    # upload "succeeded" (success toast, correct DB row, correct bytes on
+    # disk) while the photo simply never appeared. See main.py's
+    # mimetypes.add_type("image/webp", ".webp") registration.
+    assert media_resp.headers["content-type"] == "image/webp"
 
     delete_resp = await client.delete(f"/api/v1/identity/partners/{partner_id}/image", headers=headers)
     assert delete_resp.status_code == 200

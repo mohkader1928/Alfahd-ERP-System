@@ -6,6 +6,7 @@ means importing it here and adding one line to ENABLED_MODULES — no existing
 module file changes.
 """
 
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -28,6 +29,21 @@ from src.shared.config.settings import get_settings
 from src.shared.infrastructure.db.seed import seed_core_data
 from src.shared.infrastructure.db.session import AsyncSessionLocal, engine
 from src.shared.infrastructure.messaging.event_bus import event_bus
+
+# Owner-reported bug (live, in شركة المحمود): a WEBP customer photo uploaded
+# and saved correctly (DB row + file on disk both fine, confirmed while
+# debugging) but never displayed — a broken-image icon, with the upload's
+# own success toast having already fired, so nothing looked wrong until the
+# image quietly failed later. Root cause: StaticFiles serves each file's
+# Content-Type via Python's stdlib `mimetypes.guess_type()`, which does not
+# reliably have ".webp" registered on every OS/Python build (confirmed here:
+# a .webp came back as `application/octet-stream`, while .png/.jpg on the
+# same install correctly resolved to their real image/* type) — and most
+# browsers refuse to render an <img> whose response Content-Type isn't
+# image/*, silently, with no error surfaced anywhere in this app's code.
+# Registering it explicitly removes the OS/Python-version dependency
+# entirely rather than relying on it being present by chance.
+mimetypes.add_type("image/webp", ".webp")
 
 settings = get_settings()
 
