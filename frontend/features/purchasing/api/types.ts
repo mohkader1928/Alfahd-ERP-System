@@ -57,6 +57,8 @@ export interface VendorBill {
   tax_amount: string;
   total_amount: string;
   mismatch_reasons: string | null;
+  bill_type: "standard" | "debit_note";
+  original_bill_id: string | null;
 }
 
 export interface VendorBillLine {

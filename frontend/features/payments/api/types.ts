@@ -51,7 +51,7 @@ export interface PaymentCreateInput {
 
 export interface SubledgerLine {
   date: string;
-  movement_type: "invoice" | "credit_note" | "bill" | "payment";
+  movement_type: "invoice" | "credit_note" | "bill" | "debit_note" | "payment";
   document_type: "sales_invoice" | "vendor_bill" | "payment";
   document_id: string;
   reference: string;

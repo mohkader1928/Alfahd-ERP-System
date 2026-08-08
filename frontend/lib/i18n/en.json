@@ -396,6 +396,8 @@
   "purchasing.vendor_bills.title": "Vendor Bills",
   "purchasing.vendor_bills.approve": "Approve",
   "purchasing.vendor_bills.mismatch": "Mismatch",
+  "purchasing.vendor_bills.debit_note": "Debit Note",
+  "purchasing.vendor_bills.debit_note_reason_placeholder": "Reason for debit note",
   "purchasing.vendor_bills.empty_description": "Vendor bills appear here once registered against a purchase order.",
   "purchasing.vendor_bills.vendor_reference": "Vendor reference",
   "purchasing.vendor_bills.subtotal": "Subtotal",

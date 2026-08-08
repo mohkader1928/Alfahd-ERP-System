@@ -95,6 +95,7 @@ PERMISSION_CATALOG = [
     ("purchasing.vendor_bill.create", "action"),
     ("purchasing.vendor_bill.view", "screen"),
     ("purchasing.vendor_bill.approve", "action"),
+    ("purchasing.vendor_bill.debit_note", "action"),
     # M5 — Reporting
     ("reporting.dashboard.view", "screen"),
     ("reporting.export", "action"),

@@ -85,6 +85,9 @@ export const purchasingApi = {
   approveVendorBill: (companyId: string, id: string) =>
     apiClient.post<VendorBill>(`${BASE}/vendor-bills/${id}:approve`, undefined, { companyId }),
 
+  issueDebitNote: (companyId: string, branchId: string, id: string, reason: string) =>
+    apiClient.post<VendorBill>(`${BASE}/vendor-bills/${id}:debit-note`, { reason }, { companyId, branchId }),
+
   getVendorBill: (companyId: string, id: string) =>
     apiClient.get<VendorBillDetail>(`${BASE}/vendor-bills/${id}`, { companyId }),
 };

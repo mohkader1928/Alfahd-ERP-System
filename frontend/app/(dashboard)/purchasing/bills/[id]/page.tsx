@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
 import { Can } from "@/components/erp/permissions/can";
 import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
@@ -28,6 +29,7 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
   const queryClient = useQueryClient();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId);
+  const [debitNoteReason, setDebitNoteReason] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor-bill", companyId, id],
@@ -52,6 +54,17 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
     onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
+  const debitNoteMutation = useMutation({
+    mutationFn: () => purchasingApi.issueDebitNote(companyId, branchId!, id, debitNoteReason),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["vendor-bill", companyId, id] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] });
+      toastSuccess(t("toast.success_title"), result.number);
+      router.push(`/purchasing/bills/${result.id}`);
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+  });
+
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data) return null;
 
@@ -71,6 +84,7 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
             {bill.number}
             <div className="flex gap-1">
               <Badge variant={statusVariant(bill.status)}>{bill.status}</Badge>
+              {bill.bill_type === "debit_note" && <Badge variant="secondary">{t("purchasing.vendor_bills.debit_note")}</Badge>}
               {bill.mismatch_reasons && <Badge variant="destructive">{t("purchasing.vendor_bills.mismatch")}</Badge>}
             </div>
           </CardTitle>
@@ -119,6 +133,30 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
               <Button onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending}>
                 {approveMutation.isPending ? t("common.loading") : t("purchasing.vendor_bills.approve")}
               </Button>
+            </Can>
+          )}
+
+          {bill.status === "posted" && bill.bill_type === "standard" && (
+            <Can permission="purchasing.vendor_bill.debit_note">
+              <div className="space-y-2 border-t pt-4">
+                <Input
+                  placeholder={t("purchasing.vendor_bills.debit_note_reason_placeholder")}
+                  value={debitNoteReason}
+                  onChange={(e) => setDebitNoteReason(e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => debitNoteMutation.mutate()}
+                  disabled={!debitNoteReason || debitNoteMutation.isPending}
+                >
+                  {debitNoteMutation.isPending ? t("common.loading") : t("purchasing.vendor_bills.debit_note")}
+                </Button>
+                {debitNoteMutation.isError && (
+                  <p className="text-sm text-destructive">
+                    {debitNoteMutation.error instanceof ApiError ? debitNoteMutation.error.detail : t("common.error")}
+                  </p>
+                )}
+              </div>
             </Can>
           )}
 

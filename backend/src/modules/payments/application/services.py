@@ -310,12 +310,26 @@ class SubledgerService:
         partners = {
             p.id: p for p in await self.partner_repo.list_by_company(company_id, vendors_only=True)
         }
+        # A debit note reduces the specific bill it was issued against
+        # (VendorBill.original_bill_id), not just the vendor's overall AP
+        # balance — mirrors ar_aging's handling of sales credit notes.
+        debited_by_original_bill: dict = {}
+        for row in bills:
+            if row.bill_type == "debit_note" and row.original_bill_id and row.journal_entry_id:
+                debited_by_original_bill[row.original_bill_id] = (
+                    debited_by_original_bill.get(row.original_bill_id, Decimal("0")) + row.total_amount
+                )
+
         rows = []
         for bill in bills:
-            if bill.journal_entry_id is None:
+            # Only real, posted standard bills count as an open AP item —
+            # a debit note is never itself aged as an open item (it reduces
+            # its original bill's balance instead, via the map above).
+            if bill.bill_type == "debit_note" or bill.journal_entry_id is None:
                 continue
             paid = await self.payment_repo.sum_allocated_for_vendor_bill(bill.id)
-            balance_due = bill.total_amount - paid
+            debited = debited_by_original_bill.get(bill.id, Decimal("0"))
+            balance_due = bill.total_amount - paid - debited
             if balance_due <= 0:
                 continue
             partner = partners.get(bill.partner_id)
@@ -384,17 +398,30 @@ def _vendor_movements(bills: list, allocations: list[dict]) -> list[dict]:
     for bill in bills:
         if bill.journal_entry_id is None:
             continue
-        movements.append(
-            {
-                "date": bill.bill_date,
-                "movement_type": "bill",
-                "document_type": "vendor_bill",
-                "document_id": bill.id,
-                "reference": bill.number,
-                "debit": Decimal("0.0000"),
-                "credit": bill.total_amount,
-            }
-        )
+        if bill.bill_type == "debit_note":
+            movements.append(
+                {
+                    "date": bill.bill_date,
+                    "movement_type": "debit_note",
+                    "document_type": "vendor_bill",
+                    "document_id": bill.id,
+                    "reference": bill.number,
+                    "debit": bill.total_amount,
+                    "credit": Decimal("0.0000"),
+                }
+            )
+        else:
+            movements.append(
+                {
+                    "date": bill.bill_date,
+                    "movement_type": "bill",
+                    "document_type": "vendor_bill",
+                    "document_id": bill.id,
+                    "reference": bill.number,
+                    "debit": Decimal("0.0000"),
+                    "credit": bill.total_amount,
+                }
+            )
     for alloc in allocations:
         if alloc["vendor_bill_id"] is None:
             continue

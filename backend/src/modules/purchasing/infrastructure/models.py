@@ -137,9 +137,18 @@ class VendorBill(Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     mismatch_reasons: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Vendor Debit Note (mirrors sales_invoice.invoice_type/original_invoice_id):
+    # a debit note reverses a posted bill (goods return, price correction)
+    # and inherits that bill's purchase_order_id rather than needing its
+    # own PO — same "no PO of its own" shape a sales credit note has.
+    bill_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="standard")
+    original_bill_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vendor_bill.id"), nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint(f"status IN {BILL_STATUSES}", name="ck_vendor_bill_status"),
+        CheckConstraint("bill_type IN ('standard', 'debit_note')", name="ck_vendor_bill_type"),
         UniqueConstraint("company_id", "number", name="ux_vendor_bill_number"),
     )
 

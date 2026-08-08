@@ -88,6 +88,10 @@ class VendorBillCreateRequest(BaseModel):
     lines: list[VendorBillLineIn]
 
 
+class DebitNoteCreateRequest(BaseModel):
+    reason: str
+
+
 class VendorBillOut(BaseModel):
     id: UUID
     company_id: UUID
@@ -102,6 +106,8 @@ class VendorBillOut(BaseModel):
     tax_amount: Decimal
     total_amount: Decimal
     mismatch_reasons: str | None
+    bill_type: str
+    original_bill_id: UUID | None
 
     model_config = {"from_attributes": True}
 

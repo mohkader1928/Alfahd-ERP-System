@@ -16,6 +16,7 @@ from src.modules.purchasing.api.deps import (
     require_permission,
 )
 from src.modules.purchasing.api.schemas import (
+    DebitNoteCreateRequest,
     GoodsReceiptCreateRequest,
     GoodsReceiptOut,
     PurchaseOrderCreateRequest,
@@ -241,6 +242,31 @@ async def register_vendor_bill(
 
     await db.commit()
     return bill
+
+
+@router.post(
+    "/vendor-bills/{bill_id}:debit-note", response_model=VendorBillOut, status_code=status.HTTP_201_CREATED
+)
+async def issue_debit_note(
+    bill_id: UUID,
+    payload: DebitNoteCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("purchasing.vendor_bill.debit_note", require_branch=True)),
+    service: VendorBillService = Depends(get_vendor_bill_service),
+):
+    try:
+        debit_note = await service.issue_debit_note(
+            original_bill_id=bill_id,
+            company_id=ctx.company_id,
+            branch_id=ctx.branch_id,
+            created_by=ctx.user_id,
+            reason=payload.reason,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return debit_note
 
 
 @router.post("/vendor-bills/{bill_id}:approve", response_model=VendorBillOut)

@@ -509,3 +509,93 @@ class VendorBillService:
         bill.status = "posted"
         bill.journal_entry_id = posted.id
         return bill
+
+    async def issue_debit_note(
+        self, *, original_bill_id: UUID, company_id: UUID, branch_id: UUID, created_by: UUID, reason: str
+    ) -> VendorBill:
+        """Product Owner audit finding: Sales has a Credit Note (reverses a
+        posted invoice) but Purchasing had no equivalent for reversing a
+        posted vendor bill (goods returned to the vendor, or a price
+        correction) — a real asymmetry against SAP B1/Dynamics 365 BC/Odoo.
+        Mirrors issue_credit_note exactly: a full reversal of the original
+        bill's own amounts and its own posting journal entry (GRNI/VAT/AP),
+        not a partial-amount document and not a physical inventory reversal
+        — the same simplification the Sales Credit Note already makes by
+        not touching COGS/Inventory either."""
+        original = await self.bill_repo.get_by_id(original_bill_id)
+        if original is None or original.company_id != company_id:
+            raise ValueError("Original vendor bill not found")
+        if original.bill_type != "standard":
+            raise ValueError("Debit notes can only be issued against a standard vendor bill")
+        if original.status != "posted":
+            raise ValueError("Debit notes can only be issued against a posted vendor bill")
+
+        original_lines = await self.bill_repo.get_lines(original_bill_id)
+        number = await self.bill_repo.next_number(company_id)
+
+        debit_note_lines = [
+            VendorBillLine(
+                id=uuid.uuid4(),
+                company_id=company_id,
+                purchase_order_line_id=line.purchase_order_line_id,
+                product_id=line.product_id,
+                qty=line.qty,
+                unit_price=line.unit_price,
+                tax_rate_id=line.tax_rate_id,
+                tax_rate_percent=line.tax_rate_percent,
+                line_total=line.line_total,
+                tax_amount=line.tax_amount,
+            )
+            for line in original_lines
+        ]
+
+        debit_note = VendorBill(
+            id=uuid.uuid4(),
+            company_id=company_id,
+            branch_id=branch_id,
+            partner_id=original.partner_id,
+            purchase_order_id=original.purchase_order_id,
+            original_bill_id=original.id,
+            bill_type="debit_note",
+            number=number,
+            status="posted",
+            bill_date=date.today(),
+            subtotal_amount=original.subtotal_amount,
+            tax_amount=original.tax_amount,
+            total_amount=original.total_amount,
+        )
+        try:
+            await self.bill_repo.add(debit_note, debit_note_lines)
+        except IntegrityError as e:
+            raise ValueError("A vendor bill was created concurrently with the same number — please retry") from e
+
+        grni_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_GRNI)
+        ap_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_AP)
+        vat_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_VAT)
+        if not (grni_account and ap_account and vat_account):
+            raise ValueError("Default Chart of Accounts is not seeded for this company")
+
+        # Exact opposite of approve_and_post's lines: reduces what's owed
+        # to the vendor (Dr AP) and reverses the ex-tax/VAT split the
+        # original bill posted.
+        lines = [{"account_id": ap_account.id, "debit": debit_note.total_amount, "credit": 0}]
+        lines.append({"account_id": grni_account.id, "debit": 0, "credit": debit_note.subtotal_amount})
+        if debit_note.tax_amount > 0:
+            lines.append({"account_id": vat_account.id, "debit": 0, "credit": debit_note.tax_amount})
+
+        entry = await self.journal_entry_service.create_draft_entry(
+            company_id=company_id,
+            branch_id=branch_id,
+            journal_code="PURCH",
+            entry_date=debit_note.bill_date,
+            reference=debit_note.number,
+            description=reason,
+            lines=lines,
+            created_by=created_by,
+            source_table="vendor_bill",
+            source_id=debit_note.id,
+        )
+        posted = await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=company_id)
+        debit_note.journal_entry_id = posted.id
+
+        return debit_note
