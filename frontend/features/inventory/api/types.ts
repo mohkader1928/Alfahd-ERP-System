@@ -24,6 +24,16 @@ export interface StockQuant {
   moving_avg_cost: string;
 }
 
+export interface LowStockRow {
+  product_id: string;
+  sku: string;
+  name: string;
+  name_ar: string | null;
+  qty_on_hand: string;
+  reorder_point: string;
+  shortfall: string;
+}
+
 export interface StockMove {
   id: string;
   product_id: string;

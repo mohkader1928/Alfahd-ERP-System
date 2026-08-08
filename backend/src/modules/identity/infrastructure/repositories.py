@@ -453,6 +453,19 @@ class ProductRepository:
         result = await self.session.execute(stmt.order_by(Product.name))
         return list(result.scalars().all())
 
+    async def list_with_reorder_point(self, company_id: UUID) -> list[Product]:
+        """Candidates for the low-stock check — only products where a
+        reorder point was actually configured; everything else has no
+        threshold to compare against."""
+        result = await self.session.execute(
+            select(Product).where(
+                Product.company_id == company_id,
+                Product.deleted_at.is_(None),
+                Product.reorder_point.is_not(None),
+            )
+        )
+        return list(result.scalars().all())
+
     async def count_by_category(self, company_id: UUID, category_id: UUID) -> int:
         result = await self.session.execute(
             select(func.count())

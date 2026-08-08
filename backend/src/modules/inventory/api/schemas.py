@@ -52,6 +52,16 @@ class StockQuantOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class LowStockRowOut(BaseModel):
+    product_id: UUID
+    sku: str
+    name: str
+    name_ar: str | None
+    qty_on_hand: Decimal
+    reorder_point: Decimal
+    shortfall: Decimal
+
+
 class StockMoveOut(BaseModel):
     id: UUID
     product_id: UUID

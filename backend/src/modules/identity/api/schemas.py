@@ -366,6 +366,7 @@ class ProductCreateRequest(BaseModel):
     sales_price: Decimal = Decimal("0")
     cost_price: Decimal = Decimal("0")
     default_tax_rate_id: UUID | None = None
+    reorder_point: Decimal | None = None
 
 
 class ProductUpdateRequest(BaseModel):
@@ -378,6 +379,7 @@ class ProductUpdateRequest(BaseModel):
     sales_price: Decimal = Decimal("0")
     cost_price: Decimal = Decimal("0")
     default_tax_rate_id: UUID | None = None
+    reorder_point: Decimal | None = None
 
 
 class ProductOut(BaseModel):
@@ -392,6 +394,7 @@ class ProductOut(BaseModel):
     sales_price: Decimal
     cost_price: Decimal
     default_tax_rate_id: UUID | None
+    reorder_point: Decimal | None = None
     image_path: str | None = None
 
     model_config = {"from_attributes": True}

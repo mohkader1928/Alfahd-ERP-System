@@ -37,6 +37,7 @@ export default function NewProductPage() {
   const [isStockable, setIsStockable] = useState(true);
   const [salesPrice, setSalesPrice] = useState("0.00");
   const [costPrice, setCostPrice] = useState("0.00");
+  const [reorderPoint, setReorderPoint] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useMutation({
@@ -50,6 +51,7 @@ export default function NewProductPage() {
         is_stockable: isStockable,
         sales_price: salesPrice,
         cost_price: costPrice,
+        reorder_point: reorderPoint || null,
       }),
     onSuccess: (product) => {
       queryClient.invalidateQueries({ queryKey: ["products", companyId] });
@@ -124,6 +126,14 @@ export default function NewProductPage() {
         <div className="space-y-1">
           <Label>{t("master_data.products.cost_price")}</Label>
           <Input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>{t("master_data.products.reorder_point")}</Label>
+          <Input
+            value={reorderPoint}
+            onChange={(e) => setReorderPoint(e.target.value)}
+            placeholder={t("master_data.products.reorder_point_placeholder")}
+          />
         </div>
       </div>
     </FormView>

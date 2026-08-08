@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from src.modules.identity.infrastructure.repositories import ProductRepository, RoleRepository
 from src.modules.inventory.domain.entities import InsufficientStockError
 from src.modules.inventory.domain.valuation.average import AverageValuationStrategy
 from src.modules.inventory.domain.valuation.fifo import FifoValuationStrategy
@@ -25,6 +26,7 @@ from src.modules.inventory.infrastructure.repositories import (
     StockQuantRepository,
     WarehouseRepository,
 )
+from src.modules.notifications.infrastructure.repositories import NotificationRepository
 
 
 def get_valuation_strategy(valuation_method: str) -> IValuationStrategy:
@@ -81,9 +83,18 @@ class InventoryValuationService:
         quant_repo: StockQuantRepository,
         layer_repo: StockLayerRepository,
         move_repo: StockMoveRepository,
+        product_repo: ProductRepository | None = None,
+        role_repo: RoleRepository | None = None,
+        notification_repo: NotificationRepository | None = None,
     ):
         self.quant_repo = quant_repo
         self.layer_repo = layer_repo
+        # Optional — low-stock alert wiring (only issue_stock uses these).
+        # Callers that don't pass them (most existing ones) get the exact
+        # same behavior as before; the check below is skipped entirely.
+        self.product_repo = product_repo
+        self.role_repo = role_repo
+        self.notification_repo = notification_repo
         self.move_repo = move_repo
 
     async def receive_stock(
@@ -191,6 +202,8 @@ class InventoryValuationService:
 
         quant.qty_on_hand -= qty
 
+        await self._notify_if_crossed_low_stock(company_id=company_id, product_id=product_id, qty_issued=qty)
+
         move = StockMove(
             id=uuid.uuid4(),
             company_id=company_id,
@@ -205,6 +218,44 @@ class InventoryValuationService:
         )
         await self.move_repo.add(move)
         return move, result.total_cost
+
+    async def _notify_if_crossed_low_stock(self, *, company_id: UUID, product_id: UUID, qty_issued: Decimal) -> None:
+        """Fires once, at the moment total qty_on_hand (summed across every
+        warehouse/location) crosses from above to at-or-below the product's
+        reorder_point — not on every subsequent sale while already low,
+        which would just spam the same recipients repeatedly."""
+        if self.product_repo is None or self.role_repo is None or self.notification_repo is None:
+            return
+        product = await self.product_repo.get_by_id(product_id)
+        if product is None or product.reorder_point is None:
+            return
+
+        # This session is created with autoflush=False (shared/infrastructure/
+        # db/session.py), so the qty_on_hand decrement just applied to the
+        # in-memory quant above would not otherwise be visible yet to the
+        # raw aggregate SELECT below — flush explicitly so "after" reflects
+        # this transaction's own pending write, not last-committed state.
+        await self.quant_repo.session.flush()
+        total_after = await self.quant_repo.qty_on_hand_for_product(company_id, product_id)
+        total_before = total_after + qty_issued
+        if not (total_before > product.reorder_point >= total_after):
+            return
+
+        recipient_ids = await self.role_repo.list_user_ids_with_permission(company_id, "inventory.stock.view")
+        notifications = [
+            self.notification_repo.build(
+                company_id=company_id,
+                recipient_user_id=uid,
+                type="low_stock",
+                title=f"{product.name} is at or below its reorder point",
+                body=f"{product.sku}: {total_after} on hand, reorder point is {product.reorder_point}.",
+                entity_type="product",
+                entity_id=product.id,
+                link="/inventory?tab=low-stock",
+            )
+            for uid in recipient_ids
+        ]
+        await self.notification_repo.add_many(notifications)
 
     async def product_cardex(
         self,

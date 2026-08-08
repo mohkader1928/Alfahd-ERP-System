@@ -41,6 +41,7 @@ from src.modules.inventory.api.schemas import (
     CycleCountCreateRequest,
     CycleCountDetailResponse,
     CycleCountOut,
+    LowStockRowOut,
     ProductCardexResponse,
     StockMoveOut,
     StockQuantOut,
@@ -166,6 +167,40 @@ async def list_stock_quants(
     quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
 ):
     return await quant_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/stock/low-stock", response_model=list[LowStockRowOut])
+async def list_low_stock(
+    ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
+    quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
+    product_repo: ProductRepository = Depends(get_product_repo),
+):
+    """Table-stakes in every reference ERP (SAP B1, Dynamics 365 BC, Odoo):
+    which products are at or below their reorder point right now, across
+    every warehouse/location combined — a product-level threshold, not a
+    per-location one. Only products with a reorder_point actually
+    configured are candidates; everything else has no threshold to
+    compare against."""
+    candidates = await product_repo.list_with_reorder_point(ctx.company_id)
+    qty_by_product = await quant_repo.qty_on_hand_by_product(ctx.company_id)
+
+    rows = []
+    for product in candidates:
+        qty_on_hand = qty_by_product.get(product.id, Decimal("0"))
+        if qty_on_hand <= product.reorder_point:
+            rows.append(
+                LowStockRowOut(
+                    product_id=product.id,
+                    sku=product.sku,
+                    name=product.name,
+                    name_ar=product.name_ar,
+                    qty_on_hand=qty_on_hand,
+                    reorder_point=product.reorder_point,
+                    shortfall=product.reorder_point - qty_on_hand,
+                )
+            )
+    rows.sort(key=lambda r: r.shortfall, reverse=True)
+    return rows
 
 
 @router.get("/stock/moves", response_model=list[StockMoveOut])

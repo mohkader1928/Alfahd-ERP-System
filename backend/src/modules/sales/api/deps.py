@@ -15,6 +15,7 @@ from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
     PartnerRepository,
     ProductRepository,
+    RoleRepository,
 )
 from src.modules.inventory.application.services import InventoryValuationService
 from src.modules.inventory.infrastructure.repositories import (
@@ -24,6 +25,7 @@ from src.modules.inventory.infrastructure.repositories import (
     StockQuantRepository,
     WarehouseRepository,
 )
+from src.modules.notifications.infrastructure.repositories import NotificationRepository
 from src.modules.sales.application.services import QuotationService, SalesInvoiceService
 from src.modules.sales.infrastructure.repositories import (
     QuotationRepository,
@@ -95,7 +97,12 @@ async def get_sales_invoice_service(
     zatca_processor = ZatcaInvoiceProcessor(gateway=SandboxZatcaGateway(), signing_service=DevSigningService())
 
     inventory_service = InventoryValuationService(
-        StockQuantRepository(db), StockLayerRepository(db), StockMoveRepository(db)
+        StockQuantRepository(db),
+        StockLayerRepository(db),
+        StockMoveRepository(db),
+        product_repo=product_repo,
+        role_repo=RoleRepository(db),
+        notification_repo=NotificationRepository(db),
     )
     warehouse_repo = WarehouseRepository(db)
     location_repo = LocationRepository(db)

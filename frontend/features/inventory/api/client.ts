@@ -4,6 +4,7 @@ import type {
   CycleCountDetail,
   CycleCountLineIn,
   Location,
+  LowStockRow,
   ProductCardex,
   StockMove,
   StockQuant,
@@ -26,6 +27,8 @@ export const inventoryApi = {
     apiClient.get<Location[]>(`${BASE}/warehouses/${warehouseId}/locations`, { companyId }),
 
   listStockQuants: (companyId: string) => apiClient.get<StockQuant[]>(`${BASE}/stock/quants`, { companyId }),
+
+  listLowStock: (companyId: string) => apiClient.get<LowStockRow[]>(`${BASE}/stock/low-stock`, { companyId }),
 
   listStockMoves: (companyId: string, productId?: string) =>
     apiClient.get<StockMove[]>(`${BASE}/stock/moves${productId ? `?product_id=${productId}` : ""}`, { companyId }),

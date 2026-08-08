@@ -470,6 +470,7 @@ class ProductService:
         sales_price: Decimal = Decimal("0"),
         cost_price: Decimal = Decimal("0"),
         default_tax_rate_id: UUID | None = None,
+        reorder_point: Decimal | None = None,
     ) -> Product:
         existing = await self.product_repo.get_by_sku(company_id, sku)
         if existing is not None:
@@ -488,6 +489,7 @@ class ProductService:
             sales_price=sales_price,
             cost_price=cost_price,
             default_tax_rate_id=default_tax_rate_id,
+            reorder_point=reorder_point,
         )
         return await self.product_repo.add(product)
 
@@ -505,6 +507,7 @@ class ProductService:
         sales_price: Decimal,
         cost_price: Decimal,
         default_tax_rate_id: UUID | None,
+        reorder_point: Decimal | None = None,
     ) -> Product:
         product = await self.product_repo.get_by_id(product_id)
         if product is None or product.company_id != company_id:
@@ -523,6 +526,7 @@ class ProductService:
         product.sales_price = sales_price
         product.cost_price = cost_price
         product.default_tax_rate_id = default_tax_rate_id
+        product.reorder_point = reorder_point
         return product
 
 

@@ -163,6 +163,7 @@ class Product(Base):
     sales_price: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     cost_price: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     default_tax_rate_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reorder_point: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     image_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

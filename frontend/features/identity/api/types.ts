@@ -147,6 +147,7 @@ export interface Product {
   sales_price: string;
   cost_price: string;
   default_tax_rate_id: string | null;
+  reorder_point: string | null;
   image_path: string | null;
 }
 
@@ -160,6 +161,7 @@ export interface ProductWriteInput {
   sales_price?: string;
   cost_price?: string;
   default_tax_rate_id?: string | null;
+  reorder_point?: string | null;
 }
 
 export interface ProductCategory {

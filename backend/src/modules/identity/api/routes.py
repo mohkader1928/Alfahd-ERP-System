@@ -1101,6 +1101,7 @@ async def create_product(
             sales_price=payload.sales_price,
             cost_price=payload.cost_price,
             default_tax_rate_id=payload.default_tax_rate_id,
+            reorder_point=payload.reorder_point,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -1133,6 +1134,7 @@ async def update_product(
             sales_price=payload.sales_price,
             cost_price=payload.cost_price,
             default_tax_rate_id=payload.default_tax_rate_id,
+            reorder_point=payload.reorder_point,
         )
     except LookupError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e

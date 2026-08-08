@@ -29,7 +29,7 @@ import { reportExportHandlers } from "@/lib/report-export";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
-import type { CycleCount, StockMove, StockQuant, Warehouse } from "@/features/inventory/api/types";
+import type { CycleCount, LowStockRow, StockMove, StockQuant, Warehouse } from "@/features/inventory/api/types";
 import Link from "next/link";
 
 const CARDEX_SOURCE_TABLES = [
@@ -787,6 +787,78 @@ function CardexTab() {
   );
 }
 
+function LowStockTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const queryClient = useQueryClient();
+
+  const lowStockQuery = useQuery({
+    queryKey: ["low-stock", companyId],
+    queryFn: () => inventoryApi.listLowStock(companyId),
+  });
+
+  const columns: ERPColumn<LowStockRow>[] = [
+    {
+      key: "sku",
+      header: t("inventory.low_stock.sku"),
+      sortable: true,
+      sortValue: (r) => r.sku,
+      render: (r) => (
+        <Link href={`/inventory/stock-card/${r.product_id}`} className="font-medium underline-offset-4 hover:underline">
+          {r.sku}
+        </Link>
+      ),
+    },
+    {
+      key: "name",
+      header: t("inventory.low_stock.product"),
+      render: (r) => (locale === "ar" && r.name_ar ? r.name_ar : r.name),
+    },
+    {
+      key: "qty_on_hand",
+      header: t("inventory.low_stock.qty_on_hand"),
+      align: "end",
+      sortable: true,
+      sortValue: (r) => Number(r.qty_on_hand),
+      render: (r) => r.qty_on_hand,
+    },
+    {
+      key: "reorder_point",
+      header: t("inventory.low_stock.reorder_point"),
+      align: "end",
+      sortable: true,
+      sortValue: (r) => Number(r.reorder_point),
+      render: (r) => r.reorder_point,
+    },
+    {
+      key: "shortfall",
+      header: t("inventory.low_stock.shortfall"),
+      align: "end",
+      sortable: true,
+      sortValue: (r) => Number(r.shortfall),
+      render: (r) => <Badge variant="destructive">{r.shortfall}</Badge>,
+    },
+  ];
+
+  return (
+    <ERPListView
+      title={t("inventory.tabs.low_stock")}
+      columns={columns}
+      rows={lowStockQuery.data}
+      rowKey={(r) => r.product_id}
+      getRowHref={(r) => `/inventory/stock-card/${r.product_id}`}
+      isLoading={lowStockQuery.isLoading}
+      isError={lowStockQuery.isError}
+      errorMessage={lowStockQuery.error instanceof ApiError ? lowStockQuery.error.detail : undefined}
+      onRetry={() => lowStockQuery.refetch()}
+      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["low-stock", companyId] })}
+      searchText={(r) => `${r.sku} ${r.name} ${r.name_ar ?? ""}`}
+      searchPlaceholder={t("list.search_placeholder")}
+      emptyDescription={t("inventory.low_stock.empty_description")}
+    />
+  );
+}
+
 function ValuationTab() {
   const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
@@ -915,6 +987,7 @@ export default function InventoryPage() {
           <TabsTrigger value="cycle-counts">{t("inventory.tabs.cycle_counts")}</TabsTrigger>
           <TabsTrigger value="cardex">{t("inventory.tabs.cardex")}</TabsTrigger>
           <TabsTrigger value="valuation">{t("inventory.tabs.valuation")}</TabsTrigger>
+          <TabsTrigger value="low-stock">{t("inventory.tabs.low_stock")}</TabsTrigger>
         </TabsList>
         <TabsContent value="warehouses">{tab === "warehouses" && <WarehousesTab />}</TabsContent>
         <TabsContent value="stock">{tab === "stock" && <StockTab />}</TabsContent>
@@ -923,6 +996,7 @@ export default function InventoryPage() {
         <TabsContent value="cycle-counts">{tab === "cycle-counts" && <CycleCountsTab />}</TabsContent>
         <TabsContent value="cardex">{tab === "cardex" && <CardexTab />}</TabsContent>
         <TabsContent value="valuation">{tab === "valuation" && <ValuationTab />}</TabsContent>
+        <TabsContent value="low-stock">{tab === "low-stock" && <LowStockTab />}</TabsContent>
       </Tabs>
     </div>
   );

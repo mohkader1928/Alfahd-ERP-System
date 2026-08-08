@@ -91,6 +91,7 @@ function ProductEditForm({
   const [isStockable, setIsStockable] = useState(product.is_stockable);
   const [salesPrice, setSalesPrice] = useState(product.sales_price);
   const [costPrice, setCostPrice] = useState(product.cost_price);
+  const [reorderPoint, setReorderPoint] = useState(product.reorder_point ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const updateMutation = useMutation({
@@ -104,6 +105,7 @@ function ProductEditForm({
         is_stockable: isStockable,
         sales_price: salesPrice,
         cost_price: costPrice,
+        reorder_point: reorderPoint || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["product", companyId, product.id] });
@@ -219,6 +221,14 @@ function ProductEditForm({
                 <div className="space-y-1">
                   <Label>{t("master_data.products.cost_price")}</Label>
                   <Input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("master_data.products.reorder_point")}</Label>
+                  <Input
+                    value={reorderPoint}
+                    onChange={(e) => setReorderPoint(e.target.value)}
+                    placeholder={t("master_data.products.reorder_point_placeholder")}
+                  />
                 </div>
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}

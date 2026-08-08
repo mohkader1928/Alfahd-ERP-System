@@ -126,6 +126,32 @@ class StockQuantRepository:
         result = await self.session.execute(select(StockQuant).where(StockQuant.company_id == company_id))
         return list(result.scalars().all())
 
+    async def qty_on_hand_for_product(self, company_id: UUID, product_id: UUID) -> Decimal:
+        """Single-product total across every location — cheaper than
+        `qty_on_hand_by_product` when only one product's low-stock
+        crossing needs checking (issue_stock's post-issue notification)."""
+        result = await self.session.execute(
+            select(func.coalesce(func.sum(StockQuant.qty_on_hand), 0)).where(
+                StockQuant.company_id == company_id, StockQuant.product_id == product_id
+            )
+        )
+        # Same COALESCE(SUM(...), 0) unscaled-zero quirk as elsewhere in
+        # this codebase — quantize explicitly for a consistent type/scale
+        # regardless of whether any quant rows matched.
+        return Decimal(result.scalar_one()).quantize(Decimal("0.000001"))
+
+    async def qty_on_hand_by_product(self, company_id: UUID) -> dict[UUID, Decimal]:
+        """Total qty_on_hand per product across every location/warehouse —
+        for the low-stock check (FR-INV low stock alerts), which compares
+        against a product-level reorder_point, not a single location's
+        balance."""
+        result = await self.session.execute(
+            select(StockQuant.product_id, func.sum(StockQuant.qty_on_hand))
+            .where(StockQuant.company_id == company_id)
+            .group_by(StockQuant.product_id)
+        )
+        return {row[0]: row[1] for row in result.all()}
+
 
 class StockLayerRepository:
     def __init__(self, session: AsyncSession):
