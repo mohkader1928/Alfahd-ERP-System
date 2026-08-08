@@ -8,38 +8,62 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-09, on top of committed `e8dc57e` (`main`) —
-**Purchase Order partial receipt short-close** (commit `e8dc57e`), P0-1
-of a 3-Day Sellable Product Execution Brief the Owner issued covering 8
-P0 items (this bundle, then pausing after each for the Owner's own
-review/testing before continuing — not the prior continuous-execution
-mode). Audited first: real partial receipt already worked at the data
-layer (`purchase_order_line.qty_received` already accumulated
-correctly across multiple goods receipts, over-receipt already
-blocked). What was missing was a way to deliberately stop short of the
-ordered qty instead of leaving a partially-received PO open forever.
-Added `purchase_order_line.short_closed` and a new `closed` PO status
-(migration `c9d0e1f2a3b4`, distinct from `done` = everything ordered
-actually arrived), `short_close_purchase_order` (marks every
-still-short line, moves the order to `closed`) and
-`reopen_purchase_order_line` (admin-only way back in — separate
-permission, clears `short_closed`, restores `confirmed`).
-`record_receipt` now rejects receiving against a short-closed line and
-auto-transitions the order to `done` once everything's in — a PO no
-longer sits `confirmed` forever after full delivery. Vendor billing
-was already bounded by `qty_received`, so Payables needed no separate
-change. Both new actions write to the existing `AuditLogRepository`
-(same field-level old/new pattern already used for role assignment).
-Frontend: PO detail page gained a Remaining column, a per-line
-editable "qty to receive" input (previously hardcoded to "receive
-everything" in one click), and a dialog that asks — automatically,
-right after any receipt that still leaves a gap — whether the rest
-will come later or should be short-closed now, with short-closed lines
-showing a badge and an admin-only reopen action. 291/291 backend tests
-(6 new), ruff clean, tsc/eslint clean. Verified live end-to-end through
-the real UI: partial receipt (8/20) → prompt appeared automatically →
-short-closed with a reason → `closed` → reopened → `confirmed` again →
-received the remaining 12 → auto-closed to `done`.
+**Last verified**: 2026-08-09, on top of committed `991029b` (`main`) —
+**Purchase Order partial receipt: data-driven status + auto-billing
+redesign** (commit `991029b`), a direct Owner correction of the first
+P0-1 cut (commit `e8dc57e`, below) from the 3-Day Sellable Product
+Execution Brief (8 P0 items, one bundle at a time, pausing after each
+for the Owner's own review/testing — not the continuous-execution
+mode). The Owner rejected the first version as not best practice:
+status stayed `confirmed` through a partial receipt (should honestly
+reflect the data), and billing was a separate manual step (should
+auto-fire per receipt). Two clarifying questions were asked and
+answered before redesigning: billing is automatic after every receipt,
+and full natural completion still auto-closes to `done` (unchanged).
+Migration `d0e1f2a3b4c5` adds a `partially_received` PO status.
+`record_receipt` now derives status from the actual line data every
+time (`confirmed` → `partially_received` the moment any qty is left
+outstanding → `done` once everything's in) instead of a receipt just
+being logged against a status that never moves, and auto-registers a
+vendor bill for exactly the qty just received via
+`GoodsReceiptService` → `VendorBillService` (two receipts on one order
+now produce two separate bills, each at the PO's own price — verified
+live: 92.00 SAR + 138.00 SAR = the 200.00 SAR PO total).
+`reopen_purchase_order_line` now restores `partially_received` (not
+unconditionally `confirmed`) when the line already has `qty_received >
+0`, the same honesty rule applied consistently. The standalone
+short-close button was initially removed in favor of the post-receipt
+dialog as sole entry point, then the Owner flagged that as a gap of
+its own — closing the remaining qty needs to be available at any time,
+not only in the seconds right after a receipt — so a persistent
+"Close remaining quantity" button was added back (deliberately
+different wording from the dialog's own confirm button, to avoid
+repeating an earlier same-text duplicate-button bug). Status badges
+gained a proper amber `warning` Badge variant (was silently falling
+into the same grey `secondary` bucket as `draft`) with larger type on
+the order header; the order-list status filter/list was also missing
+two of the seven real PO statuses (`partially_received`, `closed`) —
+fixed in the same pass. `backend/tests/test_purchase_order_short_close.py`
+assertions updated for the corrected transitions. 291/291 backend
+tests pass, ruff/tsc/eslint clean. Verified live end-to-end through
+the real UI on two separate orders: partial receipt (4/10) →
+`partially_received` + auto-bill for the 4 → "receive later" closes
+the dialog with no side effect (status unchanged) → received the
+remaining 6 → second auto-bill for the 6 → auto-closed to `done`; on a
+second order, partial receipt (6/10) → short-closed via the *standalone*
+button (not just the auto-popup) → `closed` → reopened → correctly
+`partially_received` (not `confirmed`, since 6 units were already in).
+
+**Superseded — first P0-1 cut** (commit `e8dc57e`): real partial
+receipt already worked at the data layer
+(`purchase_order_line.qty_received` already accumulated correctly
+across multiple goods receipts, over-receipt already blocked); this
+bundle added `purchase_order_line.short_closed` and the `closed`
+status (migration `c9d0e1f2a3b4`, still valid and unchanged), plus
+`short_close_purchase_order`/`reopen_purchase_order_line`. The
+underlying schema and short-close/reopen actions from this commit are
+still in use — only the status-transition and billing *behavior*
+around them changed in `991029b` above.
 
 **Immediately prior, same session — Vendor Debit Note** (commit
 `24ef1b9`), a self-selected Product Owner
