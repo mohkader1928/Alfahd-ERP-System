@@ -8,8 +8,36 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `aa2c8b3` (`main`) —
-**backfilled `product.last_purchase_price` from existing purchase order
+**Last verified**: 2026-08-08, on top of committed `24ef1b9` (`main`) —
+**Vendor Debit Note** (commit `24ef1b9`), a self-selected Product Owner
+audit bundle (next-highest-value gap identified after closing out the
+Owner's live pricing/accounting requests): Sales already had a Credit
+Note (reverses a posted invoice) but Purchasing had no equivalent for
+reversing a posted vendor bill (goods returned to a vendor, or a price
+correction) — a real asymmetry against SAP B1/Dynamics 365 BC/Odoo.
+Added `vendor_bill.bill_type`/`original_bill_id` (migration
+`b8c9d0e1f2a3`, mirroring `sales_invoice.invoice_type`/
+`original_invoice_id` exactly — a debit note inherits the original
+bill's `purchase_order_id` and each line's `purchase_order_line_id`
+rather than needing a PO of its own, same as how a sales credit note
+needs no sales order of its own), `VendorBillService.issue_debit_note`
+(full reversal only — Dr AP / Cr GRNI / Cr input VAT, the exact
+opposite of the bill's own posting lines, mirroring the same
+COGS/Inventory-untouched simplification the sales Credit Note already
+makes), a new `purchasing.vendor_bill.debit_note` permission
+(auto-granted to every existing company's Admin role via the startup
+sync — no backfill migration needed), and AP Aging / the vendor
+subledger updated to treat a debit note exactly like AR Aging already
+treats a sales credit note (reduces the original bill's balance,
+never its own open AP item). 285/285 backend tests (4 new), ruff
+clean, tsc/eslint clean. Verified live end-to-end through the real UI:
+built a full procure-to-pay cycle (PO → receipt → bill → approve,
+575.00 SAR), issued a debit note against it, confirmed the original
+bill dropped out of AP Aging entirely and the debit note itself never
+appeared as its own open AP row.
+
+**Immediately prior, same session — backfilled
+`product.last_purchase_price` from existing purchase order
 history** (commit `aa2c8b3`). Owner-reported follow-up to the pricing-
 defaults bundle below: a real product with plenty of purchase history
 still showed no default price on a new Purchase Order line, because
