@@ -41,6 +41,24 @@ class CompanyRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_for_update(self, company_id: UUID) -> Company | None:
+        """Locks the company row for the rest of this transaction — used as
+        a serialization anchor for per-company sequences that don't have
+        their own dedicated counter row (e.g. the ZATCA ICV hash-chain
+        tail, docs/16b finding #3): a plain `SELECT ... ORDER BY icv DESC
+        LIMIT 1` doesn't serialize correctly on its own, since locking the
+        current max row doesn't stop a second transaction from computing
+        the same "next" value from that same stale row once unblocked.
+        Locking the company row instead forces the second transaction to
+        wait for the first's full commit, then re-read the ICV query fresh
+        (a new statement gets a new snapshot under this app's READ
+        COMMITTED isolation) and see the real new tail.
+        """
+        result = await self.session.execute(
+            select(Company).where(Company.id == company_id, Company.deleted_at.is_(None)).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_vat_number(self, vat_number: str) -> Company | None:
         result = await self.session.execute(
             select(Company).where(Company.vat_number == vat_number, Company.deleted_at.is_(None))

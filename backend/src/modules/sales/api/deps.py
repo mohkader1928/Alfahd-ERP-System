@@ -117,4 +117,5 @@ async def get_sales_invoice_service(
         valuation_method=company.valuation_method,
         seller_name_ar=company.legal_name_ar,
         seller_logo_path=company.logo_path,
+        company_repo=company_repo,
     )

@@ -16,7 +16,11 @@ from sqlalchemy.exc import IntegrityError
 
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository
-from src.modules.identity.infrastructure.repositories import PartnerRepository, ProductRepository
+from src.modules.identity.infrastructure.repositories import (
+    CompanyRepository,
+    PartnerRepository,
+    ProductRepository,
+)
 from src.modules.inventory.application.services import InventoryValuationService
 from src.modules.inventory.infrastructure.repositories import (
     LocationRepository,
@@ -173,7 +177,9 @@ class SalesInvoiceService:
         valuation_method: str | None = None,
         seller_name_ar: str | None = None,
         seller_logo_path: str | None = None,
+        company_repo: CompanyRepository | None = None,
     ):
+        self.company_repo = company_repo
         self.invoice_repo = invoice_repo
         self.order_repo = order_repo
         self.zatca_submission_repo = zatca_submission_repo
@@ -198,6 +204,17 @@ class SalesInvoiceService:
         self.valuation_method = valuation_method
 
     async def _next_icv_and_previous_hash(self, company_id: UUID) -> tuple[int, str]:
+        # Row-level lock on the company (docs/16b, finding #3): a plain
+        # unlocked "ORDER BY icv DESC LIMIT 1" lets two concurrent invoice
+        # issuances for the same company both read the same tail and
+        # compute the same next ICV, breaking the hash chain's required
+        # total order — a ZATCA-compliance defect, not just bookkeeping.
+        # Locking the company row (rather than the tail submission row
+        # itself) is what actually serializes this: a second transaction
+        # blocked on this same lock re-reads the ICV query fresh once
+        # unblocked, rather than replaying a stale snapshot of the old tail.
+        if self.company_repo is not None:
+            await self.company_repo.get_for_update(company_id)
         latest = await self.invoice_repo.latest_zatca_submission_for_company(company_id)
         if latest is None:
             return 1, GENESIS_HASH
@@ -292,13 +309,25 @@ class SalesInvoiceService:
         try:
             await self.invoice_repo.add(invoice, invoice_lines)
         except IntegrityError as e:
-            # Belt-and-suspenders against the exact race the status check
+            # Two different unique constraints can land here, and they mean
+            # different things — conflating them gave a misleading message
+            # (found via a genuine-concurrency test that invoices two
+            # *different* orders for the same company simultaneously: the
+            # real cause was a next_number() collision between them, not
+            # either order being double-invoiced, but the error claimed
+            # "already invoiced" regardless).
+            constraint = getattr(getattr(e.orig, "__cause__", None), "constraint_name", None)
+            if constraint == "ux_sales_invoice_number":
+                raise ValueError(
+                    "An invoice was created concurrently with the same number — please retry"
+                ) from e
+            # ux_sales_invoice_sales_order_id (or anything else unexpected):
+            # belt-and-suspenders against the exact race the status check
             # above can't close on its own (two concurrent requests can both
-            # read status="confirmed" before either commits): the database's
-            # partial unique index on sales_invoice.sales_order_id is the
-            # actual guarantee — this only translates its violation into the
-            # same clean, expected error the sequential-retry case gets from
-            # the status check.
+            # read status="confirmed" before either commits) — this partial
+            # unique index is the actual guarantee, translated into the same
+            # clean, expected error the sequential-retry case gets from the
+            # status check.
             raise ValueError("This sales order has already been invoiced") from e
 
         # Closes the sequential-retry half of the same bug: without this, the
