@@ -21,6 +21,7 @@ export interface JournalEntry {
   journal_id: string;
   entry_date: string;
   reference: string | null;
+  description: string | null;
   status: "draft" | "posted" | "reversed";
   source_table: string | null;
   source_id: string | null;

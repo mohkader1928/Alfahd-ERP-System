@@ -40,6 +40,7 @@ _LABELS: dict[str, dict[str, str]] = {
         "input_vat": "ضريبة المدخلات (المشتريات)",
         "purchases_total": "إجمالي المشتريات",
         "net_vat_payable": "صافي الضريبة المستحقة",
+        "payments_received": "المدفوعات المحصّلة",
     },
     "en": {
         "account": "Account",
@@ -77,6 +78,7 @@ _LABELS: dict[str, dict[str, str]] = {
         "input_vat": "Input VAT (Purchases)",
         "purchases_total": "Total Purchases",
         "net_vat_payable": "Net VAT Payable",
+        "payments_received": "Payments Received",
     },
 }
 

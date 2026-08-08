@@ -32,6 +32,8 @@ export interface SalesByCustomerRow {
   subtotal: string;
   tax_amount: string;
   total: string;
+  payments_received: string;
+  balance: string;
 }
 
 export interface SalesByProductRow {

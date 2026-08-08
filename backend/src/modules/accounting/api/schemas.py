@@ -39,6 +39,7 @@ class JournalEntryCreateRequest(BaseModel):
     journal_code: str
     entry_date: date
     reference: str | None = None
+    description: str | None = None
     lines: list[JournalEntryLineIn]
 
     @field_validator("lines")
@@ -55,6 +56,7 @@ class JournalEntryOut(BaseModel):
     journal_id: UUID
     entry_date: date
     reference: str | None
+    description: str | None
     status: str
     source_table: str | None
     source_id: UUID | None

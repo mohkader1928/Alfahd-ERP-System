@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
@@ -151,6 +152,7 @@ function JournalEntriesTab() {
   const [journalCode, setJournalCode] = useState<string>("GEN");
   const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [reference, setReference] = useState("");
+  const [description, setDescription] = useState("");
   const [lines, setLines] = useState<JournalEntryLineIn[]>([
     { account_id: "", debit: "0", credit: "0" },
     { account_id: "", debit: "0", credit: "0" },
@@ -176,12 +178,14 @@ function JournalEntriesTab() {
         journal_code: journalCode,
         entry_date: entryDate,
         reference: reference || undefined,
+        description: description || undefined,
         lines,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["journal-entries", companyId] });
       toastSuccess(t("toast.success_title"), t("accounting.je.save"));
       setReference("");
+      setDescription("");
       setLines([
         { account_id: "", debit: "0", credit: "0" },
         { account_id: "", debit: "0", credit: "0" },
@@ -250,6 +254,15 @@ function JournalEntriesTab() {
                 <Label className="text-xs">{t("accounting.je.reference")}</Label>
                 <Input value={reference} onChange={(e) => setReference(e.target.value)} className="w-48" />
               </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t("accounting.je.description")}</Label>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                placeholder={t("accounting.je.description_placeholder")}
+              />
             </div>
             <div className="space-y-2">
               {lines.map((line, index) => (
@@ -1287,6 +1300,14 @@ function AgingTable({
   documentSourceTable?: string;
 }) {
   const { t, locale } = useI18n();
+  // Owner-reported: no visible total meant the only way to check "does
+  // Accounts Receivable in the Trial Balance match the sum of open
+  // customer balances here" was to add up every row by hand. The
+  // underlying figures already tie out exactly (verified directly against
+  // Al-Mahmoud's ledger) — the actual gap was this report never showing
+  // the number to compare against, matching the Trial Balance's own
+  // totals row below.
+  const total = rows.reduce((sum, r) => sum + Number(r.balance_due), 0);
   return (
     <Table>
       <TableHeader>
@@ -1331,6 +1352,15 @@ function AgingTable({
           );
         })}
       </TableBody>
+      {rows.length > 0 && (
+        <TableFooter>
+          <TableRow>
+            <TableCell colSpan={3}>{t("accounting.aging.total")}</TableCell>
+            <TableCell className="text-end font-mono">{formatCurrency(String(total))}</TableCell>
+            <TableCell />
+          </TableRow>
+        </TableFooter>
+      )}
     </Table>
   );
 }

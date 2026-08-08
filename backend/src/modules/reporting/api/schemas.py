@@ -39,6 +39,8 @@ class SalesByCustomerRow(BaseModel):
     subtotal: Decimal
     tax_amount: Decimal
     total: Decimal
+    payments_received: Decimal = Decimal("0")
+    balance: Decimal = Decimal("0")
 
 
 class SalesByProductRow(BaseModel):

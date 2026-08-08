@@ -212,6 +212,7 @@ class JournalEntryService:
         reference: str | None,
         lines: list[dict],
         created_by: UUID,
+        description: str | None = None,
         source_table: str | None = None,
         source_id: UUID | None = None,
     ) -> JournalEntry:
@@ -246,6 +247,7 @@ class JournalEntryService:
             journal_id=journal.id,
             entry_date=entry_date,
             reference=reference,
+            description=description,
             source_table=source_table,
             source_id=source_id,
             status="draft",

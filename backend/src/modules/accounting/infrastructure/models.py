@@ -159,6 +159,7 @@ class JournalEntry(Base):
     )
     entry_date: Mapped[date] = mapped_column(nullable=False)
     reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_table: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")

@@ -142,6 +142,7 @@ async def create_journal_entry(
             journal_code=payload.journal_code,
             entry_date=payload.entry_date,
             reference=payload.reference,
+            description=payload.description,
             lines=[line.model_dump() for line in payload.lines],
             created_by=ctx.user_id,
         )

@@ -101,6 +101,12 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
               </>
             )}
           </dl>
+          {entry.description && (
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t("accounting.je.description")}</p>
+              <p className="text-sm whitespace-pre-wrap">{entry.description}</p>
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>

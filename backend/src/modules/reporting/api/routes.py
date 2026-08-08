@@ -155,6 +155,8 @@ async def sales_by_customer(
     if format == "json":
         return rows
     subtotal, tax, total = _sales_totals(rows)
+    total_payments = sum((r["payments_received"] for r in rows), Decimal("0"))
+    total_balance = sum((r["balance"] for r in rows), Decimal("0"))
     table = ReportTable(
         title=title(lang, "sales_by_customer"),
         company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
@@ -165,12 +167,30 @@ async def sales_by_customer(
             ReportColumn(label(lang, "amount"), "end"),
             ReportColumn("VAT", "end"),
             ReportColumn(label(lang, "total"), "end"),
+            ReportColumn(label(lang, "payments_received"), "end"),
+            ReportColumn(label(lang, "balance"), "end"),
         ],
         rows=[
-            [r["partner_name"], str(r["invoice_count"]), format_amount(r["subtotal"]), format_amount(r["tax_amount"]), format_amount(r["total"])]
+            [
+                r["partner_name"],
+                str(r["invoice_count"]),
+                format_amount(r["subtotal"]),
+                format_amount(r["tax_amount"]),
+                format_amount(r["total"]),
+                format_amount(r["payments_received"]),
+                format_amount(r["balance"]),
+            ]
             for r in rows
         ],
-        totals=[label(lang, "total"), "", format_amount(subtotal), format_amount(tax), format_amount(total)],
+        totals=[
+            label(lang, "total"),
+            "",
+            format_amount(subtotal),
+            format_amount(tax),
+            format_amount(total),
+            format_amount(total_payments),
+            format_amount(total_balance),
+        ],
         rtl=lang == "ar",
     )
     return build_export_response(format, "sales-by-customer", table)

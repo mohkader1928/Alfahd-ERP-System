@@ -28,7 +28,7 @@ export const accountingApi = {
   createJournalEntry: (
     companyId: string,
     branchId: string,
-    payload: { journal_code: string; entry_date: string; reference?: string; lines: JournalEntryLineIn[] }
+    payload: { journal_code: string; entry_date: string; reference?: string; description?: string; lines: JournalEntryLineIn[] }
   ) => apiClient.post<JournalEntry>(`${BASE}/journal-entries`, payload, { companyId, branchId }),
 
   postJournalEntry: (companyId: string, id: string) =>

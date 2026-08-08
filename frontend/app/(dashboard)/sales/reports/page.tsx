@@ -99,8 +99,10 @@ function ByCustomerTab() {
       subtotal: acc.subtotal + Number(r.subtotal),
       tax_amount: acc.tax_amount + Number(r.tax_amount),
       total: acc.total + Number(r.total),
+      payments_received: acc.payments_received + Number(r.payments_received),
+      balance: acc.balance + Number(r.balance),
     }),
-    { invoice_count: 0, subtotal: 0, tax_amount: 0, total: 0 }
+    { invoice_count: 0, subtotal: 0, tax_amount: 0, total: 0, payments_received: 0, balance: 0 }
   );
 
   return (
@@ -156,6 +158,8 @@ function ByCustomerTab() {
                 <TableHead className="text-end">{t("sales.reports.customer.subtotal")}</TableHead>
                 <TableHead className="text-end">{t("sales.reports.customer.tax")}</TableHead>
                 <TableHead className="text-end font-semibold">{t("sales.reports.customer.total")}</TableHead>
+                <TableHead className="text-end">{t("sales.reports.customer.payments_received")}</TableHead>
+                <TableHead className="text-end font-semibold">{t("sales.reports.customer.balance")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -166,6 +170,8 @@ function ByCustomerTab() {
                   <TableCell className="text-end tabular-nums">{formatCurrency(row.subtotal)}</TableCell>
                   <TableCell className="text-end tabular-nums">{formatCurrency(row.tax_amount)}</TableCell>
                   <TableCell className="text-end tabular-nums font-semibold">{formatCurrency(row.total)}</TableCell>
+                  <TableCell className="text-end tabular-nums">{formatCurrency(row.payments_received)}</TableCell>
+                  <TableCell className="text-end tabular-nums font-semibold">{formatCurrency(row.balance)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -176,6 +182,8 @@ function ByCustomerTab() {
                 <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.subtotal)}</TableCell>
                 <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.tax_amount)}</TableCell>
                 <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.total)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.payments_received)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.balance)}</TableCell>
               </TableRow>
             </TableFooter>
           </Table>

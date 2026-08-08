@@ -8,12 +8,13 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.infrastructure.repositories import JournalEntryRepository
 from src.modules.identity.infrastructure.master_data_models import Partner, Product
 from src.modules.inventory.infrastructure.models import Location, StockLayer, StockQuant, Warehouse
+from src.modules.payments.infrastructure.models import Payment
 from src.modules.payments.infrastructure.repositories import PaymentRepository
 from src.modules.purchasing.infrastructure.models import PurchaseOrder, VendorBill
 from src.modules.purchasing.infrastructure.repositories import (
@@ -213,7 +214,14 @@ class SalesReportingService:
     async def by_customer(
         self, *, company_id: UUID, date_from: date, date_to: date
     ) -> list[dict]:
-        """Aggregate invoiced sales grouped by customer (partner)."""
+        """Aggregate invoiced sales grouped by customer (partner), plus
+        payments received in the same period and the customer's running
+        balance as of date_to (Owner-requested: this report showed sales
+        only, with no way to see it next to what was actually collected
+        and what's still owed — which is exactly what caused a live
+        "these numbers don't match" report, since the period sales figure
+        here was never meant to equal the Trial Balance's cumulative AR
+        balance)."""
         stmt = (
             select(
                 Partner.id.label("partner_id"),
@@ -235,7 +243,7 @@ class SalesReportingService:
             .order_by(func.sum(SalesInvoice.total_amount).desc())
         )
         result = await self.session.execute(stmt)
-        return [
+        rows = [
             {
                 "partner_id": row.partner_id,
                 "partner_name": row.partner_name,
@@ -246,6 +254,86 @@ class SalesReportingService:
             }
             for row in result.all()
         ]
+        if not rows:
+            return rows
+
+        partner_ids = [r["partner_id"] for r in rows]
+        payments_by_partner = await self._payments_received(
+            company_id=company_id, partner_ids=partner_ids, date_from=date_from, date_to=date_to
+        )
+        balance_by_partner = await self._ar_balance_as_of(
+            company_id=company_id, partner_ids=partner_ids, as_of_date=date_to
+        )
+        for r in rows:
+            r["payments_received"] = payments_by_partner.get(r["partner_id"], Decimal("0"))
+            r["balance"] = balance_by_partner.get(r["partner_id"], Decimal("0"))
+        return rows
+
+    async def _payments_received(
+        self, *, company_id: UUID, partner_ids: list[UUID], date_from: date, date_to: date
+    ) -> dict[UUID, Decimal]:
+        stmt = (
+            select(Payment.partner_id, func.coalesce(func.sum(Payment.amount), 0).label("total"))
+            .where(
+                Payment.company_id == company_id,
+                Payment.payment_type == "customer",
+                Payment.partner_id.in_(partner_ids),
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+            .group_by(Payment.partner_id)
+        )
+        result = await self.session.execute(stmt)
+        return {row.partner_id: Decimal(str(row.total)) for row in result.all()}
+
+    async def _ar_balance_as_of(
+        self, *, company_id: UUID, partner_ids: list[UUID], as_of_date: date
+    ) -> dict[UUID, Decimal]:
+        """Cumulative balance per customer as of as_of_date: every posted
+        invoice ever issued (credit notes as a negative, since they carry
+        the same partner_id as the customer they were issued against) minus
+        every payment ever received — matching the exact figure the Trial
+        Balance's Accounts Receivable would show, unlike `total` above
+        which is scoped to [date_from, date_to]."""
+        invoiced_stmt = (
+            select(
+                SalesInvoice.partner_id,
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (SalesInvoice.invoice_type == "credit_note", -SalesInvoice.total_amount),
+                            else_=SalesInvoice.total_amount,
+                        )
+                    ),
+                    0,
+                ).label("net_invoiced"),
+            )
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.partner_id.in_(partner_ids),
+                SalesInvoice.journal_entry_id.isnot(None),
+                SalesInvoice.invoice_date <= as_of_date,
+            )
+            .group_by(SalesInvoice.partner_id)
+        )
+        paid_stmt = (
+            select(Payment.partner_id, func.coalesce(func.sum(Payment.amount), 0).label("total"))
+            .where(
+                Payment.company_id == company_id,
+                Payment.payment_type == "customer",
+                Payment.partner_id.in_(partner_ids),
+                Payment.payment_date <= as_of_date,
+            )
+            .group_by(Payment.partner_id)
+        )
+        invoiced_result = await self.session.execute(invoiced_stmt)
+        paid_result = await self.session.execute(paid_stmt)
+        net_invoiced = {row.partner_id: Decimal(str(row.net_invoiced)) for row in invoiced_result.all()}
+        paid = {row.partner_id: Decimal(str(row.total)) for row in paid_result.all()}
+        return {
+            partner_id: net_invoiced.get(partner_id, Decimal("0")) - paid.get(partner_id, Decimal("0"))
+            for partner_id in partner_ids
+        }
 
     async def by_product(
         self, *, company_id: UUID, date_from: date, date_to: date
