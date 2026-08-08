@@ -8,17 +8,37 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-08, on top of committed `eab2f10` (`main`) —
-**ZATCA ICV sequencing race closed** (see dated entry below): the last
-open finding from the docs/16b concurrency audit. Two concurrent invoice
-issuances for the same company (different orders) could read the same
-hash-chain tail and compute the same next ICV, breaking the chain's
-required total order — fixed by locking the company row as a
-serialization anchor. Also fixed a real bug found while testing:
-`issue_invoice_from_order`'s error handler mislabeled an invoice-number
-collision between two different orders as "already invoiced" — now
-distinguishes by constraint name and reports the accurate, retryable
-error. 278/278 backend tests, ruff clean.
+**Last verified**: 2026-08-08, on top of committed `09069b2` (`main`) —
+**WEBP images served with the wrong Content-Type, silently failing to
+display** (commit `09069b2`), reported directly by the Owner while
+testing (شركة المحمود: uploaded a photo for customer "Awtad Elfahd
+Contracting", got the upload-success toast, but the photo never
+displayed anywhere — no error surfaced). Traced live: DB row and on-disk
+file were both correct, but a direct fetch of the media URL showed
+`Content-Type: application/octet-stream` instead of `image/webp` (a
+`.png` at a similar path correctly returned `image/png`). Root cause:
+Starlette's `StaticFiles` mount at `/media` resolves Content-Type via
+Python's stdlib `mimetypes.guess_type()`, which does not reliably have
+`.webp` registered across OS/Python builds — and browsers silently
+refuse to render an `<img>` whose Content-Type isn't `image/*`, so
+nothing in the app's own code ever had a chance to surface the failure.
+Fixed by explicitly registering `mimetypes.add_type("image/webp",
+".webp")` at startup. Also fixed the actual test-coverage gap that let
+this ship: `test_upload_and_delete_partner_image` already uploaded and
+fetched back a `.webp` file but only checked `status_code == 200`, never
+the `Content-Type` header — added the missing assertion. 281/281 backend
+tests, ruff clean, verified live against the exact already-broken file.
+
+**Immediately prior, same session — ZATCA ICV sequencing race closed**
+(commit `eab2f10`): the last open finding from the docs/16b concurrency
+audit. Two concurrent invoice issuances for the same company (different
+orders) could read the same hash-chain tail and compute the same next
+ICV, breaking the chain's required total order — fixed by locking the
+company row as a serialization anchor. Also fixed a real bug found while
+testing: `issue_invoice_from_order`'s error handler mislabeled an
+invoice-number collision between two different orders as "already
+invoiced" — now distinguishes by constraint name and reports the
+accurate, retryable error. 278/278 backend tests, ruff clean.
 
 Also this session: a live production-usage report from the Owner ("This
 page could not be found — 404" on `/master-data/vendors` and
