@@ -14,6 +14,8 @@ class AccountOut(BaseModel):
     name: str
     name_ar: str | None
     parent_id: UUID | None
+    level: int
+    is_group: bool
     is_active: bool
 
     model_config = {"from_attributes": True}
@@ -25,6 +27,18 @@ class AccountCreateRequest(BaseModel):
     name_ar: str | None = None
     account_type_code: str = Field(pattern="^(asset|liability|equity|revenue|expense)$")
     parent_id: UUID | None = None
+    is_group: bool = False
+
+
+class AccountUpdateRequest(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    name_ar: str | None = None
+    account_type_code: str | None = Field(default=None, pattern="^(asset|liability|equity|revenue|expense)$")
+    parent_id: UUID | None = None
+    parent_id_set: bool = False  # false = "parent_id not provided, leave unchanged"
+    is_group: bool | None = None
+    is_active: bool | None = None
 
 
 class JournalEntryLineIn(BaseModel):

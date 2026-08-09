@@ -55,6 +55,19 @@ DEFAULT_SAUDI_COA: list[tuple[str, str, str, str, str | None]] = [
 ]
 
 
+# P0-4 (3-Day Brief): a Chart of Accounts may not go deeper than 4 levels.
+MAX_ACCOUNT_LEVEL = 4
+
+
+class _Unset:
+    """Sentinel distinguishing "parent_id not provided" (leave unchanged)
+    from "parent_id explicitly set to None" (move to root) in
+    ChartOfAccountsService.update_account's keyword-only signature."""
+
+
+_UNSET = _Unset()
+
+
 def _utcnow_naive() -> datetime:
     """`posted_at` (and every other timestamp column in the current schema)
     is `TIMESTAMP WITHOUT TIME ZONE` — always UTC by convention, but the
@@ -116,8 +129,12 @@ class ChartOfAccountsService:
                 name_ar=name_ar,
                 account_type_id=account_type.id,
                 parent_id=parent.id if parent else None,
+                level=parent.level + 1 if parent else 1,
             )
             await self.account_repo.add(account)
+            if parent is not None and not parent.is_group:
+                parent.is_group = True
+                await self.account_repo.update(parent)
             accounts_by_code[code] = account
         return accounts_by_code
 
@@ -166,12 +183,27 @@ class ChartOfAccountsService:
         name_ar: str | None,
         account_type_code: str,
         parent_id: UUID | None = None,
+        is_group: bool = False,
     ) -> Account:
         if account_type_code not in ACCOUNT_TYPES:
             raise ValueError(f"Unknown account type: {account_type_code}")
         existing = await self.account_repo.get_by_code(company_id, code)
         if existing is not None:
             raise ValueError(f"Account code already exists: {code}")
+
+        parent: Account | None = None
+        level = 1
+        if parent_id is not None:
+            parent = await self.account_repo.get_by_id(parent_id)
+            if parent is None or parent.company_id != company_id:
+                raise ValueError("Parent account not found in this company")
+            level = parent.level + 1
+            if level > MAX_ACCOUNT_LEVEL:
+                raise ValueError(
+                    f"Cannot create account: parent {parent.code} is already at level "
+                    f"{parent.level}, a 4th-level maximum would be exceeded"
+                )
+
         account_type = await self.account_type_repo.get_by_code(account_type_code)
         account = Account(
             id=uuid.uuid4(),
@@ -181,8 +213,133 @@ class ChartOfAccountsService:
             name_ar=name_ar,
             account_type_id=account_type.id,
             parent_id=parent_id,
+            level=level,
+            is_group=is_group,
         )
-        return await self.account_repo.add(account)
+        await self.account_repo.add(account)
+
+        # An account with children is a header/category by definition and
+        # can never be posted to directly -- promote the parent the moment
+        # it gains its first child rather than leaving that invariant to
+        # the caller (mirrors "auto-compute level from parent").
+        if parent is not None and not parent.is_group:
+            parent.is_group = True
+            await self.account_repo.update(parent)
+
+        return account
+
+    async def update_account(
+        self,
+        *,
+        account_id: UUID,
+        company_id: UUID,
+        code: str | None = None,
+        name: str | None = None,
+        name_ar: str | None = None,
+        account_type_code: str | None = None,
+        parent_id: UUID | None | _Unset = _UNSET,
+        is_group: bool | None = None,
+        is_active: bool | None = None,
+    ) -> Account:
+        account = await self.account_repo.get_by_id(account_id)
+        if account is None or account.company_id != company_id:
+            raise ValueError("Account not found")
+
+        if code is not None and code != account.code:
+            existing = await self.account_repo.get_by_code(company_id, code)
+            if existing is not None and existing.id != account.id:
+                raise ValueError(f"Account code already exists: {code}")
+            account.code = code
+
+        if name is not None:
+            account.name = name
+        if name_ar is not None:
+            account.name_ar = name_ar
+        if account_type_code is not None:
+            if account_type_code not in ACCOUNT_TYPES:
+                raise ValueError(f"Unknown account type: {account_type_code}")
+            account_type = await self.account_type_repo.get_by_code(account_type_code)
+            account.account_type_id = account_type.id
+        if is_active is not None:
+            account.is_active = is_active
+
+        has_children = await self.account_repo.has_children(account.id)
+        if is_group is not None:
+            if is_group is False and has_children:
+                raise ValueError("Cannot mark an account with sub-accounts as a posting account")
+            account.is_group = is_group
+
+        if parent_id is not _UNSET and parent_id != account.parent_id:
+            if parent_id == account.id:
+                raise ValueError("An account cannot be its own parent")
+            new_parent: Account | None = None
+            new_level = 1
+            if parent_id is not None:
+                new_parent = await self.account_repo.get_by_id(parent_id)
+                if new_parent is None or new_parent.company_id != company_id:
+                    raise ValueError("Parent account not found in this company")
+                # Cycle check: walk up from the proposed new parent -- if we
+                # ever reach `account` itself, this reparent would create a
+                # loop (moving an account underneath its own descendant).
+                ancestor = new_parent
+                while ancestor is not None:
+                    if ancestor.id == account.id:
+                        raise ValueError("Cannot move an account under its own descendant")
+                    ancestor = (
+                        await self.account_repo.get_by_id(ancestor.parent_id)
+                        if ancestor.parent_id
+                        else None
+                    )
+                new_level = new_parent.level + 1
+
+            # Moving a subtree shifts every descendant's level too --
+            # compute the full new depth before committing to anything, so
+            # a reparent that would push a great-grandchild past level 4 is
+            # rejected outright instead of applied and truncated.
+            deepest = await self._deepest_descendant_offset(account.id)
+            if new_level + deepest > MAX_ACCOUNT_LEVEL:
+                raise ValueError(
+                    f"Cannot move {account.code} here: a descendant would exceed "
+                    f"{MAX_ACCOUNT_LEVEL} levels"
+                )
+
+            account.parent_id = parent_id
+            await self._recompute_subtree_levels(account, new_level)
+
+            # An old parent that just lost its last child is left as
+            # is_group=True -- it's free to become a posting account again,
+            # but only via an explicit is_group=False on a separate update,
+            # not silently flipped back as a side effect of this move.
+            if new_parent is not None and not new_parent.is_group:
+                new_parent.is_group = True
+                await self.account_repo.update(new_parent)
+
+        return await self.account_repo.update(account)
+
+    async def delete_account(self, *, account_id: UUID, company_id: UUID) -> None:
+        account = await self.account_repo.get_by_id(account_id)
+        if account is None or account.company_id != company_id:
+            raise ValueError("Account not found")
+        if await self.account_repo.has_children(account.id):
+            raise ValueError(f"Cannot delete {account.code}: it has sub-accounts")
+        if await self.account_repo.has_transactions(account.id):
+            raise ValueError(f"Cannot delete {account.code}: it has posted transactions")
+        account.deleted_at = _utcnow_naive()
+        await self.account_repo.update(account)
+
+    async def _deepest_descendant_offset(self, account_id: UUID) -> int:
+        """0 if the account has no children, 1 if its deepest descendant is
+        a direct child, 2 for a grandchild, etc."""
+        children = await self.account_repo.list_children(account_id)
+        if not children:
+            return 0
+        return 1 + max([await self._deepest_descendant_offset(c.id) for c in children])
+
+    async def _recompute_subtree_levels(self, account: Account, new_level: int) -> None:
+        account.level = new_level
+        await self.account_repo.update(account)
+        for child in await self.account_repo.list_children(account.id):
+            await self._recompute_subtree_levels(child, new_level + 1)
 
 
 class JournalEntryService:
@@ -239,6 +396,11 @@ class JournalEntryService:
             account = await self.account_repo.get_by_id(line.account_id)
             if account is None or account.company_id != company_id:
                 raise ValueError(f"Account not found in this company: {line.account_id}")
+            if account.is_group:
+                raise ValueError(
+                    f"Cannot post to {account.code} — {account.name}: it is a group account "
+                    "(has sub-accounts); post to one of its sub-accounts instead"
+                )
 
         orm_entry = JournalEntry(
             id=domain_entry.id,

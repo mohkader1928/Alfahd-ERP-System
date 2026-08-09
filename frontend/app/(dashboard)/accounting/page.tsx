@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,104 @@ import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-documen
 const ACCOUNT_TYPE_CODES = ["asset", "liability", "equity", "revenue", "expense"] as const;
 const JOURNAL_CODES = ["GEN", "SALES", "PURCH", "BANK", "CASH"] as const;
 
+const MAX_ACCOUNT_LEVEL = 4;
+
+function AccountFormFields({
+  code,
+  setCode,
+  name,
+  setName,
+  accountTypeCode,
+  setAccountTypeCode,
+  parentId,
+  setParentId,
+  isGroup,
+  setIsGroup,
+  parentOptions,
+  excludeId,
+  showType = true,
+}: {
+  code: string;
+  setCode: (v: string) => void;
+  name: string;
+  setName: (v: string) => void;
+  accountTypeCode: string;
+  setAccountTypeCode: (v: string) => void;
+  parentId: string;
+  setParentId: (v: string) => void;
+  isGroup: boolean;
+  setIsGroup: (v: boolean) => void;
+  parentOptions: Account[];
+  excludeId?: string;
+  /** Account type is fixed at creation (changing it after transactions
+   * exist would misclassify every historical posting in reports) and
+   * AccountOut doesn't even expose the current type to prefill from --
+   * hidden entirely in edit mode rather than shown incorrectly. */
+  showType?: boolean;
+}) {
+  const { t } = useI18n();
+  // A parent must have room for at least one more level below it, and an
+  // account can't become its own (grand-)parent.
+  const eligibleParents = parentOptions.filter((a) => a.level < MAX_ACCOUNT_LEVEL && a.id !== excludeId);
+
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="space-y-1">
+        <Label className="text-xs">{t("accounting.accounts.code")}</Label>
+        <Input value={code} onChange={(e) => setCode(e.target.value)} className="w-28" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">{t("accounting.accounts.name")}</Label>
+        <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48" />
+      </div>
+      {showType && (
+        <div className="space-y-1">
+          <Label className="text-xs">{t("accounting.accounts.type")}</Label>
+          <Select value={accountTypeCode} onValueChange={(v) => setAccountTypeCode(v ?? "asset")}>
+            <SelectTrigger className="w-36">
+              <SelectValue>{(value: string) => value}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {ACCOUNT_TYPE_CODES.map((code) => (
+                <SelectItem key={code} value={code}>
+                  {code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      <div className="space-y-1">
+        <Label className="text-xs">{t("accounting.accounts.parent")}</Label>
+        <Select value={parentId || "__root__"} onValueChange={(v) => setParentId(v === "__root__" ? "" : (v ?? ""))}>
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder={t("accounting.accounts.parent_none")}>
+              {(value: string) => {
+                if (value === "__root__") return t("accounting.accounts.parent_none");
+                const p = parentOptions.find((a) => a.id === value);
+                return p ? `${p.code} — ${p.name}` : value;
+              }}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__root__">{t("accounting.accounts.parent_none")}</SelectItem>
+            {eligibleParents.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {"— ".repeat(a.level - 1)}
+                {a.code} — {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <label className="flex items-center gap-2 pb-1.5 text-sm">
+        <input type="checkbox" checked={isGroup} onChange={(e) => setIsGroup(e.target.checked)} />
+        {t("accounting.accounts.is_group")}
+      </label>
+    </div>
+  );
+}
+
 function ChartOfAccountsTab() {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
@@ -45,20 +144,47 @@ function ChartOfAccountsTab() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [accountTypeCode, setAccountTypeCode] = useState<string>("asset");
+  const [parentId, setParentId] = useState("");
+  const [isGroup, setIsGroup] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [editing, setEditing] = useState<Account | null>(null);
+  const [editCode, setEditCode] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editTypeCode, setEditTypeCode] = useState("asset");
+  const [editParentId, setEditParentId] = useState("");
+  const [editIsGroup, setEditIsGroup] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const [deleting, setDeleting] = useState<Account | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const accountsQuery = useQuery({
     queryKey: ["accounts", companyId],
     queryFn: () => accountingApi.listAccounts(companyId),
   });
+  const accounts = accountsQuery.data ?? [];
+  // Deepest-first ordering by level, then code within a level — reads as a
+  // hierarchy at a glance without building a real tree widget for what's
+  // still a fairly shallow (max 4 levels) structure.
+  const sortedAccounts = [...accounts].sort((a, b) => a.code.localeCompare(b.code));
 
   const createMutation = useMutation({
-    mutationFn: () => accountingApi.createAccount(companyId, { code, name, account_type_code: accountTypeCode }),
+    mutationFn: () =>
+      accountingApi.createAccount(companyId, {
+        code,
+        name,
+        account_type_code: accountTypeCode,
+        parent_id: parentId || null,
+        is_group: isGroup,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accounts", companyId] });
       toastSuccess(t("toast.success_title"), name);
       setCode("");
       setName("");
+      setParentId("");
+      setIsGroup(false);
     },
     onError: (err) => {
       const detail = err instanceof ApiError ? err.detail : t("common.error");
@@ -67,14 +193,106 @@ function ChartOfAccountsTab() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      accountingApi.updateAccount(companyId, editing!.id, {
+        code: editCode,
+        name: editName,
+        parent_id: editParentId || null,
+        parent_id_set: true,
+        is_group: editIsGroup,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["accounts", companyId] });
+      toastSuccess(t("toast.success_title"), editName);
+      setEditing(null);
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setEditError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => accountingApi.deleteAccount(companyId, deleting!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["accounts", companyId] });
+      toastSuccess(t("toast.success_title"), t("accounting.accounts.delete"));
+      setDeleting(null);
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setDeleteError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  function openEdit(account: Account) {
+    setEditing(account);
+    setEditCode(account.code);
+    setEditName(account.name);
+    setEditTypeCode("asset"); // type isn't surfaced on AccountOut yet; left as-is unless changed
+    setEditParentId(account.parent_id ?? "");
+    setEditIsGroup(account.is_group);
+    setEditError(null);
+  }
+
   const columns: ERPColumn<Account>[] = [
     { key: "code", header: t("accounting.accounts.code"), sortable: true, sortValue: (r) => r.code, render: (r) => <span className="font-mono">{r.code}</span> },
-    { key: "name", header: t("accounting.accounts.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
+    {
+      key: "name",
+      header: t("accounting.accounts.name"),
+      sortable: true,
+      sortValue: (r) => r.name,
+      render: (r) => <span style={{ paddingInlineStart: `${(r.level - 1) * 1.25}rem` }}>{r.name}</span>,
+    },
     { key: "name_ar", header: t("master_data.partners.name_ar"), render: (r) => r.name_ar ?? "—" },
+    {
+      key: "level",
+      header: t("accounting.accounts.level"),
+      align: "end",
+      sortable: true,
+      sortValue: (r) => r.level,
+      render: (r) => r.level,
+    },
+    {
+      key: "is_group",
+      header: t("accounting.accounts.is_group"),
+      render: (r) => (
+        <Badge variant={r.is_group ? "warning" : "outline"}>
+          {r.is_group ? t("accounting.accounts.group") : t("accounting.accounts.posting")}
+        </Badge>
+      ),
+    },
     {
       key: "is_active",
       header: t("accounting.accounts.active"),
       render: (r) => <Badge variant={r.is_active ? "default" : "secondary"}>{r.is_active ? t("common.active") : t("common.inactive")}</Badge>,
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (r) => (
+        <Can permission="accounting.chart_of_accounts.manage">
+          <div className="flex justify-end gap-1">
+            <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>
+              {t("common.edit")}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive"
+              onClick={() => {
+                setDeleting(r);
+                setDeleteError(null);
+              }}
+            >
+              {t("common.delete")}
+            </Button>
+          </div>
+        </Can>
+      ),
     },
   ];
 
@@ -86,42 +304,30 @@ function ChartOfAccountsTab() {
             <CardTitle>{t("accounting.accounts.new")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs">{t("accounting.accounts.code")}</Label>
-                <Input value={code} onChange={(e) => setCode(e.target.value)} className="w-28" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{t("accounting.accounts.name")}</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{t("accounting.accounts.type")}</Label>
-                <Select value={accountTypeCode} onValueChange={(v) => setAccountTypeCode(v ?? "asset")}>
-                  <SelectTrigger className="w-36">
-                    <SelectValue>{(value: string) => value}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ACCOUNT_TYPE_CODES.map((code) => (
-                      <SelectItem key={code} value={code}>
-                        {code}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setError(null);
-                  createMutation.mutate();
-                }}
-                disabled={!code || !name || createMutation.isPending}
-              >
-                <Plus className="h-4 w-4" />
-                {t("accounting.accounts.save")}
-              </Button>
-            </div>
+            <AccountFormFields
+              code={code}
+              setCode={setCode}
+              name={name}
+              setName={setName}
+              accountTypeCode={accountTypeCode}
+              setAccountTypeCode={setAccountTypeCode}
+              parentId={parentId}
+              setParentId={setParentId}
+              isGroup={isGroup}
+              setIsGroup={setIsGroup}
+              parentOptions={accounts}
+            />
+            <Button
+              size="sm"
+              onClick={() => {
+                setError(null);
+                createMutation.mutate();
+              }}
+              disabled={!code || !name || createMutation.isPending}
+            >
+              <Plus className="h-4 w-4" />
+              {t("accounting.accounts.save")}
+            </Button>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </CardContent>
         </Card>
@@ -129,7 +335,7 @@ function ChartOfAccountsTab() {
       <ERPListView
         title={t("accounting.tabs.accounts")}
         columns={columns}
-        rows={accountsQuery.data}
+        rows={sortedAccounts}
         rowKey={(r) => r.id}
         isLoading={accountsQuery.isLoading}
         isError={accountsQuery.isError}
@@ -139,6 +345,64 @@ function ChartOfAccountsTab() {
         searchPlaceholder={t("list.search_placeholder")}
         emptyDescription={t("common.empty")}
       />
+
+      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("accounting.accounts.edit_title")}</DialogTitle>
+          </DialogHeader>
+          <AccountFormFields
+            code={editCode}
+            setCode={setEditCode}
+            name={editName}
+            setName={setEditName}
+            accountTypeCode={editTypeCode}
+            setAccountTypeCode={setEditTypeCode}
+            parentId={editParentId}
+            setParentId={setEditParentId}
+            isGroup={editIsGroup}
+            setIsGroup={setEditIsGroup}
+            parentOptions={accounts}
+            excludeId={editing?.id}
+            showType={false}
+          />
+          {editError && <p className="text-sm text-destructive">{editError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              disabled={!editCode || !editName || updateMutation.isPending}
+              onClick={() => {
+                setEditError(null);
+                updateMutation.mutate();
+              }}
+            >
+              {updateMutation.isPending ? t("common.loading") : t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("accounting.accounts.delete_confirm_title")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {t("accounting.accounts.delete_confirm_body")} {deleting?.code} — {deleting?.name}
+          </p>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleting(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
+              {deleteMutation.isPending ? t("common.loading") : t("common.delete")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -279,11 +543,17 @@ function JournalEntriesTab() {
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        {accountsQuery.data?.map((a) => (
-                          <SelectItem key={a.id} value={a.id}>
-                            {a.code} — {a.name}
-                          </SelectItem>
-                        ))}
+                        {/* P0-4: a group/header account (has sub-accounts) can never
+                            be posted to directly -- filtered out here so the backend's
+                            422 rejection is a defense-in-depth backstop, not the first
+                            time the user learns about it. */}
+                        {accountsQuery.data
+                          ?.filter((a) => !a.is_group)
+                          .map((a) => (
+                            <SelectItem key={a.id} value={a.id}>
+                              {a.code} — {a.name}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>

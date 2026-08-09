@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     ForeignKey,
     Index,
@@ -52,6 +53,16 @@ class Account(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("account.id"), nullable=True
     )
+    # P0-4: 1 = a top-level category (Assets/Liabilities/...), 4 = the
+    # deepest a sub-account may go -- auto-computed from parent.level + 1
+    # on create/reparent, never set directly by a caller.
+    level: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("1"))
+    # A header/category account with children -- cannot receive journal
+    # entry postings directly (JournalEntryService.create_draft_entry
+    # enforces this). Any account with children MUST be a group account;
+    # ChartOfAccountsService auto-promotes a parent the moment its first
+    # child is created rather than leaving that invariant to the caller.
+    is_group: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     is_active: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
@@ -64,6 +75,7 @@ class Account(Base):
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        CheckConstraint("level BETWEEN 1 AND 4", name="ck_account_level_range"),
     )
 
 

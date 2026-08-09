@@ -1,6 +1,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   Account,
+  AccountUpdateInput,
   BalanceSheetResponse,
   GeneralLedgerResponse,
   IncomeStatementResponse,
@@ -17,8 +18,21 @@ export const accountingApi = {
 
   createAccount: (
     companyId: string,
-    payload: { code: string; name: string; name_ar?: string; account_type_code: string; parent_id?: string | null }
+    payload: {
+      code: string;
+      name: string;
+      name_ar?: string;
+      account_type_code: string;
+      parent_id?: string | null;
+      is_group?: boolean;
+    }
   ) => apiClient.post<Account>(`${BASE}/chart-of-accounts`, payload, { companyId }),
+
+  updateAccount: (companyId: string, id: string, payload: AccountUpdateInput) =>
+    apiClient.patch<Account>(`${BASE}/chart-of-accounts/${id}`, payload, { companyId }),
+
+  deleteAccount: (companyId: string, id: string) =>
+    apiClient.delete<void>(`${BASE}/chart-of-accounts/${id}`, { companyId }),
 
   listJournalEntries: (companyId: string) => apiClient.get<JournalEntry[]>(`${BASE}/journal-entries`, { companyId }),
 

@@ -38,6 +38,10 @@ class AccountRepository:
         await self.session.flush()
         return account
 
+    async def update(self, account: Account) -> Account:
+        await self.session.flush()
+        return account
+
     async def get_by_id(self, account_id: UUID) -> Account | None:
         result = await self.session.execute(
             select(Account).where(Account.id == account_id, Account.deleted_at.is_(None))
@@ -59,6 +63,24 @@ class AccountRepository:
             .order_by(Account.code)
         )
         return list(result.scalars().all())
+
+    async def list_children(self, account_id: UUID) -> list[Account]:
+        result = await self.session.execute(
+            select(Account).where(Account.parent_id == account_id, Account.deleted_at.is_(None))
+        )
+        return list(result.scalars().all())
+
+    async def has_children(self, account_id: UUID) -> bool:
+        result = await self.session.execute(
+            select(Account.id).where(Account.parent_id == account_id, Account.deleted_at.is_(None)).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def has_transactions(self, account_id: UUID) -> bool:
+        result = await self.session.execute(
+            select(JournalEntryLine.id).where(JournalEntryLine.account_id == account_id).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
 
 
 class JournalRepository:

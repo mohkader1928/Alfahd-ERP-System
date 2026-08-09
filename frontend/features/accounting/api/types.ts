@@ -5,7 +5,20 @@ export interface Account {
   name: string;
   name_ar: string | null;
   parent_id: string | null;
+  level: number;
+  is_group: boolean;
   is_active: boolean;
+}
+
+export interface AccountUpdateInput {
+  code?: string;
+  name?: string;
+  name_ar?: string | null;
+  account_type_code?: string;
+  parent_id?: string | null;
+  parent_id_set?: boolean;
+  is_group?: boolean;
+  is_active?: boolean;
 }
 
 export interface JournalEntryLineIn {

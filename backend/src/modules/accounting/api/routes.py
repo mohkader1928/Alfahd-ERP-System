@@ -2,6 +2,7 @@
 
 from datetime import date
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,7 @@ from src.modules.accounting.api.deps import (
 from src.modules.accounting.api.schemas import (
     AccountCreateRequest,
     AccountOut,
+    AccountUpdateRequest,
     BalanceSheetResponse,
     FiscalPeriodCreateRequest,
     FiscalPeriodOut,
@@ -28,6 +30,7 @@ from src.modules.accounting.api.schemas import (
     TrialBalanceRow,
 )
 from src.modules.accounting.application.services import (
+    _UNSET,
     ChartOfAccountsService,
     FiscalPeriodService,
     JournalEntryService,
@@ -91,12 +94,118 @@ async def create_account(
             name_ar=payload.name_ar,
             account_type_code=payload.account_type_code,
             parent_id=payload.parent_id,
+            is_group=payload.is_group,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
     await db.commit()
     return account
+
+
+@router.patch("/chart-of-accounts/{account_id}", response_model=AccountOut)
+async def update_account(
+    account_id: UUID,
+    payload: AccountUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("accounting.chart_of_accounts.manage")),
+    account_repo: AccountRepository = Depends(get_account_repo),
+    account_type_repo: AccountTypeRepository = Depends(get_account_type_repo),
+    journal_repo: JournalRepository = Depends(get_journal_repo),
+):
+    from src.modules.accounting.infrastructure.repositories import TaxRepository
+
+    before = await account_repo.get_by_id(account_id)
+    if before is None or before.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+    before_parent_id, before_is_group, before_is_active = before.parent_id, before.is_group, before.is_active
+
+    service = ChartOfAccountsService(account_repo, account_type_repo, journal_repo, TaxRepository(db))
+    try:
+        account = await service.update_account(
+            account_id=account_id,
+            company_id=ctx.company_id,
+            code=payload.code,
+            name=payload.name,
+            name_ar=payload.name_ar,
+            account_type_code=payload.account_type_code,
+            parent_id=payload.parent_id if payload.parent_id_set else _UNSET,
+            is_group=payload.is_group,
+            is_active=payload.is_active,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    # P0-4: hierarchy changes and posting-eligibility flips are the two
+    # audit-worthy edits here -- code/name/type churn is cosmetic by
+    # comparison and isn't logged, same selectivity the short-close/reopen
+    # audit entries elsewhere in the codebase already use.
+    if payload.parent_id_set and account.parent_id != before_parent_id:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="account",
+            target_id=account_id,
+            field_name="parent_id",
+            old_value=str(before_parent_id) if before_parent_id else None,
+            new_value=str(account.parent_id) if account.parent_id else None,
+        )
+    if account.is_group != before_is_group:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="account",
+            target_id=account_id,
+            field_name="is_group",
+            old_value=str(before_is_group),
+            new_value=str(account.is_group),
+        )
+    if account.is_active != before_is_active:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="account",
+            target_id=account_id,
+            field_name="is_active",
+            old_value=str(before_is_active),
+            new_value=str(account.is_active),
+        )
+
+    await db.commit()
+    return account
+
+
+@router.delete("/chart-of-accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    account_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("accounting.chart_of_accounts.manage")),
+    account_repo: AccountRepository = Depends(get_account_repo),
+    account_type_repo: AccountTypeRepository = Depends(get_account_type_repo),
+    journal_repo: JournalRepository = Depends(get_journal_repo),
+):
+    from src.modules.accounting.infrastructure.repositories import TaxRepository
+
+    service = ChartOfAccountsService(account_repo, account_type_repo, journal_repo, TaxRepository(db))
+    try:
+        await service.delete_account(account_id=account_id, company_id=ctx.company_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="account",
+        target_id=account_id,
+        field_name="deleted_at",
+        old_value=None,
+        new_value="deleted",
+    )
+    await db.commit()
 
 
 @router.get("/journal-entries", response_model=list[JournalEntryOut])
