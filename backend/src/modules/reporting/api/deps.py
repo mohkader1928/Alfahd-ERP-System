@@ -13,6 +13,7 @@ from src.modules.purchasing.infrastructure.repositories import (
 from src.modules.reporting.application.services import (
     DashboardService,
     InventoryValuationReportService,
+    PurchaseReportingService,
     SalesReportingService,
     SearchService,
     VatReportingService,
@@ -33,6 +34,10 @@ def get_dashboard_service(db: AsyncSession = Depends(get_db)) -> DashboardServic
 
 def get_sales_reporting_service(db: AsyncSession = Depends(get_db)) -> SalesReportingService:
     return SalesReportingService(db)
+
+
+def get_purchase_reporting_service(db: AsyncSession = Depends(get_db)) -> PurchaseReportingService:
+    return PurchaseReportingService(db)
 
 
 def get_search_service(db: AsyncSession = Depends(get_db)) -> SearchService:

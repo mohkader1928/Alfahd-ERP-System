@@ -419,6 +419,177 @@ class SalesReportingService:
         ]
 
 
+# The one state where a VendorBill has actually posted a Journal Entry
+# (approve_and_post and issue_debit_note both set status="posted" in the
+# same transaction they post the JE) -- the direct equivalent of
+# SalesInvoice's journal_entry_id.isnot(None) checks above, just expressed
+# as the status value since Purchasing's finalized state is a single value
+# rather than sales' multi-value _FINALIZED_STATUSES.
+_FINALIZED_BILL_STATUS = "posted"
+
+
+class PurchaseReportingService:
+    """P0-3 (3-Day Brief): Purchasing's mirror of SalesReportingService.by_customer
+    -- same shape (vendor, invoice count, amount/VAT/total, running balance),
+    plus an Adjustments/Net Purchases pair the sales report doesn't have,
+    since the brief explicitly asked for debit notes to show as their own
+    column here rather than just silently netting into balance."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def by_vendor(
+        self,
+        *,
+        company_id: UUID,
+        date_from: date,
+        date_to: date,
+        partner_id: UUID | None = None,
+    ) -> list[dict]:
+        conditions = [
+            VendorBill.company_id == company_id,
+            VendorBill.status == _FINALIZED_BILL_STATUS,
+            VendorBill.bill_type == "standard",
+            VendorBill.bill_date >= date_from,
+            VendorBill.bill_date <= date_to,
+        ]
+        if partner_id is not None:
+            conditions.append(VendorBill.partner_id == partner_id)
+
+        stmt = (
+            select(
+                Partner.id.label("partner_id"),
+                Partner.name.label("partner_name"),
+                func.count(VendorBill.id).label("bill_count"),
+                func.coalesce(func.sum(VendorBill.subtotal_amount), 0).label("subtotal"),
+                func.coalesce(func.sum(VendorBill.tax_amount), 0).label("tax_amount"),
+                func.coalesce(func.sum(VendorBill.total_amount), 0).label("total"),
+            )
+            .join(Partner, Partner.id == VendorBill.partner_id)
+            .where(*conditions)
+            .group_by(Partner.id, Partner.name)
+            .order_by(func.sum(VendorBill.total_amount).desc())
+        )
+        result = await self.session.execute(stmt)
+        rows = [
+            {
+                "partner_id": row.partner_id,
+                "partner_name": row.partner_name,
+                "bill_count": row.bill_count,
+                "subtotal": Decimal(str(row.subtotal)),
+                "tax_amount": Decimal(str(row.tax_amount)),
+                "total": Decimal(str(row.total)),
+            }
+            for row in result.all()
+        ]
+        if not rows:
+            return rows
+
+        partner_ids = [r["partner_id"] for r in rows]
+        adjustments_by_partner = await self._adjustments_in_period(
+            company_id=company_id, partner_ids=partner_ids, date_from=date_from, date_to=date_to
+        )
+        payments_by_partner = await self._payments_made(
+            company_id=company_id, partner_ids=partner_ids, date_from=date_from, date_to=date_to
+        )
+        balance_by_partner = await self._ap_balance_as_of(
+            company_id=company_id, partner_ids=partner_ids, as_of_date=date_to
+        )
+        for r in rows:
+            adjustments = adjustments_by_partner.get(r["partner_id"], Decimal("0"))
+            r["adjustments"] = adjustments
+            r["net_total"] = r["total"] - adjustments
+            r["payments_made"] = payments_by_partner.get(r["partner_id"], Decimal("0"))
+            r["balance"] = balance_by_partner.get(r["partner_id"], Decimal("0"))
+        return rows
+
+    async def _adjustments_in_period(
+        self, *, company_id: UUID, partner_ids: list[UUID], date_from: date, date_to: date
+    ) -> dict[UUID, Decimal]:
+        """Debit notes issued against this vendor in [date_from, date_to] --
+        shown as its own column (not silently folded into `total`), same
+        reasoning the Owner gave for adding payments/balance to the sales
+        report: a number you can't see is a number you can't trust."""
+        stmt = (
+            select(VendorBill.partner_id, func.coalesce(func.sum(VendorBill.total_amount), 0).label("total"))
+            .where(
+                VendorBill.company_id == company_id,
+                VendorBill.bill_type == "debit_note",
+                VendorBill.partner_id.in_(partner_ids),
+                VendorBill.bill_date >= date_from,
+                VendorBill.bill_date <= date_to,
+            )
+            .group_by(VendorBill.partner_id)
+        )
+        result = await self.session.execute(stmt)
+        return {row.partner_id: Decimal(str(row.total)) for row in result.all()}
+
+    async def _payments_made(
+        self, *, company_id: UUID, partner_ids: list[UUID], date_from: date, date_to: date
+    ) -> dict[UUID, Decimal]:
+        stmt = (
+            select(Payment.partner_id, func.coalesce(func.sum(Payment.amount), 0).label("total"))
+            .where(
+                Payment.company_id == company_id,
+                Payment.payment_type == "vendor",
+                Payment.partner_id.in_(partner_ids),
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+            .group_by(Payment.partner_id)
+        )
+        result = await self.session.execute(stmt)
+        return {row.partner_id: Decimal(str(row.total)) for row in result.all()}
+
+    async def _ap_balance_as_of(
+        self, *, company_id: UUID, partner_ids: list[UUID], as_of_date: date
+    ) -> dict[UUID, Decimal]:
+        """Cumulative balance per vendor as of as_of_date -- every posted
+        bill ever billed (debit notes as a negative) minus every payment
+        ever made, matching the exact figure the Trial Balance's Accounts
+        Payable would show. Mirrors _ar_balance_as_of exactly, direction
+        reversed."""
+        billed_stmt = (
+            select(
+                VendorBill.partner_id,
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (VendorBill.bill_type == "debit_note", -VendorBill.total_amount),
+                            else_=VendorBill.total_amount,
+                        )
+                    ),
+                    0,
+                ).label("net_billed"),
+            )
+            .where(
+                VendorBill.company_id == company_id,
+                VendorBill.partner_id.in_(partner_ids),
+                VendorBill.journal_entry_id.isnot(None),
+                VendorBill.bill_date <= as_of_date,
+            )
+            .group_by(VendorBill.partner_id)
+        )
+        paid_stmt = (
+            select(Payment.partner_id, func.coalesce(func.sum(Payment.amount), 0).label("total"))
+            .where(
+                Payment.company_id == company_id,
+                Payment.payment_type == "vendor",
+                Payment.partner_id.in_(partner_ids),
+                Payment.payment_date <= as_of_date,
+            )
+            .group_by(Payment.partner_id)
+        )
+        billed_result = await self.session.execute(billed_stmt)
+        paid_result = await self.session.execute(paid_stmt)
+        net_billed = {row.partner_id: Decimal(str(row.net_billed)) for row in billed_result.all()}
+        paid = {row.partner_id: Decimal(str(row.total)) for row in paid_result.all()}
+        return {
+            partner_id: net_billed.get(partner_id, Decimal("0")) - paid.get(partner_id, Decimal("0"))
+            for partner_id in partner_ids
+        }
+
+
 class SearchService:
     """Professional Workspace Layer — Global Search. Every reference ERP
     has a single search box that crosses entity types instead of making

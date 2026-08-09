@@ -102,6 +102,7 @@ PERMISSION_CATALOG = [
     ("reporting.dashboard.view", "screen"),
     ("reporting.export", "action"),
     ("reporting.sales.view", "screen"),
+    ("reporting.purchasing.view", "screen"),
     # Phase 17D — Payments
     ("payment.view", "screen"),
     ("payment.create", "action"),

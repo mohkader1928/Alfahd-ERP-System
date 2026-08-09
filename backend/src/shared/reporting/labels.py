@@ -41,6 +41,9 @@ _LABELS: dict[str, dict[str, str]] = {
         "purchases_total": "إجمالي المشتريات",
         "net_vat_payable": "صافي الضريبة المستحقة",
         "payments_received": "المدفوعات المحصّلة",
+        "payments_made": "المدفوعات المسددة",
+        "adjustments": "التسويات (إشعارات خصم)",
+        "net_purchases": "صافي المشتريات بعد التسويات",
     },
     "en": {
         "account": "Account",
@@ -79,6 +82,9 @@ _LABELS: dict[str, dict[str, str]] = {
         "purchases_total": "Total Purchases",
         "net_vat_payable": "Net VAT Payable",
         "payments_received": "Payments Received",
+        "payments_made": "Payments Made",
+        "adjustments": "Adjustments (Debit Notes)",
+        "net_purchases": "Net Purchases",
     },
 }
 
@@ -95,6 +101,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "sales_by_customer": "المبيعات حسب العميل",
         "sales_by_product": "المبيعات حسب الصنف",
         "sales_by_period": "المبيعات حسب الفترة",
+        "purchases_by_supplier": "المشتريات حسب المورد",
         "product_cardex": "بطاقة الصنف القياسية",
         "vat_summary": "ملخص ضريبة القيمة المضافة",
         "inventory_valuation": "تقييم المخزون",
@@ -111,6 +118,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "sales_by_customer": "Sales by Customer",
         "sales_by_product": "Sales by Product",
         "sales_by_period": "Sales by Period",
+        "purchases_by_supplier": "Purchases by Supplier",
         "product_cardex": "Standard Product Cardex",
         "vat_summary": "VAT Summary",
         "inventory_valuation": "Inventory Valuation",

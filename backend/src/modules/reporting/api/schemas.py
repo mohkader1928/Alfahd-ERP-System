@@ -62,6 +62,21 @@ class SalesByPeriodRow(BaseModel):
     total: Decimal
 
 
+# ── Purchasing Reports ─────────────────────────────────────────────────────────
+
+class PurchaseByVendorRow(BaseModel):
+    partner_id: UUID
+    partner_name: str
+    bill_count: int
+    subtotal: Decimal
+    tax_amount: Decimal
+    total: Decimal
+    adjustments: Decimal = Decimal("0")
+    net_total: Decimal = Decimal("0")
+    payments_made: Decimal = Decimal("0")
+    balance: Decimal = Decimal("0")
+
+
 class SearchResultRow(BaseModel):
     type: str
     id: UUID

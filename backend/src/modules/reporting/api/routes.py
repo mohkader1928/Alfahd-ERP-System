@@ -13,6 +13,7 @@ from src.modules.identity.infrastructure.repositories import AuditLogRepository,
 from src.modules.reporting.api.deps import (
     get_dashboard_service,
     get_inventory_valuation_service,
+    get_purchase_reporting_service,
     get_sales_reporting_service,
     get_search_service,
     get_vat_reporting_service,
@@ -21,6 +22,7 @@ from src.modules.reporting.api.deps import (
 from src.modules.reporting.api.schemas import (
     DashboardSummaryOut,
     InventoryValuationRowOut,
+    PurchaseByVendorRow,
     SalesByCustomerRow,
     SalesByPeriodRow,
     SalesByProductRow,
@@ -30,6 +32,7 @@ from src.modules.reporting.api.schemas import (
 from src.modules.reporting.application.services import (
     DashboardService,
     InventoryValuationReportService,
+    PurchaseReportingService,
     SalesReportingService,
     SearchService,
     VatReportingService,
@@ -266,6 +269,87 @@ async def sales_by_period(
         rtl=lang == "ar",
     )
     return build_export_response(format, "sales-by-period", table)
+
+
+# ── Purchasing Reports ───────────────────────────────────────────────────────────
+
+def _purchase_totals(rows: list[dict]) -> tuple:
+    subtotal = sum((r["subtotal"] for r in rows), start=Decimal("0"))
+    tax = sum((r["tax_amount"] for r in rows), start=Decimal("0"))
+    total = sum((r["total"] for r in rows), start=Decimal("0"))
+    return subtotal, tax, total
+
+
+@router.get("/purchasing/by-supplier", response_model=list[PurchaseByVendorRow])
+async def purchases_by_supplier(
+    date_from: date,
+    date_to: date,
+    partner_id: UUID | None = None,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("reporting.purchasing.view")),
+    service: PurchaseReportingService = Depends(get_purchase_reporting_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """P0-3 (3-Day Brief): Purchases grouped by vendor for a date range,
+    mirroring /sales/by-customer -- amount/VAT/total, debit-note
+    adjustments issued in the period, net purchases after those
+    adjustments, payments made, and the vendor's running AP balance as of
+    date_to (matches Trial Balance's Accounts Payable, same as
+    /sales/by-customer's balance column matches Accounts Receivable)."""
+    rows = await service.by_vendor(
+        company_id=ctx.company_id, date_from=date_from, date_to=date_to, partner_id=partner_id
+    )
+    if format == "json":
+        return rows
+    subtotal, tax, total = _purchase_totals(rows)
+    total_adjustments = sum((r["adjustments"] for r in rows), Decimal("0"))
+    total_net = sum((r["net_total"] for r in rows), Decimal("0"))
+    total_payments = sum((r["payments_made"] for r in rows), Decimal("0"))
+    total_balance = sum((r["balance"] for r in rows), Decimal("0"))
+    table = ReportTable(
+        title=title(lang, "purchases_by_supplier"),
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f"{date_from} — {date_to}",
+        columns=[
+            ReportColumn(label(lang, "vendor")),
+            ReportColumn(label(lang, "invoice_count"), "end"),
+            ReportColumn(label(lang, "amount"), "end"),
+            ReportColumn("VAT", "end"),
+            ReportColumn(label(lang, "total"), "end"),
+            ReportColumn(label(lang, "adjustments"), "end"),
+            ReportColumn(label(lang, "net_purchases"), "end"),
+            ReportColumn(label(lang, "payments_made"), "end"),
+            ReportColumn(label(lang, "balance"), "end"),
+        ],
+        rows=[
+            [
+                r["partner_name"],
+                str(r["bill_count"]),
+                format_amount(r["subtotal"]),
+                format_amount(r["tax_amount"]),
+                format_amount(r["total"]),
+                format_amount(r["adjustments"]),
+                format_amount(r["net_total"]),
+                format_amount(r["payments_made"]),
+                format_amount(r["balance"]),
+            ]
+            for r in rows
+        ],
+        totals=[
+            label(lang, "total"),
+            "",
+            format_amount(subtotal),
+            format_amount(tax),
+            format_amount(total),
+            format_amount(total_adjustments),
+            format_amount(total_net),
+            format_amount(total_payments),
+            format_amount(total_balance),
+        ],
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, "purchases-by-supplier", table)
 
 
 # ── VAT / Tax Summary ────────────────────────────────────────────────────────────

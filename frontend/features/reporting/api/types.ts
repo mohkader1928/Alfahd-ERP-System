@@ -55,6 +55,21 @@ export interface SalesByPeriodRow {
   total: string;
 }
 
+// ── Purchasing Reports ────────────────────────────────────────────────────────
+
+export interface PurchaseByVendorRow {
+  partner_id: string;
+  partner_name: string;
+  bill_count: number;
+  subtotal: string;
+  tax_amount: string;
+  total: string;
+  adjustments: string;
+  net_total: string;
+  payments_made: string;
+  balance: string;
+}
+
 // ── Inventory Valuation ──────────────────────────────────────────────────────
 
 export interface InventoryValuationRow {

@@ -2,6 +2,7 @@ import { apiClient } from "@/lib/api-client";
 import type {
   DashboardSummary,
   InventoryValuationRow,
+  PurchaseByVendorRow,
   SalesByCustomerRow,
   SalesByPeriodRow,
   SalesByProductRow,
@@ -35,6 +36,14 @@ export const reportingApi = {
   salesByPeriod: (companyId: string, dateFrom: string, dateTo: string) =>
     apiClient.get<SalesByPeriodRow[]>(
       `${BASE}/sales/by-period?date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  // ── Purchasing Reports ───────────────────────────────────────────────────────
+
+  purchasesBySupplier: (companyId: string, dateFrom: string, dateTo: string, partnerId?: string) =>
+    apiClient.get<PurchaseByVendorRow[]>(
+      `${BASE}/purchasing/by-supplier?date_from=${dateFrom}&date_to=${dateTo}${partnerId ? `&partner_id=${partnerId}` : ""}`,
       { companyId }
     ),
 

@@ -66,7 +66,15 @@ export const NAV_CONFIG: NavEntry[] = [
   },
   { type: "link", href: "/accounting", labelKey: "nav.accounting", icon: Calculator },
   { type: "link", href: "/inventory", labelKey: "nav.inventory", icon: Boxes },
-  { type: "link", href: "/purchasing", labelKey: "nav.purchasing", icon: Truck },
+  {
+    type: "group",
+    labelKey: "nav.purchasing",
+    icon: Truck,
+    children: [
+      { type: "link", href: "/purchasing", labelKey: "nav.purchasing.orders_bills", icon: Truck },
+      { type: "link", href: "/purchasing/reports", labelKey: "nav.purchasing.reports", icon: BarChart3 },
+    ],
+  },
   { type: "link", href: "/payments", labelKey: "nav.payments", icon: Banknote },
   {
     type: "group",
