@@ -616,5 +616,11 @@
   "purchasing.reports.supplier.adjustments": "Adjustments (Debit Notes)",
   "purchasing.reports.supplier.net_total": "Net Purchases",
   "purchasing.reports.supplier.payments_made": "Payments Made",
-  "purchasing.reports.supplier.balance": "Balance (as of date)"
+  "purchasing.reports.supplier.balance": "Balance (as of date)",
+  "sales.receipts.title": "Customer Receipts",
+  "sales.receipts.new": "New Receipt",
+  "sales.receipts.create_title": "New Customer Receipt",
+  "purchasing.payments.title": "Vendor Payments",
+  "purchasing.payments.new": "New Payment",
+  "purchasing.payments.create_title": "New Vendor Payment"
 }

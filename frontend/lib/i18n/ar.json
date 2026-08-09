@@ -616,5 +616,11 @@
   "purchasing.reports.supplier.adjustments": "التسويات (إشعارات خصم)",
   "purchasing.reports.supplier.net_total": "صافي المشتريات",
   "purchasing.reports.supplier.payments_made": "المدفوعات المسددة",
-  "purchasing.reports.supplier.balance": "الرصيد (حتى التاريخ)"
+  "purchasing.reports.supplier.balance": "الرصيد (حتى التاريخ)",
+  "sales.receipts.title": "مقبوضات العملاء",
+  "sales.receipts.new": "مقبوض جديد",
+  "sales.receipts.create_title": "مقبوض جديد",
+  "purchasing.payments.title": "دفعات الموردين",
+  "purchasing.payments.new": "دفعة جديدة",
+  "purchasing.payments.create_title": "دفعة جديدة"
 }

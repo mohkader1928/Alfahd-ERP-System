@@ -41,12 +41,20 @@ class PaymentRepository:
         )
         return list(result.scalars().all())
 
-    async def next_number(self, company_id: UUID) -> str:
+    async def next_number(self, company_id: UUID, payment_type: str) -> str:
+        # Customer receipts and vendor payments are visibly distinct
+        # documents (Owner directive) -- each gets its own prefix and its
+        # own sequence scoped to (company_id, payment_type), not one
+        # shared counter that left gaps in either series wherever the
+        # other type fell in between.
         result = await self.session.execute(
-            select(func.count()).where(Payment.company_id == company_id)
+            select(func.count()).where(
+                Payment.company_id == company_id, Payment.payment_type == payment_type
+            )
         )
         count = result.scalar_one()
-        return f"PAY-{count + 1:06d}"
+        prefix = "RCT" if payment_type == "customer" else "PAY"
+        return f"{prefix}-{count + 1:06d}"
 
     async def sum_allocated_for_sales_invoice(self, sales_invoice_id: UUID) -> Decimal:
         result = await self.session.execute(

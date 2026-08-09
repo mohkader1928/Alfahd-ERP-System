@@ -127,7 +127,7 @@ class PaymentService:
             # MORE than the payment is worth is the actual invalid case.
             raise OverAllocationError("Total allocated amount exceeds the payment amount")
 
-        number = await self.payment_repo.next_number(company_id)
+        number = await self.payment_repo.next_number(company_id, payment_type)
         payment = Payment(
             id=uuid.uuid4(),
             company_id=company_id,

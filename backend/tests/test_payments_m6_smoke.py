@@ -144,7 +144,7 @@ async def test_customer_payment_full_allocation_posts_journal_entry(client):
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["number"].startswith("PAY-")
+    assert body["number"].startswith("RCT-")  # customer receipts have their own series
     assert body["journal_entry_id"] is not None
 
     detail = (await client.get(f"/api/v1/payments/payments/{body['id']}", headers=headers)).json()
