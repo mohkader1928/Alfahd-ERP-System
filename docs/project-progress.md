@@ -8,9 +8,45 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-09, on top of committed `95e8fbd` (`main`) —
-**Chart of Accounts 4-level hierarchy enforcement** (commit `95e8fbd`),
-P0-4 of the 3-Day Brief. The Chart of Accounts had never had update or
+**Last verified**: 2026-08-09, on top of committed `2a659d3` (`main`) —
+**Detail-level rollup for Trial Balance / Income Statement / Balance
+Sheet** (commit `2a659d3`), an Owner-requested follow-up to the Chart
+of Accounts hierarchy work — not one of the 8 P0 items. Lets a user
+pick a detail level (1-4) on any of the three account-tree reports and
+have sub-accounts deeper than that level collapse into their ancestor,
+instead of always listing every leaf account. `ReportingService`
+gained `_rollup_ancestor` (walks a row's account up its parent chain
+to the target level) and `_rollup_rows` (groups/sums rows by that
+ancestor, generic across the three reports' different row shapes via
+a `sum_fields` tuple), reused unchanged by `trial_balance`,
+`income_statement`, and `balance_sheet`. Section/report totals
+(`revenue_total`, `assets_total`, etc.) are untouched by rollup since
+they're independent sums, not derived from the row list — confirmed
+by test. Fixed a real gap while wiring this in: the trial-balance
+route was building `ReportingService(entry_repo)` without the account
+repo, which would have made rollup silently a no-op on that one
+endpoint specifically. Frontend: shared `DetailLevelSelect` wired into
+all three report tabs; the General Ledger drill-down link is disabled
+whenever a rollup level is active, since a rolled-up row's account_id
+is its own (non-postable) group-account ancestor, whose GL would be
+empty. 4 new backend tests (rollup at levels 1 and 2, revenue/expense
+rollup, balance-sheet identity holds after rollup); full suite
+320/320 passed, ruff/tsc/eslint clean. Live-verified all three tabs
+against شركة المحمود demo data: trial balance rolled Cash and Bank's
+children into "1100", level-1 rollup collapsed Assets/Liabilities/
+Equity/Revenue/Expenses correctly with unchanged grand totals, income
+statement and balance sheet rollups preserved gross profit/net income/
+the assets = liabilities + equity identity, and drill-down links
+disappeared from the DOM at every non-full detail level while staying
+present at full detail. Also confirmed (not a bug): several manually
+created Arabic-named expense accounts (5300-5900) have no parent set
+in this company's data, so they legitimately stay at level 1 rather
+than rolling into "5000 Expenses" — a data-structure fact, not a
+rollup defect.
+
+**Immediately prior, same session** — on top of committed `95e8fbd`
+(`main`) — **Chart of Accounts 4-level hierarchy enforcement** (commit
+`95e8fbd`), P0-4 of the 3-Day Brief. The Chart of Accounts had never had update or
 delete at all before this — only create — so this bundle added the
 missing CRUD alongside the hierarchy rules themselves. New `level`
 (auto-computed from parent, capped at 4, backfilled via a recursive
