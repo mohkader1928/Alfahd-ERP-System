@@ -1,9 +1,11 @@
 import { apiClient } from "@/lib/api-client";
 import type {
+  AssetCard,
   DepreciationEntry,
   DisposeAssetInput,
   FixedAsset,
   FixedAssetCreateInput,
+  Reconciliation,
   RunDepreciationResult,
 } from "./types";
 
@@ -25,4 +27,10 @@ export const fixedAssetsApi = {
 
   disposeAsset: (companyId: string, branchId: string, id: string, payload: DisposeAssetInput) =>
     apiClient.post<FixedAsset>(`${BASE}/${id}:dispose`, payload, { companyId, branchId }),
+
+  getAssetCard: (companyId: string, id: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<AssetCard>(`${BASE}/${id}/card?date_from=${dateFrom}&date_to=${dateTo}`, { companyId }),
+
+  getReconciliation: (companyId: string, asOfDate: string) =>
+    apiClient.get<Reconciliation>(`${BASE}/reconciliation?as_of_date=${asOfDate}`, { companyId }),
 };

@@ -75,3 +75,49 @@ class DisposeAssetRequest(BaseModel):
     proceeds: Decimal = Decimal("0")
     proceeds_account_id: UUID | None = None
     gain_loss_account_id: UUID | None = None
+
+
+class AssetCardLine(BaseModel):
+    date: date
+    movement_type: str
+    reference: str
+    journal_entry_id: UUID | None
+    cost_movement: Decimal
+    accumulated_depreciation_movement: Decimal
+    running_cost: Decimal
+    running_accumulated_depreciation: Decimal
+    running_net_book_value: Decimal
+
+
+class AssetCardResponse(BaseModel):
+    asset_id: UUID
+    asset_code: str
+    asset_name: str
+    date_from: date
+    date_to: date
+    opening_cost: Decimal
+    opening_accumulated_depreciation: Decimal
+    opening_net_book_value: Decimal
+    lines: list[AssetCardLine]
+    closing_cost: Decimal
+    closing_accumulated_depreciation: Decimal
+    closing_net_book_value: Decimal
+
+
+class ReconciliationAccountRow(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    register_total: Decimal
+    gl_balance: Decimal
+    difference: Decimal
+    matches: bool
+
+
+class ReconciliationResponse(BaseModel):
+    as_of_date: date
+    accounts: list[ReconciliationAccountRow]
+    total_register_cost: Decimal
+    total_register_accumulated_depreciation: Decimal
+    total_register_net_book_value: Decimal
+    fully_matched: bool

@@ -61,3 +61,49 @@ export interface DisposeAssetInput {
   proceeds_account_id?: string | null;
   gain_loss_account_id?: string | null;
 }
+
+export interface AssetCardLine {
+  date: string;
+  movement_type: "acquisition" | "depreciation" | "disposal";
+  reference: string;
+  journal_entry_id: string | null;
+  cost_movement: string;
+  accumulated_depreciation_movement: string;
+  running_cost: string;
+  running_accumulated_depreciation: string;
+  running_net_book_value: string;
+}
+
+export interface AssetCard {
+  asset_id: string;
+  asset_code: string;
+  asset_name: string;
+  date_from: string;
+  date_to: string;
+  opening_cost: string;
+  opening_accumulated_depreciation: string;
+  opening_net_book_value: string;
+  lines: AssetCardLine[];
+  closing_cost: string;
+  closing_accumulated_depreciation: string;
+  closing_net_book_value: string;
+}
+
+export interface ReconciliationAccountRow {
+  account_id: string;
+  account_code: string;
+  account_name: string;
+  register_total: string;
+  gl_balance: string;
+  difference: string;
+  matches: boolean;
+}
+
+export interface Reconciliation {
+  as_of_date: string;
+  accounts: ReconciliationAccountRow[];
+  total_register_cost: string;
+  total_register_accumulated_depreciation: string;
+  total_register_net_book_value: string;
+  fully_matched: boolean;
+}

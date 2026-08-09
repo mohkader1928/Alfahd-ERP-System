@@ -26,7 +26,7 @@ per-asset ones.
 """
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
@@ -46,6 +46,11 @@ FOUR_DP = Decimal("0.0001")
 
 def _month_start(d: date) -> date:
     return date(d.year, d.month, 1)
+
+
+def _month_end(d: date) -> date:
+    next_month = date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
+    return next_month - timedelta(days=1)
 
 
 class FixedAssetService:
@@ -146,6 +151,221 @@ class FixedAssetService:
         if asset is None or asset.company_id != company_id:
             raise ValueError("Fixed asset not found")
         return await self.depreciation_repo.list_for_asset(asset_id)
+
+    async def get_asset_card(
+        self, *, company_id: UUID, asset_id: UUID, date_from: date, date_to: date
+    ) -> dict:
+        """بطاقة الأصل — same opening/running/closing shape
+        payments.SubledgerService._build_subledger uses for a customer/
+        vendor statement, but tracking three parallel running values (cost,
+        accumulated depreciation, net book value) instead of one balance,
+        since a fixed asset's movements come from two different sources —
+        the asset row itself (acquisition, disposal) and its depreciation
+        entries — merged into one chronological event list exactly like
+        SubledgerService merges invoices/allocations/unallocated payments."""
+        asset = await self.asset_repo.get_by_id(asset_id)
+        if asset is None or asset.company_id != company_id:
+            raise ValueError("Fixed asset not found")
+        entries = await self.depreciation_repo.list_for_asset(asset_id)
+
+        events = [
+            {
+                "date": asset.acquisition_date,
+                "sort_date": asset.acquisition_date,
+                "movement_type": "acquisition",
+                "reference": asset.asset_code,
+                "journal_entry_id": asset.acquisition_journal_entry_id,
+                "cost_movement": asset.cost,
+                "accumulated_depreciation_movement": Decimal("0"),
+            }
+        ]
+        for entry in entries:
+            events.append(
+                {
+                    "date": entry.period_month,
+                    # A depreciation entry's `date` is period_month (the
+                    # 1st — matches the actual JE's entry_date exactly, see
+                    # run_depreciation), but it represents the WHOLE month,
+                    # not literally day 1. Sorting/range-testing by that raw
+                    # date would place an asset's own first depreciation
+                    # entry BEFORE its mid-month acquisition whenever both
+                    # fall in the same calendar month (e.g. acquired
+                    # 2026-08-09, first depreciation period_month
+                    # 2026-08-01) — found live: the card showed "إهلاك"
+                    # before "اقتناء" with a nonsensical negative running
+                    # net book value in between. Sorting by the period's
+                    # month-END instead (while still DISPLAYING period_month
+                    # as `date`, unchanged) places it correctly after
+                    # everything else that happened during that month.
+                    "sort_date": _month_end(entry.period_month),
+                    "movement_type": "depreciation",
+                    "reference": asset.asset_code,
+                    "journal_entry_id": entry.journal_entry_id,
+                    "cost_movement": Decimal("0"),
+                    "accumulated_depreciation_movement": entry.amount,
+                }
+            )
+        if asset.disposed_at is not None:
+            accumulated_at_disposal = sum((e.amount for e in entries), Decimal("0"))
+            events.append(
+                {
+                    "date": asset.disposed_at,
+                    "sort_date": asset.disposed_at,
+                    "movement_type": "disposal",
+                    "reference": asset.asset_code,
+                    "journal_entry_id": asset.disposal_journal_entry_id,
+                    "cost_movement": -asset.cost,
+                    "accumulated_depreciation_movement": -accumulated_at_disposal,
+                }
+            )
+        # Sort by sort_date (month-end for depreciation) so same-month
+        # ordering is correct, but INCLUSION in the opening balance / the
+        # printed window still goes by `date` (== the actual JE's
+        # entry_date) — that's the real-world "was this already posted by
+        # this point" test, matching how the GL itself would filter it.
+        # Using sort_date for inclusion too would hide an already-posted
+        # depreciation entry from a window ending mid-month (e.g.
+        # date_to=2026-08-10 excluding a period_month=2026-08-01 entry
+        # whose sort_date is 2026-08-31) even though it's already in the
+        # ledger — caught live right after fixing the ordering above.
+        events.sort(key=lambda m: m["sort_date"])
+
+        opening_cost = Decimal("0")
+        opening_accumulated = Decimal("0")
+        for event in events:
+            if event["date"] < date_from:
+                opening_cost += event["cost_movement"]
+                opening_accumulated += event["accumulated_depreciation_movement"]
+
+        running_cost = opening_cost
+        running_accumulated = opening_accumulated
+        lines = []
+        for event in events:
+            if date_from <= event["date"] <= date_to:
+                running_cost += event["cost_movement"]
+                running_accumulated += event["accumulated_depreciation_movement"]
+                lines.append(
+                    {
+                        **event,
+                        "running_cost": running_cost,
+                        "running_accumulated_depreciation": running_accumulated,
+                        "running_net_book_value": running_cost - running_accumulated,
+                    }
+                )
+
+        return {
+            "asset_id": asset.id,
+            "asset_code": asset.asset_code,
+            "asset_name": asset.name,
+            "opening_cost": opening_cost,
+            "opening_accumulated_depreciation": opening_accumulated,
+            "opening_net_book_value": opening_cost - opening_accumulated,
+            "lines": lines,
+            "closing_cost": running_cost,
+            "closing_accumulated_depreciation": running_accumulated,
+            "closing_net_book_value": running_cost - running_accumulated,
+        }
+
+    async def get_reconciliation(self, *, company_id: UUID, as_of_date: date) -> dict:
+        """Ties the asset register to the GL it's supposed to be a subledger
+        of — the same discipline this session already applied to AR/AP
+        (payments.SubledgerService vs Trial Balance): a register total that
+        can silently drift from the GL is worse than no register at all.
+        Groups active assets by the actual GL account each points to
+        (rather than assuming a single hardcoded Fixed Assets/Accumulated
+        Depreciation account pair) and compares the register's own sum
+        against that account's real posted balance via the same
+        `account_balance_by_id` General Ledger/Balance Sheet already use.
+        """
+        # NOT active_only=True: that filters by the asset's CURRENT
+        # disposed_at state, but this is an as-of-a-date reconciliation —
+        # an asset disposed AFTER as_of_date was still on the books as of
+        # that date and its disposal JE (dated in the future relative to
+        # as_of_date) hasn't hit the GL yet either. Excluding it here while
+        # the GL still carries its acquisition would make this reconciler
+        # report a mismatch against its own inconsistency, not a real one
+        # — found live: an asset acquired 2026-08-09 and disposed
+        # 2026-09-01 was excluded from an "as of 2026-08-10" register total
+        # while the GL (correctly, per its own entry_date filtering) still
+        # included its acquisition, reporting a false 12,000 SAR gap.
+        all_assets = await self.asset_repo.list_by_company(company_id)
+        assets = [a for a in all_assets if a.disposed_at is None or a.disposed_at > as_of_date]
+        # account_balance_by_id sums entries with entry_date < as_of_date
+        # (opening-balance semantics — see repositories.py) so passing the
+        # NEXT day makes it inclusive of as_of_date itself.
+        balance_cutoff = as_of_date + timedelta(days=1)
+
+        register_by_asset_account: dict[UUID, Decimal] = {}
+        register_by_accum_account: dict[UUID, Decimal] = {}
+        for asset in assets:
+            if asset.acquisition_date > as_of_date:
+                continue
+            entries = await self.depreciation_repo.list_for_asset(asset.id)
+            accumulated = sum(
+                (e.amount for e in entries if e.period_month <= as_of_date), Decimal("0")
+            )
+            register_by_asset_account[asset.fixed_asset_account_id] = (
+                register_by_asset_account.get(asset.fixed_asset_account_id, Decimal("0")) + asset.cost
+            )
+            register_by_accum_account[asset.accumulated_depreciation_account_id] = (
+                register_by_accum_account.get(asset.accumulated_depreciation_account_id, Decimal("0"))
+                + accumulated
+            )
+
+        entry_repo = self.journal_entry_service.entry_repo
+        rows = []
+        # Two separate groups, not merged by account_id: a Fixed Asset
+        # account is debit-normal (account_balance_by_id's debit-minus-
+        # credit comes back positive, matching the register's positive
+        # cost total directly), but Accumulated Depreciation is a
+        # credit-normal contra-asset -- every depreciation/disposal entry
+        # credits it, so its raw GL balance comes back NEGATIVE. Comparing
+        # that directly against the register's positive accumulated total
+        # would never match; the sign has to be flipped for this group
+        # specifically (found while writing the reconciliation test: two
+        # assets correctly summing to 200 in the register still failed
+        # the check against a GL balance of -200).
+        for account_id, register_total in register_by_asset_account.items():
+            account = await self.account_repo.get_by_id(account_id)
+            gl_balance = await entry_repo.account_balance_by_id(company_id, account_id, balance_cutoff)
+            rows.append(
+                {
+                    "account_id": account_id,
+                    "account_code": account.code if account else "?",
+                    "account_name": account.name if account else "?",
+                    "register_total": register_total,
+                    "gl_balance": gl_balance,
+                    "difference": register_total - gl_balance,
+                    "matches": register_total == gl_balance,
+                }
+            )
+        for account_id, register_total in register_by_accum_account.items():
+            account = await self.account_repo.get_by_id(account_id)
+            raw_gl_balance = await entry_repo.account_balance_by_id(company_id, account_id, balance_cutoff)
+            gl_balance = -raw_gl_balance
+            rows.append(
+                {
+                    "account_id": account_id,
+                    "account_code": account.code if account else "?",
+                    "account_name": account.name if account else "?",
+                    "register_total": register_total,
+                    "gl_balance": gl_balance,
+                    "difference": register_total - gl_balance,
+                    "matches": register_total == gl_balance,
+                }
+            )
+        rows.sort(key=lambda r: r["account_code"])
+
+        total_register_cost = sum(register_by_asset_account.values(), Decimal("0"))
+        total_register_accumulated = sum(register_by_accum_account.values(), Decimal("0"))
+        return {
+            "as_of_date": as_of_date,
+            "accounts": rows,
+            "total_register_cost": total_register_cost,
+            "total_register_accumulated_depreciation": total_register_accumulated,
+            "total_register_net_book_value": total_register_cost - total_register_accumulated,
+            "fully_matched": all(r["matches"] for r in rows),
+        }
 
     async def run_depreciation(
         self, *, company_id: UUID, branch_id: UUID, period_month: date, created_by: UUID

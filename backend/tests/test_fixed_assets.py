@@ -269,6 +269,235 @@ async def test_run_depreciation_full_month_convention_for_mid_month_acquisition(
     assert early.json()["skipped"][0]["reason"] == "not_yet_acquired"
 
 
+async def test_asset_card_shows_running_cost_accumulated_and_nbv(client):
+    """Owner-requested follow-up: بطاقة الأصل — a per-asset card mirroring
+    Product Cardex/Customer Subledger's running-balance shape, but tracking
+    three parallel values (cost, accumulated depreciation, net book value)
+    since a fixed asset's movements come from two sources (the asset row
+    itself, and its depreciation entries)."""
+    _, headers = await _bootstrap_and_login(client, "FA_Card")
+    payload = await _standard_asset_payload(
+        client, headers, acquisition_date="2026-01-01", cost="1200.00", salvage_value="0", useful_life_months=12
+    )
+    create_resp = await client.post("/api/v1/fixed-assets", headers=headers, json=payload)
+    asset_id = create_resp.json()["id"]
+
+    await client.post("/api/v1/fixed-assets:run-depreciation", headers=headers, json={"period_month": "2026-01-01"})
+    await client.post("/api/v1/fixed-assets:run-depreciation", headers=headers, json={"period_month": "2026-02-01"})
+
+    card = await client.get(
+        f"/api/v1/fixed-assets/{asset_id}/card",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-02-28"},
+    )
+    assert card.status_code == 200, card.text
+    body = card.json()
+    assert body["opening_cost"] == "0"
+    assert body["opening_accumulated_depreciation"] == "0"
+    assert [line["movement_type"] for line in body["lines"]] == ["acquisition", "depreciation", "depreciation"]
+
+    acquisition_line, jan_line, feb_line = body["lines"]
+    assert acquisition_line["running_cost"] == "1200.0000"
+    assert acquisition_line["running_net_book_value"] == "1200.0000"
+    assert jan_line["running_accumulated_depreciation"] == "100.0000"
+    assert jan_line["running_net_book_value"] == "1100.0000"
+    assert feb_line["running_accumulated_depreciation"] == "200.0000"
+    assert feb_line["running_net_book_value"] == "1000.0000"
+
+    assert body["closing_cost"] == "1200.0000"
+    assert body["closing_accumulated_depreciation"] == "200.0000"
+    assert body["closing_net_book_value"] == "1000.0000"
+
+
+async def test_asset_card_orders_acquisition_before_same_month_depreciation(client):
+    """Found live: an asset acquired mid-month (2026-08-09) whose first
+    depreciation entry is period_month=2026-08-01 (the JE's own entry_date,
+    matching the full-month convention) must still show "acquisition"
+    before "depreciation" on the card — sorting by the raw period_month
+    would put depreciation first and produce a nonsensical negative
+    running net book value in between."""
+    _, headers = await _bootstrap_and_login(client, "FA_CardOrder")
+    payload = await _standard_asset_payload(
+        client, headers, acquisition_date="2026-08-09", cost="1200.00", salvage_value="0", useful_life_months=12
+    )
+    create_resp = await client.post("/api/v1/fixed-assets", headers=headers, json=payload)
+    asset_id = create_resp.json()["id"]
+    await client.post("/api/v1/fixed-assets:run-depreciation", headers=headers, json={"period_month": "2026-08-01"})
+
+    card = await client.get(
+        f"/api/v1/fixed-assets/{asset_id}/card",
+        headers=headers,
+        params={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+    assert card.status_code == 200, card.text
+    body = card.json()
+    assert [line["movement_type"] for line in body["lines"]] == ["acquisition", "depreciation"]
+
+    acquisition_line, depreciation_line = body["lines"]
+    # No intermediate negative net book value from an out-of-order sort.
+    assert acquisition_line["running_net_book_value"] == "1200.0000"
+    assert depreciation_line["running_net_book_value"] == "1100.0000"
+
+    # A window ending MID-month (before the period's own month-end) must
+    # still include an already-posted same-month depreciation entry — the
+    # entry's real entry_date is period_month (the 1st), already in the
+    # past relative to date_to, even though sort_date (used only to fix
+    # the ordering above) is the month-end. Using sort_date for inclusion
+    # too would wrongly hide an already-posted entry — caught live right
+    # after the ordering fix itself.
+    mid_month_card = await client.get(
+        f"/api/v1/fixed-assets/{asset_id}/card",
+        headers=headers,
+        params={"date_from": "2026-08-01", "date_to": "2026-08-10"},
+    )
+    mid_month_body = mid_month_card.json()
+    assert [line["movement_type"] for line in mid_month_body["lines"]] == ["acquisition", "depreciation"]
+    assert mid_month_body["closing_accumulated_depreciation"] == "100.0000"
+
+
+async def test_asset_card_disposal_movement_zeroes_out_running_totals(client):
+    _, headers = await _bootstrap_and_login(client, "FA_CardDisposal")
+    payload = await _standard_asset_payload(
+        client, headers, acquisition_date="2026-01-01", cost="1200.00", salvage_value="0", useful_life_months=12
+    )
+    create_resp = await client.post("/api/v1/fixed-assets", headers=headers, json=payload)
+    asset_id = create_resp.json()["id"]
+    await client.post("/api/v1/fixed-assets:run-depreciation", headers=headers, json={"period_month": "2026-01-01"})
+
+    cash = await _get_account(client, headers, "1100")
+    gain_account = await _get_account(client, headers, "4900")
+    await client.post(
+        f"/api/v1/fixed-assets/{asset_id}:dispose",
+        headers=headers,
+        json={
+            "disposal_date": "2026-03-01",
+            "proceeds": "1300.00",
+            "proceeds_account_id": cash["id"],
+            "gain_loss_account_id": gain_account["id"],
+        },
+    )
+
+    card = await client.get(
+        f"/api/v1/fixed-assets/{asset_id}/card",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-03-31"},
+    )
+    body = card.json()
+    disposal_line = body["lines"][-1]
+    assert disposal_line["movement_type"] == "disposal"
+    assert disposal_line["running_cost"] == "0.0000"
+    assert disposal_line["running_accumulated_depreciation"] == "0.0000"
+    assert disposal_line["running_net_book_value"] == "0.0000"
+    assert body["closing_net_book_value"] == "0.0000"
+
+
+async def test_reconciliation_matches_gl_for_active_assets(client):
+    """The reconciliation is what actually enforces the Owner's standing
+    requirement: the register's totals must tie to the same GL accounts
+    Trial Balance reads, not just look plausible on their own."""
+    _, headers = await _bootstrap_and_login(client, "FA_Reconcile")
+    payload1 = await _standard_asset_payload(
+        client, headers, acquisition_date="2026-01-01", cost="1200.00", salvage_value="0", useful_life_months=12
+    )
+    asset1 = (await client.post("/api/v1/fixed-assets", headers=headers, json=payload1)).json()
+    payload2 = await _standard_asset_payload(
+        client, headers, acquisition_date="2026-01-01", cost="2400.00", salvage_value="0", useful_life_months=24
+    )
+    await client.post("/api/v1/fixed-assets", headers=headers, json=payload2)
+    await client.post("/api/v1/fixed-assets:run-depreciation", headers=headers, json={"period_month": "2026-01-01"})
+
+    recon = await client.get(
+        "/api/v1/fixed-assets/reconciliation", headers=headers, params={"as_of_date": "2026-06-01"}
+    )
+    assert recon.status_code == 200, recon.text
+    body = recon.json()
+    assert body["fully_matched"] is True
+    assert body["total_register_cost"] == "3600.0000"
+    # asset1: 1200/12 = 100; asset2: 2400/24 = 100 -> 200 total accumulated depreciation
+    assert body["total_register_accumulated_depreciation"] == "200.0000"
+    assert body["total_register_net_book_value"] == "3400.0000"
+    for row in body["accounts"]:
+        assert row["matches"] is True
+        assert row["difference"] == "0.0000"
+
+    # Cross-check against Trial Balance directly for the fixed asset account.
+    tb = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-06-01"},
+    )
+    tb_rows = {r["account_code"]: r for r in tb.json()}
+    account_1410 = await _get_account(client, headers, "1410")
+    assert tb_rows[account_1410["code"]]["closing_balance"] == "3600.0000"
+    assert asset1["asset_code"] == "FA-000001"
+
+
+async def test_reconciliation_excludes_disposed_assets(client):
+    _, headers = await _bootstrap_and_login(client, "FA_ReconcileDisposed")
+    payload = await _standard_asset_payload(
+        client, headers, acquisition_date="2026-01-01", cost="1200.00", salvage_value="0", useful_life_months=12
+    )
+    asset = (await client.post("/api/v1/fixed-assets", headers=headers, json=payload)).json()
+    cash = await _get_account(client, headers, "1100")
+    gain_account = await _get_account(client, headers, "4900")
+    await client.post(
+        f"/api/v1/fixed-assets/{asset['id']}:dispose",
+        headers=headers,
+        json={
+            "disposal_date": "2026-02-01",
+            "proceeds": "1200.00",
+            "proceeds_account_id": cash["id"],
+            "gain_loss_account_id": gain_account["id"],
+        },
+    )
+
+    recon = await client.get(
+        "/api/v1/fixed-assets/reconciliation", headers=headers, params={"as_of_date": "2026-06-01"}
+    )
+    body = recon.json()
+    assert body["accounts"] == []
+    assert body["total_register_cost"] == "0"
+    assert body["fully_matched"] is True
+
+
+async def test_reconciliation_includes_asset_disposed_after_as_of_date(client):
+    """Found live: an asset disposed on a date AFTER as_of_date is still
+    "on the books" as of that date — its disposal JE hasn't hit the GL yet
+    either (entry_date is in the future relative to as_of_date). Filtering
+    the register by the asset's CURRENT disposed_at state rather than its
+    state as of as_of_date excluded it from the register total while the
+    GL (correctly) still carried its acquisition, reporting a false
+    mismatch against the reconciler's own inconsistency."""
+    _, headers = await _bootstrap_and_login(client, "FA_ReconcileFutureDispose")
+    payload = await _standard_asset_payload(
+        client, headers, acquisition_date="2026-01-01", cost="1200.00", salvage_value="0", useful_life_months=12
+    )
+    asset = (await client.post("/api/v1/fixed-assets", headers=headers, json=payload)).json()
+    cash = await _get_account(client, headers, "1100")
+    gain_account = await _get_account(client, headers, "4900")
+    await client.post(
+        f"/api/v1/fixed-assets/{asset['id']}:dispose",
+        headers=headers,
+        json={
+            "disposal_date": "2026-06-01",
+            "proceeds": "1200.00",
+            "proceeds_account_id": cash["id"],
+            "gain_loss_account_id": gain_account["id"],
+        },
+    )
+
+    # as_of_date is BEFORE the disposal -> the asset was still active then.
+    recon = await client.get(
+        "/api/v1/fixed-assets/reconciliation", headers=headers, params={"as_of_date": "2026-03-01"}
+    )
+    assert recon.status_code == 200, recon.text
+    body = recon.json()
+    assert body["fully_matched"] is True
+    assert body["total_register_cost"] == "1200.0000"
+    for row in body["accounts"]:
+        assert row["matches"] is True
+
+
 async def test_fixed_assets_isolated_across_companies(client):
     _, headers_a = await _bootstrap_and_login(client, "FA_TenantA")
     _, headers_b = await _bootstrap_and_login(client, "FA_TenantB")

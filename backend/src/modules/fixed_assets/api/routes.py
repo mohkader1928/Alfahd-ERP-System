@@ -1,5 +1,7 @@
 """FastAPI routes for Fixed Assets (P0-5, 3-Day Brief)."""
 
+from datetime import date
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,19 +9,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.fixed_assets.api.deps import get_fixed_asset_service, require_permission
 from src.modules.fixed_assets.api.schemas import (
+    AssetCardResponse,
     DepreciationEntryOut,
     DisposeAssetRequest,
     FixedAssetCreateRequest,
     FixedAssetOut,
+    ReconciliationResponse,
     RunDepreciationRequest,
     RunDepreciationResponse,
 )
 from src.modules.fixed_assets.application.services import FixedAssetService
 from src.modules.fixed_assets.domain.entities import AssetAlreadyDisposedError
+from src.modules.identity.api.deps import get_company_repo
+from src.modules.identity.infrastructure.repositories import CompanyRepository
 from src.shared.infrastructure.db.session import get_db
+from src.shared.reporting.company_name import resolve_company_name
+from src.shared.reporting.export_render import ReportColumn, ReportTable
+from src.shared.reporting.export_response import build_export_response
+from src.shared.reporting.formatting import format_amount, format_date_str
+from src.shared.reporting.labels import label, title
 from src.shared.security.auth_context import AuthContext
 
 router = APIRouter()
+
+ExportFormatParam = Literal["json", "pdf", "xlsx"]
 
 
 @router.get("", response_model=list[FixedAssetOut])
@@ -28,6 +41,60 @@ async def list_fixed_assets(
     service: FixedAssetService = Depends(get_fixed_asset_service),
 ):
     return await service.list_assets(ctx.company_id)
+
+
+def _reconciliation_table(*, company_name: str, result: dict, lang: str) -> ReportTable:
+    rows = [
+        [
+            r["account_code"],
+            r["account_name"],
+            format_amount(r["register_total"]),
+            format_amount(r["gl_balance"]),
+            format_amount(r["difference"]),
+        ]
+        for r in result["accounts"]
+    ]
+    return ReportTable(
+        title=title(lang, "fixed_assets_reconciliation"),
+        company_name=company_name,
+        subtitle=f'{label(lang, "date")}: {result["as_of_date"]}',
+        columns=[
+            ReportColumn(label(lang, "account_code")),
+            ReportColumn(label(lang, "account")),
+            ReportColumn(label(lang, "register_total"), "end"),
+            ReportColumn(label(lang, "gl_balance"), "end"),
+            ReportColumn(label(lang, "difference"), "end"),
+        ],
+        rows=rows,
+        totals=[
+            "",
+            label(lang, "net_book_value"),
+            format_amount(result["total_register_cost"]),
+            "",
+            format_amount(result["total_register_net_book_value"]),
+        ],
+        rtl=lang == "ar",
+    )
+
+
+@router.get("/reconciliation", response_model=ReconciliationResponse)
+async def get_reconciliation(
+    as_of_date: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("fixed_assets.view")),
+    service: FixedAssetService = Depends(get_fixed_asset_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    result = await service.get_reconciliation(company_id=ctx.company_id, as_of_date=as_of_date)
+    if format == "json":
+        return result
+    table = _reconciliation_table(
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        result=result,
+        lang=lang,
+    )
+    return build_export_response(format, "fixed-assets-reconciliation", table)
 
 
 @router.get("/{asset_id}", response_model=FixedAssetOut)
@@ -52,6 +119,81 @@ async def list_depreciation_entries(
         return await service.list_depreciation_entries(ctx.company_id, asset_id)
     except ValueError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+
+def _asset_card_table(*, company_name: str, result: dict, lang: str) -> ReportTable:
+    rows = [
+        [
+            format_date_str(line["date"]),
+            line["movement_type"],
+            line["reference"],
+            format_amount(line["running_cost"]),
+            format_amount(line["running_accumulated_depreciation"]),
+            format_amount(line["running_net_book_value"]),
+        ]
+        for line in result["lines"]
+    ]
+    return ReportTable(
+        title=f'{title(lang, "fixed_asset_card")} — {result["asset_code"]} {result["asset_name"]}',
+        company_name=company_name,
+        subtitle=f'{result["date_from"]} — {result["date_to"]}',
+        columns=[
+            ReportColumn(label(lang, "date")),
+            ReportColumn(label(lang, "type")),
+            ReportColumn(label(lang, "reference")),
+            ReportColumn(label(lang, "cost"), "end"),
+            ReportColumn(label(lang, "accumulated_depreciation"), "end"),
+            ReportColumn(label(lang, "net_book_value"), "end"),
+        ],
+        rows=[
+            [
+                "",
+                "",
+                label(lang, "opening_balance"),
+                format_amount(result["opening_cost"]),
+                format_amount(result["opening_accumulated_depreciation"]),
+                format_amount(result["opening_net_book_value"]),
+            ],
+            *rows,
+        ],
+        totals=[
+            "",
+            "",
+            label(lang, "closing_balance"),
+            format_amount(result["closing_cost"]),
+            format_amount(result["closing_accumulated_depreciation"]),
+            format_amount(result["closing_net_book_value"]),
+        ],
+        rtl=lang == "ar",
+    )
+
+
+@router.get("/{asset_id}/card", response_model=AssetCardResponse)
+async def get_asset_card(
+    asset_id: UUID,
+    date_from: date,
+    date_to: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("fixed_assets.view")),
+    service: FixedAssetService = Depends(get_fixed_asset_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    try:
+        result = await service.get_asset_card(
+            company_id=ctx.company_id, asset_id=asset_id, date_from=date_from, date_to=date_to
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+    if format == "json":
+        return AssetCardResponse(date_from=date_from, date_to=date_to, **result)
+    table = _asset_card_table(
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        result={**result, "date_from": date_from, "date_to": date_to},
+        lang=lang,
+    )
+    return build_export_response(format, f"fixed-asset-card-{result['asset_code']}", table)
 
 
 @router.post("", response_model=FixedAssetOut, status_code=status.HTTP_201_CREATED)

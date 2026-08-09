@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,23 @@ export function FixedAssetsTab() {
     queryKey: ["fixed-assets", companyId],
     queryFn: () => fixedAssetsApi.listAssets(companyId),
   });
+  // Sum of ACTIVE assets only -- a disposed asset's cost/accumulated
+  // depreciation were already cleared out of the GL by its disposal entry,
+  // so including it here would make this total permanently disagree with
+  // the Trial Balance (see the /fixed-assets/reconciliation endpoint,
+  // which applies the same active-only rule for the same reason).
+  const registerTotals = assetsQuery.data
+    ? assetsQuery.data
+        .filter((a) => a.status === "active")
+        .reduce(
+          (acc, a) => ({
+            cost: acc.cost + Number(a.cost),
+            accumulated_depreciation: acc.accumulated_depreciation + Number(a.accumulated_depreciation),
+            net_book_value: acc.net_book_value + Number(a.net_book_value),
+          }),
+          { cost: 0, accumulated_depreciation: 0, net_book_value: 0 }
+        )
+    : null;
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -150,7 +168,15 @@ export function FixedAssetsTab() {
       header: t("fixed_assets.code"),
       sortable: true,
       sortValue: (r) => r.asset_code,
-      render: (r) => <span className="font-mono">{r.asset_code}</span>,
+      render: (r) => (
+        <Link
+          href={`/accounting?tab=fixed-asset-card&asset=${r.id}`}
+          className="font-mono underline-offset-4 hover:underline"
+          title={t("fixed_assets.card.drill_down_hint")}
+        >
+          {r.asset_code}
+        </Link>
+      ),
     },
     { key: "name", header: t("fixed_assets.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
     {
@@ -311,6 +337,31 @@ export function FixedAssetsTab() {
           </Button>
         </div>
       </Can>
+
+      {registerTotals && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">{t("fixed_assets.totals.cost")}</p>
+              <p className="font-mono text-lg font-semibold">{formatCurrency(registerTotals.cost)}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">{t("fixed_assets.totals.accumulated_depreciation")}</p>
+              <p className="font-mono text-lg font-semibold">
+                {formatCurrency(registerTotals.accumulated_depreciation)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-muted-foreground">{t("fixed_assets.totals.net_book_value")}</p>
+              <p className="font-mono text-lg font-semibold">{formatCurrency(registerTotals.net_book_value)}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <ERPListView
         title={t("accounting.tabs.fixed_assets")}

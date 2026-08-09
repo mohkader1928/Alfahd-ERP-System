@@ -44,6 +44,13 @@ _LABELS: dict[str, dict[str, str]] = {
         "payments_made": "المدفوعات المسددة",
         "adjustments": "التسويات (إشعارات خصم)",
         "net_purchases": "صافي المشتريات بعد التسويات",
+        "cost": "التكلفة",
+        "accumulated_depreciation": "مجمع الإهلاك",
+        "net_book_value": "صافي القيمة الدفترية",
+        "asset_code": "رمز الأصل",
+        "register_total": "إجمالي السجل",
+        "gl_balance": "رصيد الأستاذ العام",
+        "difference": "الفرق",
     },
     "en": {
         "account": "Account",
@@ -85,6 +92,13 @@ _LABELS: dict[str, dict[str, str]] = {
         "payments_made": "Payments Made",
         "adjustments": "Adjustments (Debit Notes)",
         "net_purchases": "Net Purchases",
+        "cost": "Cost",
+        "accumulated_depreciation": "Accumulated Depreciation",
+        "net_book_value": "Net Book Value",
+        "asset_code": "Asset Code",
+        "register_total": "Register Total",
+        "gl_balance": "GL Balance",
+        "difference": "Difference",
     },
 }
 
@@ -105,6 +119,8 @@ _TITLES: dict[str, dict[str, str]] = {
         "product_cardex": "بطاقة الصنف القياسية",
         "vat_summary": "ملخص ضريبة القيمة المضافة",
         "inventory_valuation": "تقييم المخزون",
+        "fixed_asset_card": "بطاقة الأصل الثابت",
+        "fixed_assets_reconciliation": "تسوية الأصول الثابتة مع الأستاذ العام",
     },
     "en": {
         "trial_balance": "Trial Balance",
@@ -122,6 +138,8 @@ _TITLES: dict[str, dict[str, str]] = {
         "product_cardex": "Standard Product Cardex",
         "vat_summary": "VAT Summary",
         "inventory_valuation": "Inventory Valuation",
+        "fixed_asset_card": "Fixed Asset Card",
+        "fixed_assets_reconciliation": "Fixed Assets Reconciliation to GL",
     },
 }
 
