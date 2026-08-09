@@ -338,15 +338,21 @@ async def reverse_journal_entry(
 async def trial_balance(
     date_from: date,
     date_to: date,
+    detail_level: int | None = None,
     format: ExportFormatParam = "json",
     lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.trial_balance.view")),
     entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    account_repo: AccountRepository = Depends(get_account_repo),
     company_repo: CompanyRepository = Depends(get_company_repo),
 ):
-    service = ReportingService(entry_repo)
+    service = ReportingService(entry_repo, account_repo)
     rows = await service.trial_balance(
-        company_id=ctx.company_id, date_from=date_from, date_to=date_to, branch_id=ctx.branch_id
+        company_id=ctx.company_id,
+        date_from=date_from,
+        date_to=date_to,
+        branch_id=ctx.branch_id,
+        detail_level=detail_level,
     )
     if format == "json":
         return rows
@@ -480,6 +486,7 @@ async def general_ledger(
 async def income_statement(
     date_from: date,
     date_to: date,
+    detail_level: int | None = None,
     format: ExportFormatParam = "json",
     lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.income_statement.view")),
@@ -489,7 +496,11 @@ async def income_statement(
 ):
     service = ReportingService(entry_repo, account_repo)
     result = await service.income_statement(
-        company_id=ctx.company_id, date_from=date_from, date_to=date_to, branch_id=ctx.branch_id
+        company_id=ctx.company_id,
+        date_from=date_from,
+        date_to=date_to,
+        branch_id=ctx.branch_id,
+        detail_level=detail_level,
     )
     if format == "json":
         return IncomeStatementResponse(date_from=date_from, date_to=date_to, **result)
@@ -524,6 +535,7 @@ async def income_statement(
 @router.get("/reports/balance-sheet", response_model=BalanceSheetResponse)
 async def balance_sheet(
     as_of_date: date,
+    detail_level: int | None = None,
     format: ExportFormatParam = "json",
     lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.balance_sheet.view")),
@@ -533,7 +545,10 @@ async def balance_sheet(
 ):
     service = ReportingService(entry_repo, account_repo)
     result = await service.balance_sheet(
-        company_id=ctx.company_id, as_of_date=as_of_date, branch_id=ctx.branch_id
+        company_id=ctx.company_id,
+        as_of_date=as_of_date,
+        branch_id=ctx.branch_id,
+        detail_level=detail_level,
     )
     if format == "json":
         return BalanceSheetResponse(as_of_date=as_of_date, **result)

@@ -256,6 +256,8 @@ class JournalEntryRepository:
                 Account.id,
                 Account.code,
                 Account.name,
+                Account.parent_id,
+                Account.level,
                 AccountType.code.label("type_code"),
                 func.coalesce(opening_sub.c.open_debit, 0).label("open_debit"),
                 func.coalesce(opening_sub.c.open_credit, 0).label("open_credit"),
@@ -294,6 +296,8 @@ class JournalEntryRepository:
                     "account_id": row.id,
                     "account_code": row.code,
                     "account_name": row.name,
+                    "parent_id": row.parent_id,
+                    "level": row.level,
                     "account_type_code": row.type_code,
                     "opening_balance": opening_balance,
                     "period_debit": period_debit,
@@ -327,6 +331,7 @@ class JournalEntryRepository:
                 Account.code,
                 Account.name,
                 Account.parent_id,
+                Account.level,
                 AccountType.code.label("type_code"),
                 func.coalesce(func.sum(JournalEntryLine.debit), 0).label("total_debit"),
                 func.coalesce(func.sum(JournalEntryLine.credit), 0).label("total_credit"),
@@ -341,7 +346,7 @@ class JournalEntryRepository:
                 JournalEntry.entry_date <= date_to,
                 AccountType.code.in_(account_type_codes),
             )
-            .group_by(Account.id, Account.code, Account.name, Account.parent_id, AccountType.code)
+            .group_by(Account.id, Account.code, Account.name, Account.parent_id, Account.level, AccountType.code)
             .order_by(Account.code)
         )
         if branch_id is not None:
@@ -354,6 +359,7 @@ class JournalEntryRepository:
                 "account_code": row.code,
                 "account_name": row.name,
                 "parent_id": row.parent_id,
+                "level": row.level,
                 "type_code": row.type_code,
                 "total_debit": Decimal(row.total_debit),
                 "total_credit": Decimal(row.total_credit),

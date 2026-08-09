@@ -525,9 +525,20 @@ class ReportingService:
         self.account_repo = account_repo
 
     async def trial_balance(
-        self, *, company_id: UUID, date_from: date, date_to: date, branch_id: UUID | None = None
+        self,
+        *,
+        company_id: UUID,
+        date_from: date,
+        date_to: date,
+        branch_id: UUID | None = None,
+        detail_level: int | None = None,
     ) -> list[dict]:
-        return await self.entry_repo.trial_balance(company_id, date_from, date_to, branch_id)
+        rows = await self.entry_repo.trial_balance(company_id, date_from, date_to, branch_id)
+        if detail_level is None or not rows:
+            return rows
+        accounts_by_id = await self._accounts_by_id(company_id)
+        sum_fields = ("opening_balance", "period_debit", "period_credit", "closing_balance", "total_debit", "total_credit")
+        return self._rollup_rows(rows, accounts_by_id, detail_level, sum_fields)
 
     async def general_ledger(
         self,
@@ -558,7 +569,13 @@ class ReportingService:
         return {"opening_balance": opening, "lines": out_lines, "closing_balance": running}
 
     async def income_statement(
-        self, *, company_id: UUID, date_from: date, date_to: date, branch_id: UUID | None = None
+        self,
+        *,
+        company_id: UUID,
+        date_from: date,
+        date_to: date,
+        branch_id: UUID | None = None,
+        detail_level: int | None = None,
     ) -> dict:
         """Milestone 1 — Revenue / COGS / Gross Profit / Operating Expenses
         / Net Income for the period, built entirely from posted Journal
@@ -587,6 +604,12 @@ class ReportingService:
                 else:
                     opex_total += amount
 
+        if detail_level is not None:
+            accounts_by_id = await self._accounts_by_id(company_id)
+            revenue_accounts = self._rollup_rows(revenue_accounts, accounts_by_id, detail_level, ("amount",))
+            cogs_accounts = self._rollup_rows(cogs_accounts, accounts_by_id, detail_level, ("amount",))
+            opex_accounts = self._rollup_rows(opex_accounts, accounts_by_id, detail_level, ("amount",))
+
         gross_profit = revenue_total - cogs_total
         operating_income = gross_profit - opex_total
         return {
@@ -607,7 +630,12 @@ class ReportingService:
         }
 
     async def balance_sheet(
-        self, *, company_id: UUID, as_of_date: date, branch_id: UUID | None = None
+        self,
+        *,
+        company_id: UUID,
+        as_of_date: date,
+        branch_id: UUID | None = None,
+        detail_level: int | None = None,
     ) -> dict:
         """Milestone 1 — Assets / Liabilities / Equity as of a date. There is
         no period-close step yet that moves prior periods' net income into
@@ -645,6 +673,12 @@ class ReportingService:
         current_earnings = income["net_income"]
         equity_total += current_earnings
 
+        if detail_level is not None:
+            accounts_by_id = await self._accounts_by_id(company_id)
+            assets = self._rollup_rows(assets, accounts_by_id, detail_level, ("amount",))
+            liabilities = self._rollup_rows(liabilities, accounts_by_id, detail_level, ("amount",))
+            equity = self._rollup_rows(equity, accounts_by_id, detail_level, ("amount",))
+
         return {
             "assets": assets,
             "assets_total": assets_total,
@@ -671,6 +705,66 @@ class ReportingService:
                     result.add(a.id)
                     changed = True
         return result
+
+    async def _accounts_by_id(self, company_id: UUID) -> dict[UUID, Account]:
+        """P0-4 follow-up (Owner request): a "detail level" selector for
+        Trial Balance / Income Statement / Balance Sheet, so a coarser
+        level rolls several posting accounts up into their shared
+        ancestor instead of always listing every leaf account. Loaded
+        once per report call and reused for every row's ancestor walk."""
+        if self.account_repo is None:
+            return {}
+        accounts = await self.account_repo.list_by_company(company_id)
+        return {a.id: a for a in accounts}
+
+    @staticmethod
+    def _rollup_ancestor(
+        account_id: UUID, accounts_by_id: dict[UUID, Account], target_level: int
+    ) -> Account | None:
+        """Walk up the parent chain from account_id until reaching an
+        account at or above (numerically <=) target_level -- that
+        account is what every deeper descendant's activity rolls up
+        into. Returns None only if account_id itself is unknown (should
+        never happen for a row the DB itself just returned)."""
+        current = accounts_by_id.get(account_id)
+        if current is None:
+            return None
+        while current.level > target_level and current.parent_id is not None:
+            parent = accounts_by_id.get(current.parent_id)
+            if parent is None:
+                break
+            current = parent
+        return current
+
+    def _rollup_rows(
+        self,
+        rows: list[dict],
+        accounts_by_id: dict[UUID, Account],
+        target_level: int,
+        sum_fields: tuple[str, ...],
+    ) -> list[dict]:
+        """Groups `rows` (each carrying account_id/account_code/
+        account_name plus whatever Decimal fields `sum_fields` names) by
+        each row's rollup ancestor at target_level, summing those fields.
+        Generic across Trial Balance's multi-column shape and the
+        single "amount" column Income Statement/Balance Sheet rows use."""
+        grouped: dict[UUID, dict] = {}
+        order: list[UUID] = []
+        for row in rows:
+            ancestor = self._rollup_ancestor(row["account_id"], accounts_by_id, target_level)
+            key = ancestor.id if ancestor is not None else row["account_id"]
+            if key not in grouped:
+                grouped[key] = {
+                    **row,
+                    "account_id": key,
+                    "account_code": ancestor.code if ancestor is not None else row["account_code"],
+                    "account_name": ancestor.name if ancestor is not None else row["account_name"],
+                    **{f: Decimal("0") for f in sum_fields},
+                }
+                order.append(key)
+            for f in sum_fields:
+                grouped[key][f] += row[f]
+        return [grouped[k] for k in sorted(order, key=lambda k: grouped[k]["account_code"])]
 
 
 class FiscalPeriodService:

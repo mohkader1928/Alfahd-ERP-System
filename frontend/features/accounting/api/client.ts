@@ -51,10 +51,11 @@ export const accountingApi = {
   reverseJournalEntry: (companyId: string, id: string) =>
     apiClient.post<JournalEntry>(`${BASE}/journal-entries/${id}:reverse`, undefined, { companyId }),
 
-  trialBalance: (companyId: string, dateFrom: string, dateTo: string) =>
-    apiClient.get<TrialBalanceRow[]>(`${BASE}/reports/trial-balance?date_from=${dateFrom}&date_to=${dateTo}`, {
-      companyId,
-    }),
+  trialBalance: (companyId: string, dateFrom: string, dateTo: string, detailLevel?: number) =>
+    apiClient.get<TrialBalanceRow[]>(
+      `${BASE}/reports/trial-balance?date_from=${dateFrom}&date_to=${dateTo}${detailLevel ? `&detail_level=${detailLevel}` : ""}`,
+      { companyId }
+    ),
 
   generalLedger: (companyId: string, accountId: string, dateFrom: string, dateTo: string) =>
     apiClient.get<GeneralLedgerResponse>(
@@ -62,12 +63,15 @@ export const accountingApi = {
       { companyId }
     ),
 
-  incomeStatement: (companyId: string, dateFrom: string, dateTo: string) =>
+  incomeStatement: (companyId: string, dateFrom: string, dateTo: string, detailLevel?: number) =>
     apiClient.get<IncomeStatementResponse>(
-      `${BASE}/reports/income-statement?date_from=${dateFrom}&date_to=${dateTo}`,
+      `${BASE}/reports/income-statement?date_from=${dateFrom}&date_to=${dateTo}${detailLevel ? `&detail_level=${detailLevel}` : ""}`,
       { companyId }
     ),
 
-  balanceSheet: (companyId: string, asOfDate: string) =>
-    apiClient.get<BalanceSheetResponse>(`${BASE}/reports/balance-sheet?as_of_date=${asOfDate}`, { companyId }),
+  balanceSheet: (companyId: string, asOfDate: string, detailLevel?: number) =>
+    apiClient.get<BalanceSheetResponse>(
+      `${BASE}/reports/balance-sheet?as_of_date=${asOfDate}${detailLevel ? `&detail_level=${detailLevel}` : ""}`,
+      { companyId }
+    ),
 };

@@ -40,6 +40,32 @@ const JOURNAL_CODES = ["GEN", "SALES", "PURCH", "BANK", "CASH"] as const;
 
 const MAX_ACCOUNT_LEVEL = 4;
 
+// Owner-requested follow-up to P0-4: Trial Balance / Income Statement /
+// Balance Sheet all group figures by account, so all three can offer the
+// same "how deep into the hierarchy" choice. MAX_ACCOUNT_LEVEL (4) means
+// "no rollup" -- every posting account shows on its own, identical to
+// what these reports already did before this control existed.
+function DetailLevelSelect({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{t("accounting.reports.detail_level")}</Label>
+      <Select value={String(value)} onValueChange={(v) => onChange(Number(v ?? MAX_ACCOUNT_LEVEL))}>
+        <SelectTrigger className="w-40">
+          <SelectValue>{(v: string) => t(`accounting.reports.detail_level_${v}`)}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {[1, 2, 3, MAX_ACCOUNT_LEVEL].map((level) => (
+            <SelectItem key={level} value={String(level)}>
+              {t(`accounting.reports.detail_level_${level}`)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function AccountFormFields({
   code,
   setCode,
@@ -645,11 +671,12 @@ function TrialBalanceTab() {
 
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+  const [detailLevel, setDetailLevel] = useState(MAX_ACCOUNT_LEVEL);
+  const [ranAt, setRanAt] = useState<{ from: string; to: string; level: number } | null>(null);
 
   const reportQuery = useQuery({
-    queryKey: ["trial-balance", companyId, ranAt?.from, ranAt?.to],
-    queryFn: () => accountingApi.trialBalance(companyId, ranAt!.from, ranAt!.to),
+    queryKey: ["trial-balance", companyId, ranAt?.from, ranAt?.to, ranAt?.level],
+    queryFn: () => accountingApi.trialBalance(companyId, ranAt!.from, ranAt!.to, ranAt!.level),
     enabled: !!ranAt,
   });
 
@@ -674,14 +701,15 @@ function TrialBalanceTab() {
             <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
+          <DetailLevelSelect value={detailLevel} onChange={setDetailLevel} />
         </>
       }
-      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo, level: detailLevel })}
       onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
       {...(ranAt
         ? reportExportHandlers(
             "/api/v1/accounting/reports/trial-balance",
-            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            { date_from: ranAt.from, date_to: ranAt.to, detail_level: String(ranAt.level), lang: locale },
             companyId
           )
         : {})}
@@ -725,13 +753,22 @@ function TrialBalanceTab() {
                   <TableRow key={row.account_id} className={isAbnormal ? "bg-yellow-50 dark:bg-yellow-950/20" : ""}>
                     <TableCell className="font-mono text-sm">{row.account_code}</TableCell>
                     <TableCell>
-                      <Link
-                        href={`/accounting?tab=general-ledger&account=${row.account_id}`}
-                        className="underline-offset-4 hover:underline"
-                        title={t("accounting.tb.drill_down_hint")}
-                      >
-                        {row.account_name}
-                      </Link>
+                      {/* A rolled-up row's account_id is its ancestor, which
+                          (being a group account) was never itself postable --
+                          its own General Ledger would just be empty. Only
+                          link through at full detail, where every row is
+                          still its own real posting account. */}
+                      {ranAt?.level === MAX_ACCOUNT_LEVEL ? (
+                        <Link
+                          href={`/accounting?tab=general-ledger&account=${row.account_id}`}
+                          className="underline-offset-4 hover:underline"
+                          title={t("accounting.tb.drill_down_hint")}
+                        >
+                          {row.account_name}
+                        </Link>
+                      ) : (
+                        row.account_name
+                      )}
                     </TableCell>
                     {/* Opening */}
                     <TableCell className="text-end font-mono border-s">
@@ -926,6 +963,7 @@ function FinancialSection({
   totalLabel,
   sign = 1,
   totalBorder = "single",
+  linkAccounts = true,
 }: {
   label: string;
   rows: { account_id: string; account_code: string; account_name: string; amount: string }[];
@@ -933,6 +971,10 @@ function FinancialSection({
   totalLabel: string;
   sign?: 1 | -1;
   totalBorder?: "single" | "double";
+  /** False while a detail-level rollup is active: a rolled-up row's
+   * account_id is its ancestor, a group account that (by definition) was
+   * never itself postable -- its own General Ledger would just be empty. */
+  linkAccounts?: boolean;
 }) {
   const { t } = useI18n();
   const totalNum = Number(total) * sign;
@@ -953,13 +995,17 @@ function FinancialSection({
               {row.account_code}
             </td>
             <td className="ps-2 py-0.5 text-sm text-muted-foreground">
-              <Link
-                href={`/accounting?tab=general-ledger&account=${row.account_id}`}
-                className="underline-offset-4 hover:underline"
-                title={t("accounting.tb.drill_down_hint")}
-              >
-                {row.account_name}
-              </Link>
+              {linkAccounts ? (
+                <Link
+                  href={`/accounting?tab=general-ledger&account=${row.account_id}`}
+                  className="underline-offset-4 hover:underline"
+                  title={t("accounting.tb.drill_down_hint")}
+                >
+                  {row.account_name}
+                </Link>
+              ) : (
+                row.account_name
+              )}
             </td>
             <td className="py-0.5 text-end font-mono text-sm tabular-nums text-muted-foreground">
               {formatCurrency(Math.abs(amount))}
@@ -989,14 +1035,16 @@ function IncomeStatementTab() {
 
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+  const [detailLevel, setDetailLevel] = useState(MAX_ACCOUNT_LEVEL);
+  const [ranAt, setRanAt] = useState<{ from: string; to: string; level: number } | null>(null);
 
   const reportQuery = useQuery({
-    queryKey: ["income-statement", companyId, ranAt?.from, ranAt?.to],
-    queryFn: () => accountingApi.incomeStatement(companyId, ranAt!.from, ranAt!.to),
+    queryKey: ["income-statement", companyId, ranAt?.from, ranAt?.to, ranAt?.level],
+    queryFn: () => accountingApi.incomeStatement(companyId, ranAt!.from, ranAt!.to, ranAt!.level),
     enabled: !!ranAt,
   });
   const r = reportQuery.data;
+  const fullDetail = ranAt?.level === MAX_ACCOUNT_LEVEL;
 
   return (
     <ReportView
@@ -1011,14 +1059,15 @@ function IncomeStatementTab() {
             <Label className="text-xs">{t("accounting.is.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
+          <DetailLevelSelect value={detailLevel} onChange={setDetailLevel} />
         </>
       }
-      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo, level: detailLevel })}
       onPrint={r ? () => window.print() : undefined}
       {...(ranAt
         ? reportExportHandlers(
             "/api/v1/accounting/reports/income-statement",
-            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            { date_from: ranAt.from, date_to: ranAt.to, detail_level: String(ranAt.level), lang: locale },
             companyId
           )
         : {})}
@@ -1048,6 +1097,7 @@ function IncomeStatementTab() {
               rows={r.revenue_accounts}
               total={r.revenue_total}
               totalLabel={t("accounting.is.total_revenue")}
+              linkAccounts={fullDetail}
             />
             {/* COGS — shown as a deduction (negated for display) */}
             <FinancialSection
@@ -1056,6 +1106,7 @@ function IncomeStatementTab() {
               total={r.cogs_total}
               totalLabel={t("accounting.is.total_cogs")}
               sign={-1}
+              linkAccounts={fullDetail}
             />
             {/* Gross Profit subtotal */}
             <tbody>
@@ -1072,6 +1123,7 @@ function IncomeStatementTab() {
               total={r.opex_total}
               totalLabel={t("accounting.is.total_opex")}
               sign={-1}
+              linkAccounts={fullDetail}
             />
             {/* Operating Income */}
             <tbody>
@@ -1099,30 +1151,35 @@ function BalanceSheetTab() {
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
   const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [ranAt, setRanAt] = useState<string | null>(null);
+  const [detailLevel, setDetailLevel] = useState(MAX_ACCOUNT_LEVEL);
+  const [ranAt, setRanAt] = useState<{ date: string; level: number } | null>(null);
 
   const reportQuery = useQuery({
-    queryKey: ["balance-sheet", companyId, ranAt],
-    queryFn: () => accountingApi.balanceSheet(companyId, ranAt!),
+    queryKey: ["balance-sheet", companyId, ranAt?.date, ranAt?.level],
+    queryFn: () => accountingApi.balanceSheet(companyId, ranAt!.date, ranAt!.level),
     enabled: !!ranAt,
   });
   const r = reportQuery.data;
+  const fullDetail = ranAt?.level === MAX_ACCOUNT_LEVEL;
 
   return (
     <ReportView
       title={t("accounting.tabs.balance_sheet")}
       filterArea={
-        <div className="space-y-1">
-          <Label className="text-xs">{t("accounting.bs.as_of_date")}</Label>
-          <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
-        </div>
+        <>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.bs.as_of_date")}</Label>
+            <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
+          </div>
+          <DetailLevelSelect value={detailLevel} onChange={setDetailLevel} />
+        </>
       }
-      onApply={() => setRanAt(asOfDate)}
+      onApply={() => setRanAt({ date: asOfDate, level: detailLevel })}
       onPrint={r ? () => window.print() : undefined}
       {...(ranAt
         ? reportExportHandlers(
             "/api/v1/accounting/reports/balance-sheet",
-            { as_of_date: ranAt, lang: locale },
+            { as_of_date: ranAt.date, detail_level: String(ranAt.level), lang: locale },
             companyId
           )
         : {})}
@@ -1142,7 +1199,7 @@ function BalanceSheetTab() {
       {r && (
         <div className="grid max-w-4xl grid-cols-1 gap-8 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <ReportPrintHeader reportTitle={t("accounting.tabs.balance_sheet")} dateRangeLabel={ranAt ?? undefined} />
+            <ReportPrintHeader reportTitle={t("accounting.tabs.balance_sheet")} dateRangeLabel={ranAt?.date} />
           </div>
 
           {/* ── Assets (left column) ── */}
@@ -1153,6 +1210,7 @@ function BalanceSheetTab() {
               total={r.assets_total}
               totalLabel={t("accounting.bs.total_assets")}
               totalBorder="double"
+              linkAccounts={fullDetail}
             />
           </table>
 
@@ -1163,6 +1221,7 @@ function BalanceSheetTab() {
               rows={r.liabilities}
               total={r.liabilities_total}
               totalLabel={t("accounting.bs.total_liabilities")}
+              linkAccounts={fullDetail}
             />
             {/* Equity section — inline because it has the extra "Current Earnings" row */}
             <tbody>
@@ -1177,13 +1236,17 @@ function BalanceSheetTab() {
                     {row.account_code}
                   </td>
                   <td className="ps-2 py-0.5 text-muted-foreground">
-                    <Link
-                      href={`/accounting?tab=general-ledger&account=${row.account_id}`}
-                      className="underline-offset-4 hover:underline"
-                      title={t("accounting.tb.drill_down_hint")}
-                    >
-                      {row.account_name}
-                    </Link>
+                    {fullDetail ? (
+                      <Link
+                        href={`/accounting?tab=general-ledger&account=${row.account_id}`}
+                        className="underline-offset-4 hover:underline"
+                        title={t("accounting.tb.drill_down_hint")}
+                      >
+                        {row.account_name}
+                      </Link>
+                    ) : (
+                      row.account_name
+                    )}
                   </td>
                   <td className="py-0.5 text-end font-mono tabular-nums text-muted-foreground">
                     {formatCurrency(row.amount)}
