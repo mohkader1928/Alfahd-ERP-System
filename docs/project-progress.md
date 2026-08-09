@@ -8,8 +8,54 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-09, on top of committed `6c83a84` (`main`) —
-**Fixed Assets module: register, straight-line depreciation, disposal**
+**Last verified**: 2026-08-10, on top of committed `2c689c0` (`main`) —
+**Fixed Asset Card and GL reconciliation** (commit `2c689c0`), an
+Owner-requested follow-up to P0-5 — the Owner asked for a per-asset
+inquiry "مثل كارت الصنف واستاذ مساعد العملاء والموردين" (like the
+Product Cardex and Customer/Vendor Subledger) plus proof that the
+asset register always ties to Trial Balance's asset/accumulated-
+depreciation/net-book-value figures, echoing the standing "always care
+about GL integration" requirement already enforced for AR/AP.
+`FixedAssetService.get_asset_card` merges an asset's two movement
+sources (its own acquisition/disposal, and its depreciation entries)
+into one opening/running/closing ledger tracking three parallel
+values — cost, accumulated depreciation, net book value — the same
+shape `SubledgerService._build_subledger` already uses for one
+balance. `get_reconciliation` groups every asset active as of a
+chosen date by the real GL account it points to and compares the
+register's own sum against that account's actual posted balance via
+the same `account_balance_by_id` General Ledger/Balance Sheet already
+use, rather than assuming one hardcoded account pair. Three real bugs
+found live during this work, each with its own regression test: (1)
+Accumulated Depreciation is credit-normal, so its raw GL balance comes
+back negative while the register's total is a positive magnitude —
+compared directly, a correct register could never match, fixed with a
+per-role sign correction; (2) a depreciation entry's date is
+period_month (matching its own JE's entry_date), so sorting a
+same-month event list by that raw date put a depreciation entry
+*before* the mid-month acquisition it depends on, producing a
+negative intermediate net book value — fixed by sorting on the
+period's month-end while still displaying period_month; (3) the
+reconciliation's register total used each asset's *current*
+disposed/active flag instead of its state *as of* the requested date,
+wrongly excluding an asset disposed on a future date whose disposal
+JE hadn't reached the GL yet either — fixed to compare `disposed_at`
+against `as_of_date` directly. Frontend: new "Fixed Asset Card" and
+"Fixed Assets Reconciliation" tabs (asset/date-range and as-of-date
+selectors respectively, full print/PDF/Excel export via the same
+`ReportView` shape every other report tab uses); the register list
+gained an active-assets totals summary and each asset code now links
+to its card. 6 new backend tests on top of P0-5's 9 (15 total for the
+module), full suite 335/335 passed, ruff/tsc/eslint clean.
+Live-verified end to end against شركة المحمود's demo company: created
+a second asset, ran its depreciation, confirmed the card's
+chronological order and running values, and watched the reconciliation
+tab go from a false "غير متطابق" to a true "متطابق" as each of the
+three bugs above was fixed in turn, checked directly against Trial
+Balance throughout.
+
+**Immediately prior, same session** — on top of committed `6c83a84`
+(`main`) — **Fixed Assets module: register, straight-line depreciation, disposal**
 (commit `6c83a84`), P0-5 of the 3-Day Brief. Entirely new — confirmed
 via audit beforehand that no fixed-asset/depreciation code, table, or
 COA account existed anywhere in the repo. New `fixed_assets` module
