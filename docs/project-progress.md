@@ -8,7 +8,54 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-09, on top of committed `2a659d3` (`main`) —
+**Last verified**: 2026-08-09, on top of committed `6c83a84` (`main`) —
+**Fixed Assets module: register, straight-line depreciation, disposal**
+(commit `6c83a84`), P0-5 of the 3-Day Brief. Entirely new — confirmed
+via audit beforehand that no fixed-asset/depreciation code, table, or
+COA account existed anywhere in the repo. New `fixed_assets` module
+(own migration, models, repos, service, routes under
+`/api/v1/fixed-assets`, own `FA-000001` numbering) follows the exact
+shape every other document type in this codebase already has:
+acquisition, depreciation, and disposal each post their own journal
+entry immediately via `JournalEntryService`, not as a draft a user
+posts separately. Each asset points at three GL accounts (fixed asset,
+accumulated depreciation, depreciation expense) picked from the
+existing Chart of Accounts rather than a fixed set. Depreciation is
+monthly straight-line, manually triggered ("Run Depreciation for
+period") rather than a cron job — this codebase's only scheduled-work
+infra (Celery) has no Beat configured anywhere, so adding one was out
+of scope for this item; `UNIQUE(fixed_asset_id, period_month)` makes
+re-running the same period a safe no-op, and the depreciable base is
+capped so the final period never over-depreciates past
+`cost - salvage_value`. Disposal writes off the asset at net book
+value (derived from posted depreciation entries, never a stored
+figure) and recognizes the resulting gain or loss into a caller-chosen
+P&L account. Seeded the missing Fixed Assets/Accumulated
+Depreciation/Depreciation Expense/Gain-Loss-on-Disposal accounts into
+`DEFAULT_SAUDI_COA` for new companies, and backfilled the same into
+every already-onboarded company's CoA (skipped where a company already
+had its own account at that code) so the screen is usable without a
+manual setup step. Two real bugs found and fixed during this work: (1)
+the create/dispose routes queried the DB again after `db.commit()` to
+build their response, but company context is set via `SET LOCAL`
+(transaction-scoped per `session.py`), so the post-commit query ran
+with no company context and RLS silently broke — fixed by reading the
+response before commit; (2) `run_depreciation` compared an asset's raw
+`acquisition_date` against the requested period's month-start, which
+excluded every asset from its own acquisition month unless bought
+exactly on day 1 — found live testing an asset acquired 2026-08-09
+against `period_month=2026-08-01` — fixed to compare month-starts
+(full-month convention), with a regression test covering both the
+newly-eligible and still-correctly-excluded cases. 9 new backend
+tests, full suite 329/329 passed, ruff/tsc/eslint clean. Live-verified
+in the browser against شركة المحمود's demo company end to end: created
+an asset, ran depreciation, disposed it at a loss, and confirmed via
+Trial Balance that every GL account involved (fixed asset, accumulated
+depreciation, depreciation expense, funding account, loss account)
+moved by the exact expected amount with the ledger staying in balance
+throughout.
+
+**Immediately prior, same session** — on top of committed `2a659d3` (`main`) —
 **Detail-level rollup for Trial Balance / Income Statement / Balance
 Sheet** (commit `2a659d3`), an Owner-requested follow-up to the Chart
 of Accounts hierarchy work — not one of the 8 P0 items. Lets a user
