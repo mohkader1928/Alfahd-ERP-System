@@ -40,6 +40,12 @@ DEFAULT_SAUDI_COA: list[tuple[str, str, str, str, str | None]] = [
     ("1100", "Cash and Bank", "Cash and Bank AR", "asset", "1000"),
     ("1200", "Accounts Receivable", "Accounts Receivable AR", "asset", "1000"),
     ("1300", "Inventory", "Inventory AR", "asset", "1000"),
+    # P0-5 (3-Day Brief): Fixed Assets register accounts, seeded for every
+    # newly bootstrapped company; migration a4b5c6d7e8f9 backfills these
+    # into companies that already existed when this module shipped.
+    ("1400", "Fixed Assets", "الأصول الثابتة", "asset", "1000"),
+    ("1410", "Property, Plant & Equipment", "الممتلكات والمعدات", "asset", "1400"),
+    ("1490", "Accumulated Depreciation", "مجمع الإهلاك", "asset", "1400"),
     ("2000", "Liabilities", "Liabilities AR", "liability", None),
     ("2100", "Accounts Payable", "Accounts Payable AR", "liability", "2000"),
     ("2200", "VAT Payable", "VAT Payable AR", "liability", "2000"),
@@ -49,9 +55,12 @@ DEFAULT_SAUDI_COA: list[tuple[str, str, str, str, str | None]] = [
     ("3200", "Retained Earnings", "Retained Earnings AR", "equity", "3000"),
     ("4000", "Revenue", "Revenue AR", "revenue", None),
     ("4100", "Sales Revenue", "Sales Revenue AR", "revenue", "4000"),
+    ("4900", "Gain on Disposal of Fixed Assets", "أرباح استبعاد الأصول الثابتة", "revenue", "4000"),
     ("5000", "Expenses", "Expenses AR", "expense", None),
     ("5100", "Cost of Goods Sold", "COGS AR", "expense", "5000"),
     ("5200", "Operating Expenses", "Operating Expenses AR", "expense", "5000"),
+    ("5900", "Loss on Disposal of Fixed Assets", "خسائر استبعاد الأصول الثابتة", "expense", "5000"),
+    ("5950", "Depreciation Expense", "مصروف الإهلاك", "expense", "5000"),
 ]
 
 

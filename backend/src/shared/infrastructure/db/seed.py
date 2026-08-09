@@ -115,6 +115,11 @@ PERMISSION_CATALOG = [
     ("search.use", "screen"),
     ("reporting.vat.view", "screen"),
     ("reporting.inventory_valuation.view", "screen"),
+    # P0-5 (3-Day Brief) — Fixed Assets
+    ("fixed_assets.view", "screen"),
+    ("fixed_assets.create", "action"),
+    ("fixed_assets.depreciation.run", "action"),
+    ("fixed_assets.dispose", "action"),
 ]
 
 

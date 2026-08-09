@@ -23,6 +23,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
 import type { Account, JournalEntry, JournalEntryLineIn } from "@/features/accounting/api/types";
+import { FixedAssetsTab } from "@/features/fixed-assets/components/fixed-assets-tab";
 import { identityApi } from "@/features/identity/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
 import { reportingApi } from "@/features/reporting/api/client";
@@ -1816,6 +1817,7 @@ export default function AccountingPage() {
         <TabsList>
           <TabsTrigger value="accounts">{t("accounting.tabs.accounts")}</TabsTrigger>
           <TabsTrigger value="journal-entries">{t("accounting.tabs.journal_entries")}</TabsTrigger>
+          <TabsTrigger value="fixed-assets">{t("accounting.tabs.fixed_assets")}</TabsTrigger>
           <TabsTrigger value="trial-balance">{t("accounting.tabs.trial_balance")}</TabsTrigger>
           <TabsTrigger value="general-ledger">{t("accounting.tabs.general_ledger")}</TabsTrigger>
           <TabsTrigger value="income-statement">{t("accounting.tabs.income_statement")}</TabsTrigger>
@@ -1828,6 +1830,7 @@ export default function AccountingPage() {
         </TabsList>
         <TabsContent value="accounts">{tab === "accounts" && <ChartOfAccountsTab />}</TabsContent>
         <TabsContent value="journal-entries">{tab === "journal-entries" && <JournalEntriesTab />}</TabsContent>
+        <TabsContent value="fixed-assets">{tab === "fixed-assets" && <FixedAssetsTab />}</TabsContent>
         <TabsContent value="trial-balance">{tab === "trial-balance" && <TrialBalanceTab />}</TabsContent>
         <TabsContent value="general-ledger">{tab === "general-ledger" && <GeneralLedgerTab initialAccountId={deepLinkAccountId} />}</TabsContent>
         <TabsContent value="income-statement">{tab === "income-statement" && <IncomeStatementTab />}</TabsContent>

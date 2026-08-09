@@ -1,0 +1,456 @@
+"use client";
+
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { Can } from "@/components/erp/permissions/can";
+import { useI18n } from "@/lib/i18n/config";
+import { useAuthStore } from "@/stores/auth-store";
+import { accountingApi } from "@/features/accounting/api/client";
+import { fixedAssetsApi } from "@/features/fixed-assets/api/client";
+import type { FixedAsset, RunDepreciationResult } from "@/features/fixed-assets/api/types";
+import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
+import { toastError, toastSuccess } from "@/lib/toast";
+import { ApiError } from "@/lib/api-client";
+
+export function FixedAssetsTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const branchId = useAuthStore((s) => s.activeBranchId)!;
+  const queryClient = useQueryClient();
+
+  const [name, setName] = useState("");
+  const [nameAr, setNameAr] = useState("");
+  const [fixedAssetAccountId, setFixedAssetAccountId] = useState("");
+  const [accumAccountId, setAccumAccountId] = useState("");
+  const [expenseAccountId, setExpenseAccountId] = useState("");
+  const [fundingAccountId, setFundingAccountId] = useState("");
+  const [acquisitionDate, setAcquisitionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cost, setCost] = useState("");
+  const [salvageValue, setSalvageValue] = useState("0");
+  const [usefulLifeMonths, setUsefulLifeMonths] = useState("60");
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const [runOpen, setRunOpen] = useState(false);
+  const [periodMonth, setPeriodMonth] = useState(() => new Date().toISOString().slice(0, 10));
+  const [runResult, setRunResult] = useState<RunDepreciationResult | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+
+  const [disposing, setDisposing] = useState<FixedAsset | null>(null);
+  const [disposalDate, setDisposalDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [proceeds, setProceeds] = useState("0");
+  const [proceedsAccountId, setProceedsAccountId] = useState("");
+  const [gainLossAccountId, setGainLossAccountId] = useState("");
+  const [disposeError, setDisposeError] = useState<string | null>(null);
+
+  const accountsQuery = useQuery({
+    queryKey: ["accounts", companyId],
+    queryFn: () => accountingApi.listAccounts(companyId),
+  });
+  // Same guard the Journal Entry line picker already applies: a group
+  // account can never be posted to, so it's excluded here too rather than
+  // relying only on the 422 the backend would otherwise return.
+  const postingAccounts = (accountsQuery.data ?? []).filter((a) => !a.is_group);
+
+  const assetsQuery = useQuery({
+    queryKey: ["fixed-assets", companyId],
+    queryFn: () => fixedAssetsApi.listAssets(companyId),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      fixedAssetsApi.createAsset(companyId, branchId, {
+        name,
+        name_ar: nameAr || null,
+        fixed_asset_account_id: fixedAssetAccountId,
+        accumulated_depreciation_account_id: accumAccountId,
+        depreciation_expense_account_id: expenseAccountId,
+        funding_account_id: fundingAccountId,
+        acquisition_date: acquisitionDate,
+        cost,
+        salvage_value: salvageValue,
+        useful_life_months: Number(usefulLifeMonths),
+      }),
+    onSuccess: (asset) => {
+      queryClient.invalidateQueries({ queryKey: ["fixed-assets", companyId] });
+      toastSuccess(t("toast.success_title"), asset.asset_code);
+      setName("");
+      setNameAr("");
+      setFixedAssetAccountId("");
+      setAccumAccountId("");
+      setExpenseAccountId("");
+      setFundingAccountId("");
+      setCost("");
+      setSalvageValue("0");
+      setUsefulLifeMonths("60");
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setCreateError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  const runMutation = useMutation({
+    mutationFn: () => fixedAssetsApi.runDepreciation(companyId, branchId, periodMonth),
+    onSuccess: (result) => {
+      setRunResult(result);
+      setRunError(null);
+      queryClient.invalidateQueries({ queryKey: ["fixed-assets", companyId] });
+      toastSuccess(t("toast.success_title"), `${result.assets_posted} — ${formatCurrency(result.total_amount)}`);
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setRunError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  const disposeMutation = useMutation({
+    mutationFn: () =>
+      fixedAssetsApi.disposeAsset(companyId, branchId, disposing!.id, {
+        disposal_date: disposalDate,
+        proceeds,
+        proceeds_account_id: proceedsAccountId || null,
+        gain_loss_account_id: gainLossAccountId || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fixed-assets", companyId] });
+      toastSuccess(t("toast.success_title"), t("fixed_assets.dispose.title"));
+      setDisposing(null);
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setDisposeError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  function openDispose(asset: FixedAsset) {
+    setDisposing(asset);
+    setDisposalDate(new Date().toISOString().slice(0, 10));
+    setProceeds("0");
+    setProceedsAccountId("");
+    setGainLossAccountId("");
+    setDisposeError(null);
+  }
+
+  const columns: ERPColumn<FixedAsset>[] = [
+    {
+      key: "asset_code",
+      header: t("fixed_assets.code"),
+      sortable: true,
+      sortValue: (r) => r.asset_code,
+      render: (r) => <span className="font-mono">{r.asset_code}</span>,
+    },
+    { key: "name", header: t("fixed_assets.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
+    {
+      key: "acquisition_date",
+      header: t("fixed_assets.acquisition_date"),
+      sortable: true,
+      sortValue: (r) => r.acquisition_date,
+      render: (r) => formatDate(r.acquisition_date, locale),
+    },
+    { key: "cost", header: t("fixed_assets.cost"), align: "end", render: (r) => formatCurrency(r.cost) },
+    {
+      key: "accumulated_depreciation",
+      header: t("fixed_assets.accumulated_depreciation"),
+      align: "end",
+      render: (r) => formatCurrency(r.accumulated_depreciation),
+    },
+    {
+      key: "net_book_value",
+      header: t("fixed_assets.net_book_value"),
+      align: "end",
+      render: (r) => formatCurrency(r.net_book_value),
+    },
+    {
+      key: "status",
+      header: t("fixed_assets.status"),
+      render: (r) => (
+        <Badge variant={r.status === "disposed" ? "secondary" : r.fully_depreciated ? "warning" : "default"}>
+          {r.status === "disposed"
+            ? t("fixed_assets.status_disposed")
+            : r.fully_depreciated
+              ? t("fixed_assets.status_fully_depreciated")
+              : t("fixed_assets.status_active")}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (r) =>
+        r.status === "active" ? (
+          <Can permission="fixed_assets.dispose">
+            <div className="flex justify-end">
+              <Button size="sm" variant="ghost" onClick={() => openDispose(r)}>
+                {t("fixed_assets.dispose.action")}
+              </Button>
+            </div>
+          </Can>
+        ) : null,
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Can permission="fixed_assets.create">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("fixed_assets.new")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.name")}</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.name_ar")}</Label>
+                <Input value={nameAr} onChange={(e) => setNameAr(e.target.value)} dir="rtl" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.acquisition_date")}</Label>
+                <Input type="date" value={acquisitionDate} onChange={(e) => setAcquisitionDate(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.cost")}</Label>
+                <Input type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.salvage_value")}</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={salvageValue}
+                  onChange={(e) => setSalvageValue(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.useful_life_months")}</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={usefulLifeMonths}
+                  onChange={(e) => setUsefulLifeMonths(e.target.value)}
+                />
+              </div>
+              <AccountSelect
+                label={t("fixed_assets.fixed_asset_account")}
+                value={fixedAssetAccountId}
+                onChange={setFixedAssetAccountId}
+                options={postingAccounts}
+              />
+              <AccountSelect
+                label={t("fixed_assets.accumulated_depreciation_account")}
+                value={accumAccountId}
+                onChange={setAccumAccountId}
+                options={postingAccounts}
+              />
+              <AccountSelect
+                label={t("fixed_assets.depreciation_expense_account")}
+                value={expenseAccountId}
+                onChange={setExpenseAccountId}
+                options={postingAccounts}
+              />
+              <AccountSelect
+                label={t("fixed_assets.funding_account")}
+                value={fundingAccountId}
+                onChange={setFundingAccountId}
+                options={postingAccounts}
+              />
+            </div>
+            <Button
+              size="sm"
+              onClick={() => {
+                setCreateError(null);
+                createMutation.mutate();
+              }}
+              disabled={
+                !name ||
+                !cost ||
+                !fixedAssetAccountId ||
+                !accumAccountId ||
+                !expenseAccountId ||
+                !fundingAccountId ||
+                createMutation.isPending
+              }
+            >
+              <Plus className="h-4 w-4" />
+              {t("fixed_assets.save")}
+            </Button>
+            {createError && <p className="text-sm text-destructive">{createError}</p>}
+          </CardContent>
+        </Card>
+      </Can>
+
+      <Can permission="fixed_assets.depreciation.run">
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setRunResult(null);
+              setRunError(null);
+              setRunOpen(true);
+            }}
+          >
+            {t("fixed_assets.run.action")}
+          </Button>
+        </div>
+      </Can>
+
+      <ERPListView
+        title={t("accounting.tabs.fixed_assets")}
+        columns={columns}
+        rows={assetsQuery.data ?? []}
+        rowKey={(r) => r.id}
+        isLoading={assetsQuery.isLoading}
+        isError={assetsQuery.isError}
+        onRetry={() => assetsQuery.refetch()}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["fixed-assets", companyId] })}
+        searchText={(r) => `${r.asset_code} ${r.name} ${r.name_ar ?? ""}`}
+        searchPlaceholder={t("list.search_placeholder")}
+        emptyDescription={t("common.empty")}
+      />
+
+      <Dialog open={runOpen} onOpenChange={setRunOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("fixed_assets.run.title")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">{t("fixed_assets.run.period_month")}</Label>
+              <Input type="date" value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} />
+            </div>
+            {runError && <p className="text-sm text-destructive">{runError}</p>}
+            {runResult && (
+              <div className="rounded-md border p-3 text-sm space-y-1">
+                <p>
+                  {t("fixed_assets.run.posted")}: {runResult.assets_posted} ({formatCurrency(runResult.total_amount)})
+                </p>
+                <p>
+                  {t("fixed_assets.run.skipped")}: {runResult.assets_skipped}
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRunOpen(false)}>
+              {t("common.close")}
+            </Button>
+            <Button disabled={runMutation.isPending} onClick={() => runMutation.mutate()}>
+              {runMutation.isPending ? t("common.loading") : t("fixed_assets.run.action")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!disposing} onOpenChange={(open) => !open && setDisposing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t("fixed_assets.dispose.title")} — {disposing?.asset_code}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {t("fixed_assets.net_book_value")}: {disposing && formatCurrency(disposing.net_book_value)}
+            </p>
+            <div className="space-y-1">
+              <Label className="text-xs">{t("fixed_assets.dispose.disposal_date")}</Label>
+              <Input type="date" value={disposalDate} onChange={(e) => setDisposalDate(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t("fixed_assets.dispose.proceeds")}</Label>
+              <Input type="number" min="0" step="0.01" value={proceeds} onChange={(e) => setProceeds(e.target.value)} />
+            </div>
+            <AccountSelect
+              label={t("fixed_assets.dispose.proceeds_account")}
+              value={proceedsAccountId}
+              onChange={setProceedsAccountId}
+              options={postingAccounts}
+              optional
+            />
+            <AccountSelect
+              label={t("fixed_assets.dispose.gain_loss_account")}
+              value={gainLossAccountId}
+              onChange={setGainLossAccountId}
+              options={postingAccounts}
+              optional
+            />
+            {disposeError && <p className="text-sm text-destructive">{disposeError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisposing(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={disposeMutation.isPending}
+              onClick={() => {
+                setDisposeError(null);
+                disposeMutation.mutate();
+              }}
+            >
+              {disposeMutation.isPending ? t("common.loading") : t("fixed_assets.dispose.action")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function AccountSelect({
+  label,
+  value,
+  onChange,
+  options,
+  optional = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { id: string; code: string; name: string }[];
+  optional?: boolean;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">
+        {label}
+        {optional ? "" : " *"}
+      </Label>
+      <Select value={value} onValueChange={(v) => onChange(v ?? "")}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="—">
+            {(v: string) => {
+              const acc = options.find((a) => a.id === v);
+              return acc ? `${acc.code} — ${acc.name}` : v;
+            }}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((a) => (
+            <SelectItem key={a.id} value={a.id}>
+              {a.code} — {a.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}

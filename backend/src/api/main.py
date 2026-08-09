@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 import src.modules.accounting as accounting_module
 import src.modules.attachments as attachments_module
+import src.modules.fixed_assets as fixed_assets_module
 import src.modules.identity as identity_module
 import src.modules.inventory as inventory_module
 import src.modules.notifications as notifications_module
@@ -52,6 +53,7 @@ ENABLED_MODULES = [
     attachments_module,
     notifications_module,
     accounting_module,
+    fixed_assets_module,
     inventory_module,
     sales_module,
     purchasing_module,
