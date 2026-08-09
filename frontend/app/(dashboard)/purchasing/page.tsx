@@ -180,6 +180,16 @@ function VendorBillsTab() {
     { key: "number", header: t("purchasing.orders.number"), sortable: true, sortValue: (r) => r.number, render: (r) => r.number },
     { key: "vendor", header: t("purchasing.orders.vendor"), render: (r) => vendorLabel(r.partner_id) },
     {
+      key: "bill_type",
+      header: t("purchasing.vendor_bills.type"),
+      render: (r) =>
+        r.bill_type === "debit_note" ? (
+          <Badge variant="warning">{t("purchasing.vendor_bills.type_debit_note")}</Badge>
+        ) : (
+          <span className="text-muted-foreground">{t("purchasing.vendor_bills.type_standard")}</span>
+        ),
+    },
+    {
       key: "status",
       header: t("purchasing.orders.status"),
       render: (r) => (

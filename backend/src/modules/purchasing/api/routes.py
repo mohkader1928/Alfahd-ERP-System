@@ -3,13 +3,15 @@
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.identity.infrastructure.repositories import AuditLogRepository
 from src.modules.purchasing.api.deps import (
     get_company_valuation_method,
     get_goods_receipt_service,
+    get_idempotency_key_repo,
     get_purchase_order_repo,
     get_purchase_order_service,
     get_vendor_bill_repo,
@@ -40,6 +42,12 @@ from src.modules.purchasing.infrastructure.repositories import (
     VendorBillRepository,
 )
 from src.shared.api.pagination import Page, PageParams
+from src.shared.idempotency.repositories import IdempotencyKeyRepository
+from src.shared.idempotency.service import (
+    IdempotencyKeyConflictError,
+    IdempotentReplay,
+    begin_idempotent_request,
+)
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext
 
@@ -311,7 +319,32 @@ async def issue_debit_note(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_permission("purchasing.vendor_bill.debit_note", require_branch=True)),
     service: VendorBillService = Depends(get_vendor_bill_service),
+    idempotency_repo: IdempotencyKeyRepository = Depends(get_idempotency_key_repo),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    # Same reasoning as sales' issue_credit_note (docs/16b): a second debit
+    # note against the same posted bill is a legitimate business action
+    # (separate returns, separate corrections), so it can't be blocked by a
+    # simple status guard the way normal bill issuance is -- a double-click
+    # or network retry would otherwise double-post the GL reversal. Opt-in:
+    # omitting the header behaves exactly as before.
+    endpoint = "POST /purchasing/vendor-bills/{id}:debit-note"
+    try:
+        guard = await begin_idempotent_request(
+            idempotency_repo,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            endpoint=endpoint,
+            idempotency_key=idempotency_key,
+            body=payload.model_dump(mode="json"),
+        )
+    except IdempotencyKeyConflictError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+
+    if isinstance(guard, IdempotentReplay):
+        await db.commit()
+        return JSONResponse(status_code=guard.response_status, content=guard.response_body)
+
     try:
         debit_note = await service.issue_debit_note(
             original_bill_id=bill_id,
@@ -323,8 +356,15 @@ async def issue_debit_note(
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
+    response = VendorBillOut.model_validate(debit_note)
+
+    if guard is not None:
+        await idempotency_repo.mark_completed(
+            guard, response_status=status.HTTP_201_CREATED, response_body=response.model_dump(mode="json")
+        )
+
     await db.commit()
-    return debit_note
+    return response
 
 
 @router.post("/vendor-bills/{bill_id}:approve", response_model=VendorBillOut)

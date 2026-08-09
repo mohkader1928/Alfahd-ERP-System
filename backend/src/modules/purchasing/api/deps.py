@@ -35,8 +35,13 @@ from src.modules.purchasing.infrastructure.repositories import (
     PurchaseOrderRepository,
     VendorBillRepository,
 )
+from src.shared.idempotency.repositories import IdempotencyKeyRepository
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext, get_auth_context
+
+
+def get_idempotency_key_repo(db: AsyncSession = Depends(get_db)) -> IdempotencyKeyRepository:
+    return IdempotencyKeyRepository(db)
 
 
 def get_purchase_order_repo(db: AsyncSession = Depends(get_db)) -> PurchaseOrderRepository:
