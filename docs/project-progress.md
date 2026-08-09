@@ -8,7 +8,41 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-09, on top of committed `991029b` (`main`) —
+**Last verified**: 2026-08-09, on top of committed `74921a2` (`main`) —
+**Vendor Debit Note: P0-2 audit** (commit `74921a2`), the second of the
+8 P0 items from the 3-Day Brief. Audited the existing bundle (commit
+`24ef1b9`) against the full checklist — accounting direction, supplier
+balance, payable impact, GL entries, invoice linkage, permissions,
+cancellation/reversal, audit trail — using Sales Credit Note as the
+architectural reference, item by item. Most of it checked out exactly:
+GL reversal lines are the precise opposite of the bill's own posting,
+AP aging (`ap_aging`) and vendor subledger already net a debit note
+against its original bill instead of aging it as its own open item,
+permissions/linkage already mirror the sales side. Two items that
+looked like potential gaps turned out to be non-gaps by symmetry:
+Sales Credit Note itself has no cancellation/reversal path (corrected
+by issuing another document, not by un-issuing itself) and no
+`AuditLogRepository` call either — so the debit note matching that
+exactly is correct, not incomplete. Two *real* gaps found and fixed:
+(1) the debit-note endpoint was missing the Idempotency-Key protection
+docs/16b calls MUST-priority for this exact endpoint shape (a second
+debit note against the same bill is legitimate, so it can't be closed
+by a status guard — a double-click could double-post the GL reversal);
+wired the same shared `begin_idempotent_request` mechanism sales'
+credit-note endpoint already uses. (2) the vendor bills list had no
+way to tell a debit note apart from a standard bill at a glance (sales
+invoices list already shows `invoice_type`) — added a Type column with
+an amber warning badge. New
+`backend/tests/test_vendor_debit_note_idempotency.py` (5 tests,
+mirroring `test_credit_note_idempotency.py`). 296/296 backend tests
+pass, ruff/tsc/eslint clean. Live-verified the new Type column in the
+real UI: existing debit note (`BILL-000020`) now shows "إشعار مدين"
+with the amber badge; standard bills show "فاتورة عادية". No purchase
+report exists yet to verify debit-note netting against (that's P0-3,
+next) — flagged for P0-3 to handle correctly when built, not treated
+as a P0-2 gap since the report itself doesn't exist yet.
+
+**Immediately prior, same session** — on top of committed `991029b` (`main`) —
 **Purchase Order partial receipt: data-driven status + auto-billing
 redesign** (commit `991029b`), a direct Owner correction of the first
 P0-1 cut (commit `e8dc57e`, below) from the 3-Day Sellable Product
