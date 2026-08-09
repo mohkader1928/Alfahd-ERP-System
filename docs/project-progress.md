@@ -8,8 +8,39 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-09, on top of committed `6af06b2` (`main`) —
-**Split customer receipts / vendor payments by module and number
+**Last verified**: 2026-08-09, on top of committed `95e8fbd` (`main`) —
+**Chart of Accounts 4-level hierarchy enforcement** (commit `95e8fbd`),
+P0-4 of the 3-Day Brief. The Chart of Accounts had never had update or
+delete at all before this — only create — so this bundle added the
+missing CRUD alongside the hierarchy rules themselves. New `level`
+(auto-computed from parent, capped at 4, backfilled via a recursive
+walk rather than assuming the seeded 2-level depth) and `is_group`
+(header/category accounts that can't be posted to directly, backfilled
+from the data itself — any account referenced as another's parent_id —
+which correctly identified the 5 top-level Saudi CoA categories with
+no hardcoded list). `create_account` now validates the parent and
+auto-promotes it to `is_group=True` the moment it gains its first
+child, matching the "auto-compute" spirit of `level` itself rather
+than leaving that invariant to the caller. New `update_account`
+recomputes level across an entire moved subtree on reparent, rejects
+a move that would push any descendant past level 4, rejects moving an
+account under its own descendant (cycle guard), and rejects clearing
+`is_group` on an account that still has children. New `delete_account`
+(soft-delete) is rejected if the account has children or any posted
+journal entry lines. `JournalEntryService.create_draft_entry` now
+rejects posting to a group account — the one enforcement point the
+brief specifically called out. Frontend: parent-account selector
+(indented by level), group-account checkbox, level/group-status
+columns, and Edit/Delete actions the screen never had before; the
+Journal Entry line account picker now filters out group accounts
+client-side. 11 new backend tests, 316/316 backend tests pass,
+ruff/tsc/eslint clean. Live-verified in the browser: created a level-3
+account under "1100 Cash and Bank", confirmed it auto-promoted to a
+group account, and confirmed the Journal Entry account picker
+correctly excluded all 6 resulting group accounts.
+
+**Immediately prior, same session** — on top of committed `6af06b2`
+(`main`) — **Split customer receipts / vendor payments by module and number
 sequence** (commit `6af06b2`), a standing Owner directive ("من الآن
 ارجو فصل القبض من العملاء عن الدفع للموردين") — not part of the 8 P0
 items, given priority over continuing to P0-4 since it's foundational
