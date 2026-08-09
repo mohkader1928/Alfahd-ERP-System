@@ -8,8 +8,34 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-09, on top of committed `8311426` (`main`) —
-**Purchases by Supplier report** (commit `8311426`), P0-3 of the 3-Day
+**Last verified**: 2026-08-09, on top of committed `6af06b2` (`main`) —
+**Split customer receipts / vendor payments by module and number
+sequence** (commit `6af06b2`), a standing Owner directive ("من الآن
+ارجو فصل القبض من العملاء عن الدفع للموردين") — not part of the 8 P0
+items, given priority over continuing to P0-4 since it's foundational
+enough that every payment created afterward should already follow it.
+Confirmed with the Owner beforehand that this is an interface-only
+split (same `Payment`/`PaymentAllocation` tables, same
+`record_payment`/subledger/aging/report logic), not a table-per-type
+rebuild. Migration `e1f2a3b4c5d6` backfills every existing payment's
+number to a per-(company, payment_type) scheme — `RCT-000001...` for
+customer receipts, `PAY-000001...` for vendor payments (same prefix,
+now scoped only to vendor payments instead of a shared counter that
+left gaps in either series wherever the other type fell in between).
+New `PaymentListView`/`PaymentFormView` shared components
+(`frontend/features/payments/components/`) parameterized by
+`paymentType`/`fixedType` so `/sales/receipts`, `/purchasing/payments`,
+and the original `/payments` (kept for the Dashboard's still-generic
+quick action) don't each reimplement the same query/columns/form
+wiring. Sidebar nav: customer receipts moved under Sales, vendor
+payments moved under Purchasing, replacing the old flat "Payments"
+entry. 305/305 backend tests pass, ruff/tsc/eslint clean. Live-
+verified against real data: both new lists show gap-free type-scoped
+numbering, the shared detail page still opens from either list, the
+new-receipt form correctly hides the type selector.
+
+**Immediately prior, same session** — on top of committed `8311426`
+(`main`) — **Purchases by Supplier report** (commit `8311426`), P0-3 of the 3-Day
 Brief, mirroring Sales by Customer (vendor, invoice count, amount/VAT/
 total, running AP balance matching Trial Balance) plus an Adjustments
 column the brief explicitly asked for beyond the sales-side reference
