@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -971,10 +972,21 @@ function ValuationTab() {
 
 export default function InventoryPage() {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
   // See the same note in accounting/page.tsx — Base UI's Tabs.Panel doesn't
   // reliably hide inactive panels once a second one mounts, so the active
   // tab is tracked ourselves and gates each panel's content directly.
-  const [tab, setTab] = useState("warehouses");
+  const urlTab = searchParams.get("tab");
+  const [tab, setTab] = useState(() => urlTab ?? "warehouses");
+  // Same deep-link sync as accounting/page.tsx: the sidebar's new
+  // Inventory sub-links (?tab=stock, ?tab=moves, ...) are same-route
+  // client-side navigations, so this component never remounts and the
+  // useState initializer above only ever runs once.
+  const [lastUrlTab, setLastUrlTab] = useState(urlTab);
+  if (urlTab && urlTab !== lastUrlTab) {
+    setLastUrlTab(urlTab);
+    setTab(urlTab);
+  }
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">{t("nav.inventory")}</h1>
