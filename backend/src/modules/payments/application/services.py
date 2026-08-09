@@ -241,7 +241,10 @@ class SubledgerService:
         allocations = await self.payment_repo.list_allocations_for_partner(
             company_id, partner_id, "customer"
         )
-        movements = _customer_movements(invoices, allocations)
+        unallocated = await self.payment_repo.list_unallocated_payments_for_partner(
+            company_id, partner_id, "customer"
+        )
+        movements = _customer_movements(invoices, allocations, unallocated)
         return _build_subledger(movements, date_from, date_to)
 
     async def vendor_subledger(
@@ -251,7 +254,10 @@ class SubledgerService:
         allocations = await self.payment_repo.list_allocations_for_partner(
             company_id, partner_id, "vendor"
         )
-        movements = _vendor_movements(bills, allocations)
+        unallocated = await self.payment_repo.list_unallocated_payments_for_partner(
+            company_id, partner_id, "vendor"
+        )
+        movements = _vendor_movements(bills, allocations, unallocated)
         return _build_subledger(movements, date_from, date_to)
 
     async def ar_aging(self, *, company_id: UUID, as_of_date: date) -> list[dict]:
@@ -347,7 +353,7 @@ class SubledgerService:
         return rows
 
 
-def _customer_movements(invoices: list, allocations: list[dict]) -> list[dict]:
+def _customer_movements(invoices: list, allocations: list[dict], unallocated: list[dict]) -> list[dict]:
     movements = []
     for inv in invoices:
         if inv.journal_entry_id is None:
@@ -390,10 +396,26 @@ def _customer_movements(invoices: list, allocations: list[dict]) -> list[dict]:
                 "credit": alloc["amount"],
             }
         )
+    for u in unallocated:
+        # A payment recorded on-account (no invoice picked yet, or a
+        # remainder left over after partial allocation) still reduced what
+        # the customer owes the moment it posted -- same credit direction
+        # as an allocated payment, just not tied to one specific invoice.
+        movements.append(
+            {
+                "date": u["payment_date"],
+                "movement_type": "payment",
+                "document_type": "payment",
+                "document_id": u["payment_id"],
+                "reference": u["number"],
+                "debit": Decimal("0.0000"),
+                "credit": u["remainder"],
+            }
+        )
     return movements
 
 
-def _vendor_movements(bills: list, allocations: list[dict]) -> list[dict]:
+def _vendor_movements(bills: list, allocations: list[dict], unallocated: list[dict]) -> list[dict]:
     movements = []
     for bill in bills:
         if bill.journal_entry_id is None:
@@ -433,6 +455,18 @@ def _vendor_movements(bills: list, allocations: list[dict]) -> list[dict]:
                 "document_id": alloc["payment_id"],
                 "reference": alloc["number"],
                 "debit": alloc["amount"],
+                "credit": Decimal("0.0000"),
+            }
+        )
+    for u in unallocated:
+        movements.append(
+            {
+                "date": u["payment_date"],
+                "movement_type": "payment",
+                "document_type": "payment",
+                "document_id": u["payment_id"],
+                "reference": u["number"],
+                "debit": u["remainder"],
                 "credit": Decimal("0.0000"),
             }
         )

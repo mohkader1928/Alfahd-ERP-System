@@ -103,3 +103,46 @@ class PaymentRepository:
             }
             for row in result.all()
         ]
+
+    async def list_unallocated_payments_for_partner(
+        self, company_id: UUID, partner_id: UUID, payment_type: str
+    ) -> list[dict]:
+        """P0-3 live-testing finding (شركة المحمود): list_allocations_for_partner
+        above INNER JOINs to payment_allocation, so a payment recorded fully
+        or partially on-account -- a real, posted, GL-affecting payment with
+        no (or not yet a full) invoice/bill allocation -- silently
+        disappeared from the customer/vendor Subledger entirely, even
+        though the Sales-by-Customer/Purchases-by-Supplier reports' own
+        payment totals (summed directly from Payment.amount, not via
+        allocations) already counted it correctly. Returns each such
+        payment's un-allocated remainder so the Subledger can show it too."""
+        remainder = Payment.amount - func.coalesce(func.sum(PaymentAllocation.amount), 0)
+        result = await self.session.execute(
+            select(
+                Payment.id.label("payment_id"),
+                Payment.number,
+                Payment.payment_date,
+                Payment.reference,
+                remainder.label("remainder"),
+            )
+            .select_from(Payment)
+            .outerjoin(PaymentAllocation, PaymentAllocation.payment_id == Payment.id)
+            .where(
+                Payment.company_id == company_id,
+                Payment.partner_id == partner_id,
+                Payment.payment_type == payment_type,
+            )
+            .group_by(Payment.id, Payment.number, Payment.payment_date, Payment.reference, Payment.amount)
+            .having(remainder > 0)
+            .order_by(Payment.payment_date)
+        )
+        return [
+            {
+                "payment_id": row.payment_id,
+                "number": row.number,
+                "payment_date": row.payment_date,
+                "reference": row.reference,
+                "remainder": Decimal(str(row.remainder)),
+            }
+            for row in result.all()
+        ]

@@ -298,6 +298,87 @@ async def test_customer_subledger_credit_note_nets_against_its_invoice(client):
     assert Decimal(body["closing_balance"]) == Decimal("0.0000")
 
 
+async def test_customer_subledger_shows_fully_unallocated_payment(client):
+    """P0-3 live-testing finding (شركة المحمود): a real, posted customer
+    payment recorded on-account -- no invoice picked at all -- silently
+    disappeared from the Subledger entirely, because
+    list_allocations_for_partner INNER JOINs to payment_allocation and an
+    unallocated payment has zero allocation rows. Confirmed directly
+    against production data (a 100,000 SAR on-account payment was missing
+    from the customer's statement, overstating their balance by exactly
+    that amount) before this test was written."""
+    _, headers = await _bootstrap_and_login(client)
+    cash = await _cash_account_id(client, headers)
+    invoice_id, invoice_total, partner_id = await _issue_customer_invoice(
+        client, headers, "On Account Customer"
+    )
+
+    pay_resp = await client.post(
+        "/api/v1/payments/payments",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "payment_type": "customer",
+            "payment_date": str(date.today()),
+            "amount": "500.00",
+            "account_id": cash,
+            "reference": "Advance, no invoice yet",
+            "allocations": [],
+        },
+    )
+    assert pay_resp.status_code == 201, pay_resp.text
+
+    resp = await client.get(
+        f"/api/v1/payments/subledger/customer/{partner_id}",
+        headers=headers,
+        params={"date_from": str(date.today()), "date_to": str(date.today())},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    movement_types = sorted(line["movement_type"] for line in body["lines"])
+    assert movement_types == ["invoice", "payment"]
+    payment_line = next(line for line in body["lines"] if line["movement_type"] == "payment")
+    assert Decimal(payment_line["credit"]) == Decimal("500.00")
+    assert Decimal(body["closing_balance"]) == Decimal(invoice_total) - Decimal("500.00")
+
+
+async def test_vendor_subledger_shows_partially_unallocated_payment(client):
+    """Same gap, vendor side, and the partial case: a payment larger than
+    what was actually allocated to the bill must still show its leftover
+    remainder as its own movement, not just the allocated portion."""
+    _, headers = await _bootstrap_and_login(client)
+    cash = await _cash_account_id(client, headers)
+    bill_id, bill_total, vendor_id = await _issue_vendor_bill(client, headers, "Partial Alloc Vendor")
+
+    pay_resp = await client.post(
+        "/api/v1/payments/payments",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "payment_type": "vendor",
+            "payment_date": str(date.today()),
+            "amount": "200.00",
+            "account_id": cash,
+            "allocations": [{"vendor_bill_id": bill_id, "amount": "50.00"}],
+        },
+    )
+    assert pay_resp.status_code == 201, pay_resp.text
+
+    resp = await client.get(
+        f"/api/v1/payments/subledger/vendor/{vendor_id}",
+        headers=headers,
+        params={"date_from": str(date.today()), "date_to": str(date.today())},
+    )
+    body = resp.json()
+    payment_lines = [line for line in body["lines"] if line["movement_type"] == "payment"]
+    # Two separate movements: the 50.00 that settled the bill, and the
+    # 150.00 leftover recorded on-account.
+    assert len(payment_lines) == 2
+    assert sorted(Decimal(line["debit"]) for line in payment_lines) == [Decimal("50.00"), Decimal("150.00")]
+    # Vendor subledger convention: debit (payments) - credit (bills).
+    assert Decimal(body["closing_balance"]) == Decimal("200.00") - Decimal(bill_total)
+
+
 async def test_vendor_subledger_bill_and_payment(client):
     _, headers = await _bootstrap_and_login(client)
     cash = await _cash_account_id(client, headers)
