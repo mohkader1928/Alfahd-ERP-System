@@ -8,8 +8,51 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-09, on top of committed `74921a2` (`main`) —
-**Vendor Debit Note: P0-2 audit** (commit `74921a2`), the second of the
+**Last verified**: 2026-08-09, on top of committed `8311426` (`main`) —
+**Purchases by Supplier report** (commit `8311426`), P0-3 of the 3-Day
+Brief, mirroring Sales by Customer (vendor, invoice count, amount/VAT/
+total, running AP balance matching Trial Balance) plus an Adjustments
+column the brief explicitly asked for beyond the sales-side reference
+(debit notes issued in the period, shown separately rather than
+silently excluded) and Net Purchases. New `PurchaseReportingService
+.by_vendor`, `GET /reporting/purchasing/by-supplier` (date range,
+optional supplier filter, PDF/Excel export via the same shared
+`ReportTable` framework every other report uses), new
+`reporting.purchasing.view` permission, and
+`frontend/app/(dashboard)/purchasing/reports/page.tsx` with the
+supplier name deep-linking to the existing vendor subledger page for
+drill-down/GL reconciliation. Purchasing's sidebar nav converted from
+a flat link to a group (Orders & Bills / Reports), matching Sales'
+shape. 7 new backend tests including one asserting the report's AP
+balance reconciles exactly against Trial Balance account 2100.
+305/305 backend tests pass, ruff/tsc/eslint clean. Live-verified
+against real data: an existing debit note correctly showed as a
+575.00 SAR adjustment reducing that vendor's net purchases to zero.
+
+**Immediately prior, same session — unallocated-payment Subledger fix**
+(commit `8af6414`), found live-testing this report against شركة
+المحمود's real data, not part of the P0 list but a genuine system-
+integrity gap the Owner flagged directly ("هذه مشكلة كبيرة جدا"): a
+real, posted customer payment recorded fully on-account (no invoice
+picked, e.g. an advance) was completely invisible in that customer's
+account statement, overstating their balance by the payment's full
+amount (confirmed directly against production: a 100,000 SAR payment,
+PAY-000005, was missing). Root cause: `list_allocations_for_partner`
+INNER JOINs `Payment` to `PaymentAllocation`, so a payment with zero
+(or a partially-unallocated remainder of) allocation rows never
+produced a movement — even though `record_payment` already treats an
+unallocated remainder as a valid on-account credit, not an error, and
+the Sales-by-Customer/Purchases-by-Supplier reports' own payment
+totals (summed directly from `Payment.amount`, not via allocations)
+already counted it correctly; only the Subledger's own movement list
+had this gap. Added `list_unallocated_payments_for_partner` (LEFT
+JOIN, remainder = amount − SUM(allocated)), wired into both
+`customer_subledger`/`vendor_subledger`. 2 new regression tests
+(fully-unallocated customer payment, partially-allocated vendor
+payment).
+
+**Immediately prior, same session** — on top of committed `74921a2`
+(`main`) — **Vendor Debit Note: P0-2 audit** (commit `74921a2`), the second of the
 8 P0 items from the 3-Day Brief. Audited the existing bundle (commit
 `24ef1b9`) against the full checklist — accounting direction, supplier
 balance, payable impact, GL entries, invoice linkage, permissions,
