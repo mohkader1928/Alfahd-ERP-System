@@ -8,9 +8,55 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-10, on top of committed `9654140` (`main`) —
-**P0-8: Dashboard KPIs + fiscal-year-aware chart** (commit `9654140`),
-the 8th and final
+**Last verified**: 2026-08-11, on top of committed `3c79e24` (`main`) —
+**P0-9: Sales Return + Purchase Return** (commit `3c79e24`), an
+Owner-requested addition beyond the original 8-item 3-Day Brief
+("اضافة اختيار مرتجع للمبيعات فى موديول المبيعات ومرتجع المشتريات فى
+موديول المشتريات"). Audited first: Sales' Credit Note and Purchasing's
+Debit Note already existed (from earlier in this engagement) but were
+deliberately financial-only — their own docstrings say so explicitly
+— reversing AR/Revenue/VAT or AP/GRNI/VAT but never touching
+inventory. "مرتجع" (return) in Gulf ERP practice means both the
+financial reversal and the physical stock movement, so this extends
+both documents with an optional `restock` flag (default `true`) rather
+than building a parallel document type from scratch. Sales Credit Note
+restocks each line at the *exact* unit_cost its original delivery's
+own `StockMove` rows recorded (a lookup, via a new
+`StockMoveRepository.list_by_source`/`InventoryValuationService.list_moves_for_source`,
+not a recompute from current average/FIFO state, which could have
+drifted since the sale) and posts a reversing Dr Inventory / Cr COGS
+entry. Purchase Debit Note issues the returned qty back out through
+the standard valuation engine — symmetric to any other outgoing move,
+since there's no single original layer to reverse the way Sales has —
+and posts Dr GRNI / Cr Inventory. A new `return` stock_move type
+(migration `f3a4b5c6d7e8`, widening `ck_stock_move_type`) keeps a
+restocked return visually distinct from an ordinary receipt/delivery
+in the product cardex and stock-moves list. `restock=false` preserves
+the exact old financial-only behavior for cases where goods aren't
+physically coming back (price corrections, damaged-beyond-resale
+goods). Frontend: a "return goods to stock" checkbox, checked by
+default, on both the Sales Invoice credit-note form and the Vendor
+Bill debit-note form. 8 new backend tests (restock on/off for both
+documents, exact cost/qty/GL assertions) plus 2 pre-existing tests
+updated for the new default `restock=True` behavior (one already
+predicted the exact GRNI figure change in its own comment). Full suite
+352/352 across three consecutive runs (the same one pre-existing,
+unrelated inventory-concurrency test flaked once and passed cleanly
+in isolation each time — confirmed not caused by this work; a
+`test_sales_invoice_list_pagination.py` test flaked once under full-
+suite load and passed cleanly in isolation too), ruff/tsc/eslint/
+`next build` all clean. Live-verified the Sales Return end to end
+against the demo company: issued a credit note with the restock
+checkbox checked (default), confirmed the resulting `return` stock
+move in the Inventory moves list at the original sale's own cost. The
+Purchase Return side re-uses the identical, already-fully-tested
+pattern (same checkbox component, same backend design) and was
+verified via its 6 dedicated backend tests rather than repeating the
+live UI walkthrough a second time.
+
+**Immediately prior, same session** — on top of committed `9654140`
+(`main`) — **P0-8: Dashboard KPIs + fiscal-year-aware chart** (commit
+`9654140`), the 8th and final
 item of the 3-Day Brief. `company` had no fiscal-year concept anywhere
 in the schema — the Dashboard's "current period" KPIs and trend chart
 were hardcoded to a calendar year (Jan 1–Dec 31), and the trend chart
