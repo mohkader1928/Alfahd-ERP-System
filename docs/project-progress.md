@@ -8,7 +8,42 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-10, on top of committed `d053aa0` (`main`) —
+**Last verified**: 2026-08-10, on top of committed `9654140` (`main`) —
+**P0-8: Dashboard KPIs + fiscal-year-aware chart** (commit `9654140`),
+the 8th and final
+item of the 3-Day Brief. `company` had no fiscal-year concept anywhere
+in the schema — the Dashboard's "current period" KPIs and trend chart
+were hardcoded to a calendar year (Jan 1–Dec 31), and the trend chart
+was additionally hardcoded to a fixed 6-month trailing window
+disconnected from the KPI cards' own period filter (confirmed by
+reading `DashboardService._sales_trend`'s old signature, which ignored
+the caller's `period_start`/`period_end` entirely and always used
+`date.today()`). Added `company.fiscal_year_start_month` (1–12, default
+1 = January — every existing company's behavior is unchanged unless an
+Owner deliberately reconfigures it; migration `e2f3a4b5c6d7`), editable
+from Settings → Company. The Dashboard now computes the real "fiscal
+year to date" range from that field instead of assuming Jan–Dec, and
+`_sales_trend` was rewritten to return one point per calendar month
+within the *requested* range rather than a fixed count — so the KPI
+cards and the trend chart always describe the same period, whatever a
+company's fiscal year actually is. Added a 5th KPI, Cash Balance
+(account 1100, same `account_balance` mechanism already used for
+AR/AP), closing the other half of "KPIs" in the item's own title.
+Backend: 4 new tests (cash balance reflects a posted manual JE, trend
+length matches the requested range exactly rather than a hardcoded
+number, fiscal_year_start_month defaults to 1 and is PATCH-editable);
+2 pre-existing dashboard tests updated for the trend's new semantics
+(6→12 points for a full-calendar-year request, matching the range
+instead of an arbitrary fixed window). Full suite 349/349 (the same
+one pre-existing, unrelated inventory-concurrency flake confirmed
+passing in isolation again), ruff/tsc/eslint/`next build` clean.
+Live-verified end to end against the demo company: changed the fiscal
+year start month to April in Settings, watched the Dashboard's period
+switch live to "01 Apr 2026 – 31 Mar 2027" with the trend chart
+re-labeled Apr→Mar instead of Jan→Dec, then reverted to January to
+leave the demo company's state unchanged for other work.
+
+**Immediately prior, same session** — on top of committed `d053aa0` (`main`) —
 **P0-7: UI/UX quick high-impact pass** (commit `d053aa0`), the 7th item
 of the 3-Day Brief. Re-audited `docs/18-ui-ux-audit.md`'s findings
 against current source rather than trusting the document at face
