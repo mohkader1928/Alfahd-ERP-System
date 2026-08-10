@@ -18,6 +18,7 @@ export interface DashboardSummary {
   period_purchases_total: string;
   receivables_balance: string;
   payables_balance: string;
+  cash_balance: string;
   sales_trend: SalesTrendPoint[];
   pending_approvals_count: number;
   recent_activity: RecentActivityItem[];

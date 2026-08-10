@@ -14,22 +14,40 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCompanyName } from "@/hooks/use-company-name";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
 import { reportingApi } from "@/features/reporting/api/client";
 
-function currentYearRange() {
-  const year = new Date().getFullYear();
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+/** P0-8: the fiscal year (not necessarily calendar-aligned) containing
+ * today, computed from the company's configured fiscal_year_start_month
+ * (1 = January, the default — identical to the old hardcoded Jan-Dec
+ * range for every company that hasn't changed it). Drives both the KPI
+ * cards and the trend chart below, so they always describe the same
+ * period instead of two unrelated ones. */
+function currentFiscalYearRange(fiscalYearStartMonth: number) {
+  const today = new Date();
+  const startYear = today.getMonth() + 1 >= fiscalYearStartMonth ? today.getFullYear() : today.getFullYear() - 1;
+  const start = new Date(startYear, fiscalYearStartMonth - 1, 1);
+  const end = new Date(startYear + 1, fiscalYearStartMonth - 1, 0); // day 0 = last day of prior month
+  return {
+    start: `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`,
+    end: `${end.getFullYear()}-${pad2(end.getMonth() + 1)}-${pad2(end.getDate())}`,
+  };
 }
 
 export default function DashboardPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
-  const { start, end } = currentYearRange();
   const { name: companyName, company, isLoading: companyLoading } = useCompanyName();
+  const { start, end } = currentFiscalYearRange(company?.fiscal_year_start_month ?? 1);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["dashboard", companyId, start, end],
     queryFn: () => reportingApi.getDashboard(companyId, start, end),
+    enabled: !companyLoading,
   });
 
   const cards = [
@@ -37,6 +55,7 @@ export default function DashboardPage() {
     { key: "dashboard.period_purchases", value: data?.period_purchases_total },
     { key: "dashboard.receivables", value: data?.receivables_balance, href: "/accounting?tab=ar-aging" },
     { key: "dashboard.payables", value: data?.payables_balance, href: "/accounting?tab=ap-aging" },
+    { key: "dashboard.cash_balance", value: data?.cash_balance, href: "/accounting?tab=trial-balance" },
   ];
 
   const pendingApprovals = data?.pending_approvals_count ?? 0;
@@ -83,6 +102,9 @@ export default function DashboardPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">{t("dashboard.sales_trend.title")}</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {formatDate(start, locale)} – {formatDate(end, locale)}
+            </p>
           </CardHeader>
           <CardContent>
             {isLoading ? (

@@ -31,6 +31,7 @@ from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
 
 ACCOUNT_CODE_AR = "1200"
 ACCOUNT_CODE_AP = "2100"
+ACCOUNT_CODE_CASH = "1100"
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class DashboardSummary:
     period_purchases_total: Decimal
     receivables_balance: Decimal
     payables_balance: Decimal
+    cash_balance: Decimal
     sales_trend: list[SalesTrendPoint]
     pending_approvals_count: int
     recent_activity: list[RecentActivityItem]
@@ -67,19 +69,22 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     return start, end - timedelta(days=1)
 
 
-def _last_n_months(anchor: date, n: int) -> list[tuple[int, int]]:
-    """[(year, month), ...] for the n calendar months ending at `anchor`'s
-    month, oldest first — plain integer arithmetic, no calendar library
-    needed since we only ever need month/year rollover."""
+def _months_in_range(period_start: date, period_end: date) -> list[tuple[int, int]]:
+    """[(year, month), ...] for every calendar month whose start falls
+    within [period_start, period_end], oldest first. P0-8: replaces the
+    old fixed "6 months trailing from today" window — the trend chart now
+    spans exactly the caller's requested period (typically the company's
+    current fiscal year to date), so the chart and the KPI cards above it
+    always describe the same range instead of two different ones."""
     months = []
-    y, m = anchor.year, anchor.month
-    for _ in range(n):
+    y, m = period_start.year, period_start.month
+    while date(y, m, 1) <= period_end:
         months.append((y, m))
-        m -= 1
-        if m == 0:
-            m = 12
-            y -= 1
-    return list(reversed(months))
+        m += 1
+        if m == 13:
+            m = 1
+            y += 1
+    return months
 
 
 class DashboardService:
@@ -110,6 +115,8 @@ class DashboardService:
         ar_balance = await self.journal_entry_repo.account_balance(company_id, ACCOUNT_CODE_AR, period_end)
         # AP is a normal-credit account (liability): flip sign for a positive "amount we owe" figure.
         ap_balance = -(await self.journal_entry_repo.account_balance(company_id, ACCOUNT_CODE_AP, period_end))
+        # Cash and Bank is a normal-debit account (asset), same sign convention as AR.
+        cash_balance = await self.journal_entry_repo.account_balance(company_id, ACCOUNT_CODE_CASH, period_end)
 
         return DashboardSummary(
             period_start=period_start,
@@ -118,15 +125,15 @@ class DashboardService:
             period_purchases_total=purchases_total,
             receivables_balance=ar_balance,
             payables_balance=ap_balance,
-            sales_trend=await self._sales_trend(company_id),
+            cash_balance=cash_balance,
+            sales_trend=await self._sales_trend(company_id, period_start, period_end),
             pending_approvals_count=await self._pending_approvals_count(company_id),
             recent_activity=await self._recent_activity(company_id),
         )
 
-    async def _sales_trend(self, company_id: UUID, *, months: int = 6) -> list[SalesTrendPoint]:
-        today = date.today()
+    async def _sales_trend(self, company_id: UUID, period_start: date, period_end: date) -> list[SalesTrendPoint]:
         points = []
-        for year, month in _last_n_months(today, months):
+        for year, month in _months_in_range(period_start, period_end):
             start, end = _month_bounds(year, month)
             total = await self.invoice_repo.sum_total_in_range(company_id, start, end)
             points.append(SalesTrendPoint(period_label=f"{year:04d}-{month:02d}", total=total))

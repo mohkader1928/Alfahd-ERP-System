@@ -8,6 +8,7 @@ import { EntityImageUpload } from "@/components/erp/entity-image/entity-image-up
 import { Can } from "@/components/erp/permissions/can";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/lib/i18n/config";
 import { useMyPermissions } from "@/hooks/use-permissions";
@@ -49,7 +50,7 @@ export default function CompanySettingsPage() {
 }
 
 function CompanySettingsForm({ company, companyId }: { company: Company; companyId: string }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const queryClient = useQueryClient();
   const { can } = useMyPermissions();
   const canManage = can("company.manage");
@@ -59,7 +60,10 @@ function CompanySettingsForm({ company, companyId }: { company: Company; company
   const [vatNumber, setVatNumber] = useState(company.vat_number);
   const [crNumber, setCrNumber] = useState(company.cr_number ?? "");
   const [poApprovalThreshold, setPoApprovalThreshold] = useState(company.po_approval_threshold ?? "");
+  const [fiscalYearStartMonth, setFiscalYearStartMonth] = useState(String(company.fiscal_year_start_month));
   const [error, setError] = useState<string | null>(null);
+
+  const monthLabel = (month: number) => new Intl.DateTimeFormat(locale, { month: "long" }).format(new Date(2000, month - 1, 1));
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["company", companyId] });
 
@@ -71,6 +75,7 @@ function CompanySettingsForm({ company, companyId }: { company: Company; company
         vat_number: vatNumber,
         cr_number: crNumber || null,
         po_approval_threshold: poApprovalThreshold || null,
+        fiscal_year_start_month: Number(fiscalYearStartMonth),
       }),
     onSuccess: () => {
       invalidate();
@@ -172,6 +177,22 @@ function CompanySettingsForm({ company, companyId }: { company: Company; company
               className="max-w-xs"
             />
             <p className="text-xs text-muted-foreground">{t("settings.company.po_approval_threshold_hint")}</p>
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label>{t("settings.company.fiscal_year_start_month")}</Label>
+            <Select value={fiscalYearStartMonth} onValueChange={(v) => v && setFiscalYearStartMonth(v)}>
+              <SelectTrigger className="max-w-xs">
+                <SelectValue>{monthLabel(Number(fiscalYearStartMonth))}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                  <SelectItem key={month} value={String(month)}>
+                    {monthLabel(month)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t("settings.company.fiscal_year_start_month_hint")}</p>
           </div>
         </div>
       </Can>

@@ -69,6 +69,10 @@ class Company(Base):
     # instead of auto-confirming — NULL means no gate (existing
     # auto-confirm behavior, unchanged for companies that haven't opted in).
     po_approval_threshold: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    # P0-8: Dashboard KPIs — the fiscal year's first month (1=January,
+    # default) so "current fiscal year" KPIs/trend chart can be computed
+    # correctly for a company whose fiscal year isn't calendar-aligned.
+    fiscal_year_start_month: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="1")
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=text("now()"), onupdate=text("now()"), nullable=False
@@ -79,6 +83,9 @@ class Company(Base):
         CheckConstraint("valuation_method IN ('fifo','average')", name="ck_company_valuation_method"),
         CheckConstraint(
             "zatca_environment IN ('sandbox','simulation','production')", name="ck_company_zatca_env"
+        ),
+        CheckConstraint(
+            "fiscal_year_start_month BETWEEN 1 AND 12", name="ck_company_fiscal_year_start_month"
         ),
         Index("ux_company_vat", "vat_number", unique=True, postgresql_where=text("deleted_at IS NULL")),
     )

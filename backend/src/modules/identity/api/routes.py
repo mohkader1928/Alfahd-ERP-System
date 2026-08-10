@@ -362,12 +362,14 @@ async def update_company(
         "vat_number": company.vat_number,
         "cr_number": company.cr_number,
         "po_approval_threshold": company.po_approval_threshold,
+        "fiscal_year_start_month": company.fiscal_year_start_month,
     }
     company.legal_name = payload.legal_name
     company.legal_name_ar = payload.legal_name_ar
     company.vat_number = payload.vat_number
     company.cr_number = payload.cr_number
     company.po_approval_threshold = payload.po_approval_threshold
+    company.fiscal_year_start_month = payload.fiscal_year_start_month
 
     audit_repo = AuditLogRepository(db)
     new_values = {
@@ -376,6 +378,7 @@ async def update_company(
         "vat_number": company.vat_number,
         "cr_number": company.cr_number,
         "po_approval_threshold": company.po_approval_threshold,
+        "fiscal_year_start_month": company.fiscal_year_start_month,
     }
     try:
         for field_name, old_value in old_values.items():

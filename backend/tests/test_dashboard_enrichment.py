@@ -3,10 +3,12 @@ the dashboard was 4 static KPI cards — the single most visible gap
 against SAP B1/Dynamics 365 BC/Odoo/ERPNext, every one of which opens on
 a trend chart, an actionable exceptions list, and a recent-activity feed).
 
-Exercises: the 6-month sales trend includes the current month with the
-right total; pending_approvals_count reflects a real PO stuck above the
-company's approval threshold; recent_activity surfaces both a sales
-invoice and a purchase order, most recent first.
+Exercises: the sales trend spans the requested period_start/period_end
+range (P0-8: previously a fixed 6-month trailing window, now one point
+per calendar month within the caller's filter) and includes the current
+month with the right total; pending_approvals_count reflects a real PO
+stuck above the company's approval threshold; recent_activity surfaces
+both a sales invoice and a purchase order, most recent first.
 """
 
 from datetime import date
@@ -124,12 +126,16 @@ async def test_dashboard_reports_sales_trend_pending_approvals_and_recent_activi
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    # Sales trend: 6 months, current month included with a real total.
-    assert len(body["sales_trend"]) == 6
+    # Sales trend: P0-8 — one point per calendar month in the *requested*
+    # range (here, the full Jan-Dec calendar year), not a fixed trailing
+    # window disconnected from the period filter. Current month included
+    # with a real total; December is last since the requested range ends
+    # at year-end regardless of which month "today" falls in.
+    assert len(body["sales_trend"]) == 12
     current_label = f"{today.year:04d}-{today.month:02d}"
     current_point = next(p for p in body["sales_trend"] if p["period_label"] == current_label)
     assert Decimal(current_point["total"]) >= Decimal("400.00")
-    assert body["sales_trend"][-1]["period_label"] == current_label  # most recent month is last
+    assert body["sales_trend"][-1]["period_label"] == f"{today.year:04d}-12"
 
     # Pending approvals: the one PO stuck above the threshold, not zero.
     assert body["pending_approvals_count"] == 1
@@ -152,5 +158,5 @@ async def test_dashboard_with_no_activity_reports_zero_not_error(client):
     body = resp.json()
     assert body["pending_approvals_count"] == 0
     assert body["recent_activity"] == []
-    assert len(body["sales_trend"]) == 6
+    assert len(body["sales_trend"]) == 12
     assert all(Decimal(p["total"]) == 0 for p in body["sales_trend"])

@@ -25,6 +25,7 @@ class DashboardSummaryOut(BaseModel):
     period_purchases_total: Decimal
     receivables_balance: Decimal
     payables_balance: Decimal
+    cash_balance: Decimal
     sales_trend: list[SalesTrendPointOut]
     pending_approvals_count: int
     recent_activity: list[RecentActivityItemOut]

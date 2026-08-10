@@ -44,6 +44,7 @@ export interface Company {
   valuation_method: string;
   logo_path: string | null;
   po_approval_threshold: string | null;
+  fiscal_year_start_month: number;
 }
 
 export interface CompanyWriteInput {
@@ -52,6 +53,7 @@ export interface CompanyWriteInput {
   vat_number: string;
   cr_number?: string | null;
   po_approval_threshold?: string | null;
+  fiscal_year_start_month?: number;
 }
 
 export interface Branch {

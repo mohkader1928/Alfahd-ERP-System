@@ -81,6 +81,85 @@ async def test_dashboard_reflects_sales_and_purchases(client):
     assert summary["receivables_balance"] == "115.0000"
     assert summary["period_purchases_total"] == "0.0000"
     assert summary["payables_balance"] == "0.0000"
+    assert summary["cash_balance"] == "0.0000"
+
+
+# --- P0-8: Dashboard KPIs + fiscal-year-aware chart -----------------------
+
+
+async def test_dashboard_cash_balance_reflects_manual_journal_entry(client):
+    _, headers, _ = await _bootstrap_and_login(client)
+
+    accounts = (await client.get("/api/v1/accounting/chart-of-accounts", headers=headers)).json()
+    cash_id = next(a["id"] for a in accounts if a["code"] == "1100")
+    capital_id = next(a["id"] for a in accounts if a["code"] == "3100")
+
+    je_resp = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": "2026-06-01",
+            "reference": "Owner capital injection",
+            "lines": [
+                {"account_id": cash_id, "debit": 5000, "credit": 0},
+                {"account_id": capital_id, "debit": 0, "credit": 5000},
+            ],
+        },
+    )
+    entry_id = je_resp.json()["id"]
+    post_resp = await client.post(f"/api/v1/accounting/journal-entries/{entry_id}:post", headers=headers)
+    assert post_resp.status_code == 200
+
+    dashboard_resp = await client.get(
+        "/api/v1/reporting/dashboard",
+        headers=headers,
+        params={"period_start": "2026-01-01", "period_end": "2026-12-31"},
+    )
+    assert dashboard_resp.status_code == 200
+    assert dashboard_resp.json()["cash_balance"] == "5000.0000"
+
+
+async def test_dashboard_sales_trend_spans_exactly_the_requested_period(client):
+    """The trend chart used to be hardcoded to the 6 calendar months
+    trailing today, disconnected from the period_start/period_end filter
+    driving the KPI cards above it. It must now return exactly one point
+    per calendar month within the requested range, whatever that range is
+    — proving the chart and the KPIs describe the same period."""
+    _, headers, _ = await _bootstrap_and_login(client)
+
+    dashboard_resp = await client.get(
+        "/api/v1/reporting/dashboard",
+        headers=headers,
+        params={"period_start": "2026-03-01", "period_end": "2026-05-31"},
+    )
+    assert dashboard_resp.status_code == 200
+    trend = dashboard_resp.json()["sales_trend"]
+    assert [point["period_label"] for point in trend] == ["2026-03", "2026-04", "2026-05"]
+
+
+async def test_company_fiscal_year_start_month_defaults_to_january_and_is_editable(client):
+    company_id, headers, _ = await _bootstrap_and_login(client)
+
+    get_resp = await client.get(f"/api/v1/identity/companies/{company_id}", headers=headers)
+    assert get_resp.json()["fiscal_year_start_month"] == 1
+
+    patch_resp = await client.patch(
+        f"/api/v1/identity/companies/{company_id}",
+        headers=headers,
+        json={
+            "legal_name": "Rpt Test Trading Co.",
+            "legal_name_ar": "Rpt Test Trading Arabic",
+            "vat_number": unique_vat(),
+            "cr_number": None,
+            "fiscal_year_start_month": 4,
+        },
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["fiscal_year_start_month"] == 4
+
+    get_resp_2 = await client.get(f"/api/v1/identity/companies/{company_id}", headers=headers)
+    assert get_resp_2.json()["fiscal_year_start_month"] == 4
 
 
 async def test_export_sales_invoices_returns_csv(client):
