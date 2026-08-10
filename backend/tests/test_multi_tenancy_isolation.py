@@ -24,8 +24,10 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
 from src.api.main import app
+from src.shared.infrastructure.db.session import AsyncSessionLocal, set_company_context
 from tests.conftest import unique_email, unique_vat
 
 TAX_RATE_PLACEHOLDER = "00000000-0000-0000-0000-000000000001"
@@ -60,6 +62,7 @@ async def _bootstrap_company(client, label: str) -> dict:
     assert boot_resp.status_code == 201
     body = boot_resp.json()
     company_id, branch_id = body["company_id"], body["branch_id"]
+    admin_role_id = body["admin_role_id"]
 
     login_resp = await client.post(
         "/api/v1/identity/auth/login",
@@ -173,6 +176,7 @@ async def _bootstrap_company(client, label: str) -> dict:
         "headers": headers,
         "company_id": company_id,
         "branch_id": branch_id,
+        "admin_role_id": admin_role_id,
         "partner_id": partner_id,
         "product_id": product_id,
         "warehouse_id": warehouse["id"],
@@ -487,3 +491,55 @@ async def test_get_company_endpoint_ignores_path_id_and_never_returns_foreign_co
 # database during migration verification — see
 # docs/16-multi-tenancy-hardening.md for the exact query and output. A
 # fabricated API test asserting nothing real would be worse than no test.
+
+
+# ---------------------------------------------------------------------------
+# 8. P0-6 — RLS on the role_permission/user_role join tables
+# ---------------------------------------------------------------------------
+
+
+async def test_role_permission_and_user_role_rls_isolation(companies):
+    """Unlike `role` itself, `role_permission`/`user_role` have no API
+    endpoint that lists another company's rows to probe at the HTTP
+    boundary (same gap the NOTE above describes) — but here the fix is new
+    enough (P0-6, migration d1e2f3a4b5c6) to warrant a real query-level
+    proof rather than relying on the migration-verification note alone.
+    Connects through the exact same AsyncSessionLocal/engine the API uses
+    (erp_app, not a superuser) and sets the same SET LOCAL session
+    variable `tenant_context_middleware` sets on every request — so this
+    is the real RLS policy being exercised, not a mock."""
+    a, b = companies
+
+    async with AsyncSessionLocal() as session:
+        await set_company_context(session, a["company_id"])
+        rp_count = (
+            await session.execute(
+                text("SELECT count(*) FROM role_permission WHERE role_id = :rid"), {"rid": b["admin_role_id"]}
+            )
+        ).scalar_one()
+        assert rp_count == 0, "Company A's session could see Company B's role_permission rows"
+
+        ur_count = (
+            await session.execute(
+                text("SELECT count(*) FROM user_role WHERE role_id = :rid"), {"rid": b["admin_role_id"]}
+            )
+        ).scalar_one()
+        assert ur_count == 0, "Company A's session could see Company B's user_role rows"
+
+    # Control: the same rows are visible under Company B's own context — the
+    # zero counts above are RLS isolation, not empty/broken tables.
+    async with AsyncSessionLocal() as session:
+        await set_company_context(session, b["company_id"])
+        rp_count_own = (
+            await session.execute(
+                text("SELECT count(*) FROM role_permission WHERE role_id = :rid"), {"rid": b["admin_role_id"]}
+            )
+        ).scalar_one()
+        assert rp_count_own > 0
+
+        ur_count_own = (
+            await session.execute(
+                text("SELECT count(*) FROM user_role WHERE role_id = :rid"), {"rid": b["admin_role_id"]}
+            )
+        ).scalar_one()
+        assert ur_count_own > 0

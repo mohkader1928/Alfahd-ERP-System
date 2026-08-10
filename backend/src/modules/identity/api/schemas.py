@@ -168,6 +168,10 @@ class RoleCreateRequest(BaseModel):
     name: str = Field(min_length=1)
 
 
+class RoleRenameRequest(BaseModel):
+    name: str = Field(min_length=1)
+
+
 class RolePermissionsUpdateRequest(BaseModel):
     permission_codes: list[str]
 

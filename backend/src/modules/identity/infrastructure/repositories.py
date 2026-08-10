@@ -264,6 +264,22 @@ class RoleRepository:
             self.session.add(RolePermission(role_id=role_id, permission_id=permission_id))
         await self.session.flush()
 
+    async def rename(self, role: Role, name: str) -> Role:
+        role.name = name
+        await self.session.flush()
+        return role
+
+    async def count_user_assignments(self, role_id: UUID) -> int:
+        result = await self.session.execute(
+            select(func.count()).select_from(UserRole).where(UserRole.role_id == role_id)
+        )
+        return result.scalar_one()
+
+    async def delete(self, role: Role) -> None:
+        await self.session.execute(RolePermission.__table__.delete().where(RolePermission.role_id == role.id))
+        await self.session.delete(role)
+        await self.session.flush()
+
 
 class AuditLogRepository:
     def __init__(self, session: AsyncSession):

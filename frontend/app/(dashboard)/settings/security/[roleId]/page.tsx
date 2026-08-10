@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SettingsShell } from "@/components/erp/settings-shell/settings-shell";
 import { FormView } from "@/components/erp/form-view/form-view";
+import { ConfirmDialog } from "@/components/erp/states/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -91,6 +96,10 @@ function RolePermissionsForm({
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set(role.permission_codes));
   const [error, setError] = useState<string | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState(role.name);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const groups = new Map<string, Permission[]>();
   for (const permission of allPermissions) {
@@ -100,6 +109,7 @@ function RolePermissionsForm({
   }
 
   function toggle(code: string) {
+    if (role.is_system) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(code)) next.delete(code);
@@ -126,12 +136,60 @@ function RolePermissionsForm({
     },
   });
 
+  const renameMutation = useMutation({
+    mutationFn: () => identityApi.renameRole(companyId, role.id, renameValue),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["role", companyId, role.id] });
+      queryClient.invalidateQueries({ queryKey: ["roles", companyId] });
+      toastSuccess(t("toast.success_title"), t("settings.security.role_renamed"));
+      setRenameOpen(false);
+    },
+    onError: (err) => {
+      const message = err instanceof ApiError ? err.detail : t("common.error");
+      setRenameError(message);
+      toastError(t("toast.error_title"), message);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => identityApi.deleteRole(companyId, role.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["roles", companyId] });
+      toastSuccess(t("toast.success_title"), t("settings.security.role_deleted"));
+      router.push("/settings/security");
+    },
+    onError: (err) => {
+      const message = err instanceof ApiError ? err.detail : t("common.error");
+      toastError(t("toast.error_title"), message);
+      setDeleteOpen(false);
+    },
+  });
+
   return (
     <FormView
       title={role.name}
       statusBadge={<Badge variant={role.is_system ? "secondary" : "outline"}>{role.is_system ? t("settings.security.system") : t("settings.security.custom")}</Badge>}
       breadcrumbs={[{ label: t("settings.section.security"), href: "/settings/security" }, { label: role.name }]}
-      onSave={() => {
+      secondaryActions={
+        !role.is_system && (
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRenameValue(role.name);
+                setRenameError(null);
+                setRenameOpen(true);
+              }}
+            >
+              {t("settings.security.rename")}
+            </Button>
+            <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+              {t("settings.security.delete")}
+            </Button>
+          </>
+        )
+      }
+      onSave={role.is_system ? undefined : () => {
         setError(null);
         saveMutation.mutate();
       }}
@@ -140,6 +198,7 @@ function RolePermissionsForm({
       error={error}
     >
       <div className="space-y-5">
+        {role.is_system && <p className="text-sm text-muted-foreground">{t("settings.security.system_role_locked")}</p>}
         {Array.from(groups.entries())
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([group, permissions]) => (
@@ -151,6 +210,7 @@ function RolePermissionsForm({
                     <input
                       type="checkbox"
                       checked={selected.has(permission.code)}
+                      disabled={role.is_system}
                       onChange={() => toggle(permission.code)}
                     />
                     {formatPermissionLabel(permission.code)}
@@ -160,6 +220,46 @@ function RolePermissionsForm({
             </div>
           ))}
       </div>
+
+      <Dialog open={renameOpen} onOpenChange={(open) => !open && setRenameOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("settings.security.rename_role")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>{t("settings.security.new_name")}</Label>
+              <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+            </div>
+            {renameError && <p className="text-sm text-destructive">{renameError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renameMutation.isPending}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={() => {
+                setRenameError(null);
+                renameMutation.mutate();
+              }}
+              disabled={!renameValue.trim() || renameMutation.isPending}
+            >
+              {renameMutation.isPending ? t("common.loading") : t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={t("settings.security.delete_role_title")}
+        description={t("settings.security.delete_role_body")}
+        variant="destructive"
+        confirmLabel={t("settings.security.delete")}
+        onConfirm={() => deleteMutation.mutate()}
+        isPending={deleteMutation.isPending}
+      />
     </FormView>
   );
 }

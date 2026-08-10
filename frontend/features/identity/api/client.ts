@@ -188,6 +188,12 @@ export const identityApi = {
       { companyId }
     ),
 
+  renameRole: (companyId: string, roleId: string, name: string) =>
+    apiClient.patch<RoleDetail>(`${BASE}/roles/${roleId}`, { name }, { companyId }),
+
+  deleteRole: (companyId: string, roleId: string) =>
+    apiClient.delete<void>(`${BASE}/roles/${roleId}`, { companyId }),
+
   listUsers: (companyId: string) => apiClient.get<UserListRow[]>(`${BASE}/users`, { companyId }),
 
   getUser: (companyId: string, userId: string) =>

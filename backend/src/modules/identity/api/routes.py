@@ -51,6 +51,7 @@ from src.modules.identity.api.schemas import (
     RoleDetailOut,
     RoleOut,
     RolePermissionsUpdateRequest,
+    RoleRenameRequest,
     TokenResponse,
     TwoFactorLoginRequest,
     TwoFactorRequiredResponse,
@@ -165,8 +166,14 @@ async def bootstrap(
             company_id=company.id,
             name="Admin",
             permission_codes=[code for code, _ in PERMISSION_CATALOG],
+            is_system=True,
         )
         await user_service.assign_role(user_id=admin_user.id, role_id=admin_role.id)
+        # P0-6 (3-Day Brief): real separation-of-duties roles the Owner can
+        # assign immediately, not just one all-powerful login — see
+        # seed_default_role_templates's own docstring for why these are
+        # ordinary (editable/deletable) roles, unlike Admin above.
+        await user_service.seed_default_role_templates(company_id=company.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
@@ -295,11 +302,13 @@ async def create_company(
             company_id=company.id,
             name="Admin",
             permission_codes=[code for code, _ in PERMISSION_CATALOG],
+            is_system=True,
         )
         await user_service.assign_role(user_id=ctx.user_id, role_id=admin_role.id)
         await user_service.grant_company_access(
             tenant_id=ctx.tenant_id, user_id=ctx.user_id, company_id=company.id, branch_id=None
         )
+        await user_service.seed_default_role_templates(company_id=company.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
@@ -716,8 +725,91 @@ async def create_role(
 
     role = Role(id=_uuid.uuid4(), company_id=ctx.company_id, name=payload.name, is_system=False)
     await role_repo.add(role)
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="role",
+        target_id=role.id,
+        field_name="name",
+        old_value=None,
+        new_value=role.name,
+    )
     await db.commit()
     return RoleDetailOut(id=role.id, name=role.name, is_system=role.is_system, permission_codes=[])
+
+
+@router.patch("/roles/{role_id}", response_model=RoleDetailOut)
+async def rename_role(
+    role_id: UUID,
+    payload: RoleRenameRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("role.manage")),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """P0-6 (3-Day Brief) — RBAC completion: renaming a role (fixing a
+    typo, or relabeling one to match how the Owner's team actually talks
+    about it) previously had no API at all, only direct DB access."""
+    role = await role_repo.get_by_id(ctx.company_id, role_id)
+    if role is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Role not found")
+    if role.is_system:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "System roles cannot be renamed")
+
+    old_name = role.name
+    await role_repo.rename(role, payload.name)
+    if old_name != payload.name:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="role",
+            target_id=role.id,
+            field_name="name",
+            old_value=old_name,
+            new_value=payload.name,
+        )
+    permission_codes = await role_repo.get_role_permission_codes(role.id)
+    await db.commit()
+    return RoleDetailOut(id=role.id, name=role.name, is_system=role.is_system, permission_codes=sorted(permission_codes))
+
+
+@router.delete("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_role(
+    role_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("role.manage")),
+    role_repo: RoleRepository = Depends(get_role_repo),
+):
+    """P0-6 (3-Day Brief) — RBAC completion: a role that's obsolete or was
+    created by mistake previously had no way to be removed short of direct
+    DB access. Mirrors the Chart of Accounts' own delete_account guard
+    (P0-4) — rejected if the record still has real dependents (here: users
+    still holding it) rather than silently orphaning their access."""
+    role = await role_repo.get_by_id(ctx.company_id, role_id)
+    if role is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Role not found")
+    if role.is_system:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "System roles cannot be deleted")
+    assigned = await role_repo.count_user_assignments(role.id)
+    if assigned > 0:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Cannot delete — {assigned} user(s) still hold this role; remove them from it first",
+        )
+
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="role",
+        target_id=role.id,
+        field_name="deleted_at",
+        old_value=None,
+        new_value="now",
+    )
+    await role_repo.delete(role)
+    await db.commit()
 
 
 @router.put("/roles/{role_id}/permissions", response_model=RoleDetailOut)
@@ -737,6 +829,15 @@ async def update_role_permissions(
     role = await role_repo.get_by_id(ctx.company_id, role_id)
     if role is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Role not found")
+    if role.is_system:
+        # P0-6 (3-Day Brief): the seeded "Admin" role is now the one
+        # guaranteed way back into a company's own access model — a test
+        # already on record (test_settings_roles.py) proves that stripping
+        # role.manage off the last role that grants it locks a company out
+        # of ever granting a permission again, with no in-product recovery.
+        # Making the system role immutable closes that off entirely:
+        # Admin can never be edited down, so there's always a way back in.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "System role permissions cannot be edited")
 
     all_permissions = await role_repo.list_all_permissions()
     by_code = {p.code: p.id for p in all_permissions}

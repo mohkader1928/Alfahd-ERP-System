@@ -131,8 +131,10 @@ class UserManagementService:
         await self.user_repo.grant_company_access(user.id, company_id, branch_id)
         return user
 
-    async def create_role(self, *, company_id: UUID, name: str, permission_codes: list[str]) -> Role:
-        role = Role(id=uuid.uuid4(), company_id=company_id, name=name)
+    async def create_role(
+        self, *, company_id: UUID, name: str, permission_codes: list[str], is_system: bool = False
+    ) -> Role:
+        role = Role(id=uuid.uuid4(), company_id=company_id, name=name, is_system=is_system)
         await self.role_repo.add(role)
         for code in permission_codes:
             permission = await self.role_repo.get_permission_by_code(code)
@@ -140,6 +142,125 @@ class UserManagementService:
                 raise ValueError(f"Unknown permission code: {code}")
             await self.role_repo.grant_permission(role.id, permission.id)
         return role
+
+    async def seed_default_role_templates(self, *, company_id: UUID) -> list[Role]:
+        """P0-6 (3-Day Brief) — RBAC completion. Every company previously
+        started with exactly one role ("Admin", holding the entire
+        permission catalog) and zero others — real separation of duties
+        was 100% manual, built from a blank checkbox matrix in Settings.
+        These four templates give a new company a real out-of-the-box
+        access model on day one; they're ordinary (non-system) roles, so
+        the Owner can still freely edit or delete them to fit their own
+        org — unlike Admin (see `is_system` on create_role's caller),
+        nothing here is locked.
+
+        "Read-Only Viewer" is deliberately *derived* from the catalog
+        (every `screen`-scope code) rather than hand-listed like the
+        other three, so it never drifts out of sync as new view
+        permissions are added — a hand-maintained list would silently
+        miss every future report/screen permission unless someone
+        remembered to update it here too.
+        """
+        from src.shared.infrastructure.db.seed import PERMISSION_CATALOG
+
+        templates: list[tuple[str, list[str]]] = [
+            (
+                "Accountant",
+                [
+                    "accounting.chart_of_accounts.view",
+                    "accounting.chart_of_accounts.manage",
+                    "accounting.journal_entry.view",
+                    "accounting.journal_entry.create",
+                    "accounting.journal_entry.post",
+                    "accounting.journal_entry.reverse",
+                    "accounting.fiscal_period.manage",
+                    "accounting.reports.trial_balance.view",
+                    "accounting.reports.general_ledger.view",
+                    "accounting.reports.income_statement.view",
+                    "accounting.reports.balance_sheet.view",
+                    "payment.view",
+                    "payment.create",
+                    "payment.subledger.view",
+                    "payment.aging.view",
+                    "fixed_assets.view",
+                    "fixed_assets.create",
+                    "fixed_assets.depreciation.run",
+                    "fixed_assets.dispose",
+                    "reporting.vat.view",
+                    "reporting.dashboard.view",
+                    "reporting.export",
+                    "partner.view",
+                    "product.view",
+                    "attachment.view",
+                    "attachment.manage",
+                    "search.use",
+                ],
+            ),
+            (
+                "Sales",
+                [
+                    "sales.quotation.create",
+                    "sales.quotation.confirm",
+                    "sales.order.view",
+                    "sales.invoice.create",
+                    "sales.invoice.credit_note",
+                    "sales.invoice.send_email",
+                    "partner.view",
+                    "partner.create",
+                    "partner.update",
+                    "product.view",
+                    "payment.view",
+                    "payment.create",
+                    "reporting.sales.view",
+                    "reporting.dashboard.view",
+                    "attachment.view",
+                    "attachment.manage",
+                    "search.use",
+                ],
+            ),
+            (
+                "Purchasing & Warehouse",
+                [
+                    "purchasing.order.create",
+                    "purchasing.order.confirm",
+                    "purchasing.order.approve",
+                    "purchasing.order.view",
+                    "purchasing.order.short_close",
+                    "purchasing.order.reopen",
+                    "purchasing.goods_receipt.create",
+                    "purchasing.vendor_bill.create",
+                    "purchasing.vendor_bill.view",
+                    "purchasing.vendor_bill.approve",
+                    "purchasing.vendor_bill.debit_note",
+                    "inventory.warehouse.manage",
+                    "inventory.warehouse.view",
+                    "inventory.stock.receive",
+                    "inventory.stock.view",
+                    "inventory.transfer.create",
+                    "inventory.cycle_count.manage",
+                    "partner.view",
+                    "product.view",
+                    "product_category.view",
+                    "uom.view",
+                    "payment.view",
+                    "payment.create",
+                    "reporting.purchasing.view",
+                    "reporting.inventory_valuation.view",
+                    "reporting.dashboard.view",
+                    "attachment.view",
+                    "attachment.manage",
+                    "search.use",
+                ],
+            ),
+            (
+                "Read-Only Viewer",
+                [code for code, scope in PERMISSION_CATALOG if scope == "screen"],
+            ),
+        ]
+        return [
+            await self.create_role(company_id=company_id, name=name, permission_codes=codes, is_system=False)
+            for name, codes in templates
+        ]
 
     async def assign_role(self, *, user_id: UUID, role_id: UUID) -> None:
         await self.role_repo.assign_to_user(user_id, role_id)
