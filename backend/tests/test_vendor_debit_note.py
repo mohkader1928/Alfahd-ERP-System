@@ -137,6 +137,27 @@ async def test_debit_note_reverses_the_original_bill_journal_entry(client):
     assert rows["1300"]["total_credit"] == "2000.0000"
 
 
+async def test_list_vendor_bills_filters_by_bill_type_for_the_returns_screen(client):
+    """P0-9 Owner follow-up: the dedicated Purchase Returns screen needs
+    to ask the list endpoint for exactly the debit notes, not fetch
+    everything and filter client-side."""
+    _, headers = await _bootstrap_and_login(client)
+    bill_id, _ = await _create_posted_bill(client, headers)
+    debit_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}:debit-note",
+        headers=headers,
+        json={"reason": "Return", "restock": False},
+    )
+    debit_note_id = debit_resp.json()["id"]
+
+    returns_resp = await client.get(
+        "/api/v1/purchasing/vendor-bills", headers=headers, params={"bill_type": "debit_note"}
+    )
+    assert returns_resp.status_code == 200
+    returns_ids = {row["id"] for row in returns_resp.json()["items"]}
+    assert returns_ids == {debit_note_id}  # the original bill must NOT appear
+
+
 async def test_debit_note_restocks_inventory_by_default(client):
     _, headers = await _bootstrap_and_login(client)
     bill_id, _ = await _create_posted_bill(client, headers)

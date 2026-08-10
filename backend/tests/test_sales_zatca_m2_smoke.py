@@ -315,6 +315,30 @@ async def test_credit_note_with_restock_false_leaves_inventory_untouched(client)
     assert not any(m["move_type"] == "return" for m in moves)
 
 
+async def test_list_invoices_filters_by_invoice_type_for_the_returns_screen(client):
+    """P0-9 Owner follow-up: the dedicated Sales Returns screen needs to
+    ask the list endpoint for exactly the credit notes, not fetch
+    everything and filter client-side."""
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+    invoice_id, _ = await _sell_with_stock(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+    credit_resp = await client.post(
+        f"/api/v1/sales/invoices/{invoice_id}:credit-note", headers=headers, json={"reason": "Return"}
+    )
+    credit_note_id = credit_resp.json()["invoice"]["id"]
+
+    returns_resp = await client.get(
+        "/api/v1/sales/invoices", headers=headers, params={"invoice_type": "credit_note"}
+    )
+    assert returns_resp.status_code == 200
+    returns_ids = {row["id"] for row in returns_resp.json()["items"]}
+    assert returns_ids == {credit_note_id}  # the original invoice must NOT appear
+
+
 async def test_sales_endpoints_require_permission(client):
     resp = await client.post("/api/v1/sales/quotations", json={})
     assert resp.status_code == 401

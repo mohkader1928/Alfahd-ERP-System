@@ -82,19 +82,22 @@ async def list_vendor_bills(
     status: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    bill_type: str | None = None,
     page_params: PageParams = Depends(),
     ctx: AuthContext = Depends(require_permission("purchasing.vendor_bill.view")),
     bill_repo: VendorBillRepository = Depends(get_vendor_bill_repo),
 ):
     """List-view server-side filtering (Product Owner audit): real
     LIMIT/OFFSET + partner/status/date filters, same pattern as Sales
-    Invoices."""
+    Invoices. `bill_type` (P0-9) backs the dedicated Purchase Returns
+    screen."""
     items, total = await bill_repo.list_by_company_page(
         ctx.company_id,
         partner_id=partner_id,
         status=status,
         date_from=date_from,
         date_to=date_to,
+        bill_type=bill_type,
         offset=page_params.offset,
         limit=page_params.page_size,
     )

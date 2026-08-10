@@ -189,13 +189,16 @@ class VendorBillRepository:
         status: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        bill_type: str | None = None,
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[list[VendorBill], int]:
         """List-view server-side filtering (Product Owner audit, same
         pattern established for Sales Invoices) — real LIMIT/OFFSET plus
         a matching COUNT(*) so the list screen is never silently capped
-        as the company's bill history grows."""
+        as the company's bill history grows. `bill_type` (P0-9) backs
+        the dedicated Purchase Returns screen, which asks for
+        `bill_type=debit_note` only."""
         conditions = [VendorBill.company_id == company_id]
         if partner_id is not None:
             conditions.append(VendorBill.partner_id == partner_id)
@@ -205,6 +208,8 @@ class VendorBillRepository:
             conditions.append(VendorBill.bill_date >= date_from)
         if date_to is not None:
             conditions.append(VendorBill.bill_date <= date_to)
+        if bill_type is not None:
+            conditions.append(VendorBill.bill_type == bill_type)
 
         count_result = await self.session.execute(select(func.count()).select_from(VendorBill).where(*conditions))
         total = count_result.scalar_one()

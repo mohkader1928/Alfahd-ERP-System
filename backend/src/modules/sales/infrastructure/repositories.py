@@ -176,6 +176,7 @@ class SalesInvoiceRepository:
         status: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        invoice_type: str | None = None,
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[list[SalesInvoice], int]:
@@ -185,7 +186,10 @@ class SalesInvoiceRepository:
         access to older ones in the list screen — a real data-visibility
         bug, not just a performance nice-to-have. Real `LIMIT`/`OFFSET`
         plus a matching `COUNT(*)` so the caller always knows the true
-        total, regardless of how many rows are actually returned."""
+        total, regardless of how many rows are actually returned.
+        `invoice_type` (P0-9): lets the dedicated Sales Returns screen
+        ask for exactly `credit_note` rows server-side, instead of
+        fetching everything and filtering client-side."""
         conditions = [SalesInvoice.company_id == company_id]
         if partner_id is not None:
             conditions.append(SalesInvoice.partner_id == partner_id)
@@ -195,6 +199,8 @@ class SalesInvoiceRepository:
             conditions.append(SalesInvoice.invoice_date >= date_from)
         if date_to is not None:
             conditions.append(SalesInvoice.invoice_date <= date_to)
+        if invoice_type is not None:
+            conditions.append(SalesInvoice.invoice_type == invoice_type)
 
         count_result = await self.session.execute(select(func.count()).select_from(SalesInvoice).where(*conditions))
         total = count_result.scalar_one()

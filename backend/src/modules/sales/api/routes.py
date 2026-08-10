@@ -212,6 +212,7 @@ async def list_invoices(
     status: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    invoice_type: str | None = None,
     page_params: PageParams = Depends(),
     ctx: AuthContext = Depends(require_permission("sales.invoice.create")),
     invoice_repo: SalesInvoiceRepository = Depends(get_sales_invoice_repo),
@@ -219,13 +220,15 @@ async def list_invoices(
     """List-view server-side filtering (Product Owner audit): real
     LIMIT/OFFSET + status/date filters, replacing the old hardcoded
     limit=500-with-no-offset that silently hid any invoice past the
-    500th most recent."""
+    500th most recent. `invoice_type` (P0-9) backs the dedicated Sales
+    Returns screen, which asks for `invoice_type=credit_note` only."""
     items, total = await invoice_repo.list_by_company_page(
         ctx.company_id,
         partner_id=partner_id,
         status=status,
         date_from=date_from,
         date_to=date_to,
+        invoice_type=invoice_type,
         offset=page_params.offset,
         limit=page_params.page_size,
     )

@@ -24,6 +24,7 @@ export interface VendorBillListFilters {
   status?: string;
   dateFrom?: string;
   dateTo?: string;
+  billType?: string;
   page?: number;
   pageSize?: number;
 }
@@ -83,6 +84,7 @@ export const purchasingApi = {
     if (filters.status) qs.set("status", filters.status);
     if (filters.dateFrom) qs.set("date_from", filters.dateFrom);
     if (filters.dateTo) qs.set("date_to", filters.dateTo);
+    if (filters.billType) qs.set("bill_type", filters.billType);
     qs.set("page", String(filters.page ?? 1));
     qs.set("page_size", String(filters.pageSize ?? 50));
     return apiClient.get<Page<VendorBill>>(`${BASE}/vendor-bills?${qs.toString()}`, { companyId });

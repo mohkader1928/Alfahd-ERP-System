@@ -27,6 +27,7 @@ import {
   ShoppingCart,
   TrendingUp,
   Truck,
+  Undo2,
   Users,
   Warehouse,
 } from "lucide-react";
@@ -73,6 +74,7 @@ export const NAV_CONFIG: NavEntry[] = [
       { type: "link", href: "/sales/quotations", labelKey: "nav.sales.quotations", icon: FileText },
       { type: "link", href: "/sales/orders", labelKey: "nav.sales.orders", icon: FileText },
       { type: "link", href: "/sales/invoices", labelKey: "nav.sales.invoices", icon: FileText },
+      { type: "link", href: "/sales/returns", labelKey: "nav.sales.returns", icon: Undo2 },
       { type: "link", href: "/sales/receipts", labelKey: "sales.receipts.title", icon: Receipt },
       { type: "link", href: "/sales/reports", labelKey: "nav.sales.reports", icon: BarChart3 },
     ],
@@ -138,6 +140,7 @@ export const NAV_CONFIG: NavEntry[] = [
     icon: Truck,
     children: [
       { type: "link", href: "/purchasing", labelKey: "nav.purchasing.orders_bills", icon: Truck },
+      { type: "link", href: "/purchasing/returns", labelKey: "nav.purchasing.returns", icon: Undo2 },
       { type: "link", href: "/purchasing/payments", labelKey: "purchasing.payments.title", icon: Banknote },
       { type: "link", href: "/purchasing/reports", labelKey: "nav.purchasing.reports", icon: BarChart3 },
     ],
