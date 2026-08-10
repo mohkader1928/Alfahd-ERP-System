@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  AlertTriangle,
   ArrowLeftRight,
   BarChart3,
   Banknote,
@@ -115,6 +116,54 @@ export const NAV_CONFIG: NavEntry[] = [
         labelKey: "accounting.tabs.balance_sheet",
         icon: FileSpreadsheet,
       },
+      {
+        type: "link",
+        href: "/accounting?tab=general-ledger",
+        labelKey: "accounting.tabs.general_ledger",
+        icon: FileText,
+      },
+      {
+        type: "link",
+        href: "/accounting?tab=vat-summary",
+        labelKey: "accounting.tabs.vat_summary",
+        icon: Receipt,
+      },
+      {
+        type: "link",
+        href: "/accounting?tab=fixed-asset-card",
+        labelKey: "fixed_assets.card.title",
+        icon: IdCard,
+      },
+      {
+        type: "link",
+        href: "/accounting?tab=fixed-assets-reconciliation",
+        labelKey: "fixed_assets.reconciliation.title",
+        icon: ClipboardCheck,
+      },
+      {
+        type: "link",
+        href: "/accounting?tab=customer-subledger",
+        labelKey: "accounting.tabs.customer_subledger",
+        icon: BookUser,
+      },
+      {
+        type: "link",
+        href: "/accounting?tab=vendor-subledger",
+        labelKey: "accounting.tabs.vendor_subledger",
+        icon: Coins,
+      },
+      {
+        type: "link",
+        href: "/accounting?tab=ar-aging",
+        labelKey: "accounting.tabs.ar_aging",
+        icon: Banknote,
+      },
+      {
+        type: "link",
+        href: "/accounting?tab=ap-aging",
+        labelKey: "accounting.tabs.ap_aging",
+        icon: ArrowLeftRight,
+      },
     ],
   },
   {
@@ -125,13 +174,21 @@ export const NAV_CONFIG: NavEntry[] = [
       { type: "link", href: "/inventory?tab=warehouses", labelKey: "inventory.tabs.warehouses", icon: Warehouse },
       { type: "link", href: "/inventory?tab=stock", labelKey: "inventory.tabs.stock", icon: PackageSearch },
       { type: "link", href: "/inventory?tab=moves", labelKey: "inventory.tabs.moves", icon: ArrowLeftRight },
+      { type: "link", href: "/inventory?tab=transfer", labelKey: "inventory.tabs.transfer", icon: Truck },
       {
         type: "link",
         href: "/inventory?tab=cycle-counts",
         labelKey: "inventory.tabs.cycle_counts",
         icon: ClipboardCheck,
       },
+      { type: "link", href: "/inventory?tab=cardex", labelKey: "inventory.tabs.cardex", icon: FileText },
       { type: "link", href: "/inventory?tab=valuation", labelKey: "inventory.tabs.valuation", icon: Coins },
+      {
+        type: "link",
+        href: "/inventory?tab=low-stock",
+        labelKey: "inventory.tabs.low_stock",
+        icon: AlertTriangle,
+      },
     ],
   },
   {

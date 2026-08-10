@@ -14,7 +14,6 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
@@ -1826,7 +1825,6 @@ function ApAgingTab() {
 }
 
 export default function AccountingPage() {
-  const { t } = useI18n();
   const searchParams = useSearchParams();
   // Base UI's Tabs.Panel fails to hide inactive panels once a second panel
   // mounts (its internal data-index tracking never resolves past -1 for
@@ -1853,49 +1851,27 @@ export default function AccountingPage() {
   const deepLinkPartnerId = searchParams.get("partner") ?? undefined;
   const deepLinkAccountId = searchParams.get("account") ?? undefined;
   const deepLinkAssetId = searchParams.get("asset") ?? undefined;
+  // Owner-requested: the sidebar's "Accounting" group now lists every
+  // report/screen directly (nav-config.ts), so picking one should land on
+  // that screen alone — not also show a giant row of all 14 report names
+  // as tab buttons (which wrapped across several lines and was itself
+  // what pushed each report's own "Apply" filter button below the fold).
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">{t("nav.accounting")}</h1>
-      <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
-        <TabsList>
-          <TabsTrigger value="accounts">{t("accounting.tabs.accounts")}</TabsTrigger>
-          <TabsTrigger value="journal-entries">{t("accounting.tabs.journal_entries")}</TabsTrigger>
-          <TabsTrigger value="fixed-assets">{t("accounting.tabs.fixed_assets")}</TabsTrigger>
-          <TabsTrigger value="fixed-asset-card">{t("fixed_assets.card.title")}</TabsTrigger>
-          <TabsTrigger value="fixed-assets-reconciliation">{t("fixed_assets.reconciliation.title")}</TabsTrigger>
-          <TabsTrigger value="trial-balance">{t("accounting.tabs.trial_balance")}</TabsTrigger>
-          <TabsTrigger value="general-ledger">{t("accounting.tabs.general_ledger")}</TabsTrigger>
-          <TabsTrigger value="income-statement">{t("accounting.tabs.income_statement")}</TabsTrigger>
-          <TabsTrigger value="balance-sheet">{t("accounting.tabs.balance_sheet")}</TabsTrigger>
-          <TabsTrigger value="vat-summary">{t("accounting.tabs.vat_summary")}</TabsTrigger>
-          <TabsTrigger value="customer-subledger">{t("accounting.tabs.customer_subledger")}</TabsTrigger>
-          <TabsTrigger value="vendor-subledger">{t("accounting.tabs.vendor_subledger")}</TabsTrigger>
-          <TabsTrigger value="ar-aging">{t("accounting.tabs.ar_aging")}</TabsTrigger>
-          <TabsTrigger value="ap-aging">{t("accounting.tabs.ap_aging")}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="accounts">{tab === "accounts" && <ChartOfAccountsTab />}</TabsContent>
-        <TabsContent value="journal-entries">{tab === "journal-entries" && <JournalEntriesTab />}</TabsContent>
-        <TabsContent value="fixed-assets">{tab === "fixed-assets" && <FixedAssetsTab />}</TabsContent>
-        <TabsContent value="fixed-asset-card">
-          {tab === "fixed-asset-card" && <FixedAssetCardTab initialAssetId={deepLinkAssetId} />}
-        </TabsContent>
-        <TabsContent value="fixed-assets-reconciliation">
-          {tab === "fixed-assets-reconciliation" && <FixedAssetsReconciliationTab />}
-        </TabsContent>
-        <TabsContent value="trial-balance">{tab === "trial-balance" && <TrialBalanceTab />}</TabsContent>
-        <TabsContent value="general-ledger">{tab === "general-ledger" && <GeneralLedgerTab initialAccountId={deepLinkAccountId} />}</TabsContent>
-        <TabsContent value="income-statement">{tab === "income-statement" && <IncomeStatementTab />}</TabsContent>
-        <TabsContent value="balance-sheet">{tab === "balance-sheet" && <BalanceSheetTab />}</TabsContent>
-        <TabsContent value="vat-summary">{tab === "vat-summary" && <VatSummaryTab />}</TabsContent>
-        <TabsContent value="customer-subledger">
-          {tab === "customer-subledger" && <CustomerSubledgerTab initialPartnerId={deepLinkPartnerId} />}
-        </TabsContent>
-        <TabsContent value="vendor-subledger">
-          {tab === "vendor-subledger" && <VendorSubledgerTab initialPartnerId={deepLinkPartnerId} />}
-        </TabsContent>
-        <TabsContent value="ar-aging">{tab === "ar-aging" && <ArAgingTab />}</TabsContent>
-        <TabsContent value="ap-aging">{tab === "ap-aging" && <ApAgingTab />}</TabsContent>
-      </Tabs>
+      {tab === "accounts" && <ChartOfAccountsTab />}
+      {tab === "journal-entries" && <JournalEntriesTab />}
+      {tab === "fixed-assets" && <FixedAssetsTab />}
+      {tab === "fixed-asset-card" && <FixedAssetCardTab initialAssetId={deepLinkAssetId} />}
+      {tab === "fixed-assets-reconciliation" && <FixedAssetsReconciliationTab />}
+      {tab === "trial-balance" && <TrialBalanceTab />}
+      {tab === "general-ledger" && <GeneralLedgerTab initialAccountId={deepLinkAccountId} />}
+      {tab === "income-statement" && <IncomeStatementTab />}
+      {tab === "balance-sheet" && <BalanceSheetTab />}
+      {tab === "vat-summary" && <VatSummaryTab />}
+      {tab === "customer-subledger" && <CustomerSubledgerTab initialPartnerId={deepLinkPartnerId} />}
+      {tab === "vendor-subledger" && <VendorSubledgerTab initialPartnerId={deepLinkPartnerId} />}
+      {tab === "ar-aging" && <ArAgingTab />}
+      {tab === "ap-aging" && <ApAgingTab />}
     </div>
   );
 }

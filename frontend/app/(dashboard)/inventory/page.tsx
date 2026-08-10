@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { Can } from "@/components/erp/permissions/can";
@@ -971,7 +970,6 @@ function ValuationTab() {
 }
 
 export default function InventoryPage() {
-  const { t } = useI18n();
   const searchParams = useSearchParams();
   // See the same note in accounting/page.tsx — Base UI's Tabs.Panel doesn't
   // reliably hide inactive panels once a second one mounts, so the active
@@ -987,29 +985,19 @@ export default function InventoryPage() {
     setLastUrlTab(urlTab);
     setTab(urlTab);
   }
+  // Owner-requested: the sidebar's "Inventory" group now lists every
+  // screen directly (nav-config.ts), so picking one should land on that
+  // screen alone — not also show all 8 tab names as one horizontal row.
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">{t("nav.inventory")}</h1>
-      <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
-        <TabsList>
-          <TabsTrigger value="warehouses">{t("inventory.tabs.warehouses")}</TabsTrigger>
-          <TabsTrigger value="stock">{t("inventory.tabs.stock")}</TabsTrigger>
-          <TabsTrigger value="moves">{t("inventory.tabs.moves")}</TabsTrigger>
-          <TabsTrigger value="transfer">{t("inventory.tabs.transfer")}</TabsTrigger>
-          <TabsTrigger value="cycle-counts">{t("inventory.tabs.cycle_counts")}</TabsTrigger>
-          <TabsTrigger value="cardex">{t("inventory.tabs.cardex")}</TabsTrigger>
-          <TabsTrigger value="valuation">{t("inventory.tabs.valuation")}</TabsTrigger>
-          <TabsTrigger value="low-stock">{t("inventory.tabs.low_stock")}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="warehouses">{tab === "warehouses" && <WarehousesTab />}</TabsContent>
-        <TabsContent value="stock">{tab === "stock" && <StockTab />}</TabsContent>
-        <TabsContent value="moves">{tab === "moves" && <MovesTab />}</TabsContent>
-        <TabsContent value="transfer">{tab === "transfer" && <TransferTab />}</TabsContent>
-        <TabsContent value="cycle-counts">{tab === "cycle-counts" && <CycleCountsTab />}</TabsContent>
-        <TabsContent value="cardex">{tab === "cardex" && <CardexTab />}</TabsContent>
-        <TabsContent value="valuation">{tab === "valuation" && <ValuationTab />}</TabsContent>
-        <TabsContent value="low-stock">{tab === "low-stock" && <LowStockTab />}</TabsContent>
-      </Tabs>
+      {tab === "warehouses" && <WarehousesTab />}
+      {tab === "stock" && <StockTab />}
+      {tab === "moves" && <MovesTab />}
+      {tab === "transfer" && <TransferTab />}
+      {tab === "cycle-counts" && <CycleCountsTab />}
+      {tab === "cardex" && <CardexTab />}
+      {tab === "valuation" && <ValuationTab />}
+      {tab === "low-stock" && <LowStockTab />}
     </div>
   );
 }

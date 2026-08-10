@@ -8,8 +8,39 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-10 — **Bug fix: vendor/customer subledger and
-GL deep-links stuck on the first partner/account viewed**. Owner report:
+**Last verified**: 2026-08-10 — **UI/UX: Accounting/Inventory sidebar
+menus + far-away "Apply" button**. Owner request: list every option in
+the Accounting dropdown menu and land directly on the chosen screen
+instead of a screen showing all options horizontally, and move the
+"Apply" filter button since it required scrolling to reach.
+
+Audit found both complaints share one root cause. `accounting/page.tsx`
+is a single page with all 14 reports (Chart of Accounts, Journal
+Entries, Fixed Assets ×3, Trial Balance, General Ledger, Income
+Statement, Balance Sheet, VAT Summary, Customer/Vendor Subledger, AR/AP
+Aging) rendered as one wide `TabsList` row of buttons at the top — but
+`lib/nav-config.ts`'s sidebar "Accounting" group only linked to 6 of the
+14, so the other 8 were reachable only by landing on the page and
+hunting through the wrapped tab-button row, which is also what was
+pushing each report's "Apply" button below the fold. Identical pattern
+found in Inventory (8 tabs, only 5 in the sidebar).
+
+Fixed both pages the same way: `nav-config.ts` now lists all 14
+Accounting links and all 8 Inventory links (every one already has a
+working `?tab=` route). `accounting/page.tsx` and `inventory/page.tsx`
+no longer render the `TabsList` row at all — since every individual
+report already shows its own title (`ReportView`'s `title` prop, checked
+across all 22 tab components before removing the outer generic page
+heading), landing via any sidebar link now shows only that one screen.
+tsc/eslint/`next build` clean. Live-verified: sidebar now lists all 14
+Accounting items; opening Vendor Subledger for a partner lands directly
+on that report with the Apply button at y≈204px inside a 720px viewport
+(no scroll needed, vs. previously being pushed past the fold by the
+14-tab row).
+
+**Immediately prior** — on top of committed `f07ee76` (`main`) — **Bug
+fix: vendor/customer subledger and GL deep-links stuck on the first
+partner/account viewed**. Owner report:
 registering a purchase order (PO-000033, real vendor "شركة القارات
 الخمسة") and then checking a *different* vendor's account only ever
 showed "القارات الخمسة"'s movements — asked for the root cause, a fix,
