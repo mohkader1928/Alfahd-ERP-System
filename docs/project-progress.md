@@ -8,7 +8,36 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-10, on top of committed `646a0a7` (`main`) —
+**Last verified**: 2026-08-10, on top of committed `d053aa0` (`main`) —
+**P0-7: UI/UX quick high-impact pass** (commit `d053aa0`), the 7th item
+of the 3-Day Brief. Re-audited `docs/18-ui-ux-audit.md`'s findings
+against current source rather than trusting the document at face
+value — it predates several sessions of work — and confirmed most of
+its Critical/High items are already resolved: company-selection UI
+(B1), Sales Order/Invoice list pages including the `GET /orders`
+endpoint the audit flagged as missing (C1/C1b), Purchasing/Inventory
+migrated onto `ERPListView` (A1), `<Can>` gating on the previously
+ungated Purchasing-approve/Sales-credit-note actions (A5), a toast
+system wired into 19 files (A7), and a full Cycle Count UI (D-
+Inventory) all exist now where the audit found them missing. Two
+genuine gaps remained and were fixed: `GET /reporting/export/sales-invoices`
+existed on the backend with zero frontend caller (`grep` for the path
+across the whole frontend returned nothing) — wired via `ERPListView`'s
+`exportAction` prop, itself already built but unused anywhere in the
+app; and `SalesInvoice.sales_order_id`, already returned by the API and
+present in the frontend's own type, was never rendered — the Invoice
+detail page now links to its originating Sales Order. Frontend-only,
+tsc/eslint/`next build` clean, live-verified against the demo company
+(seeded, real invoice data): the export button downloads a real CSV
+(network request confirmed 200 OK) and the order link navigates to the
+correct Sales Order. Remaining audit items not touched in this pass,
+left for a future bundle since they were assessed as Medium/Low or
+larger-scope than "quick": `zod`/`react-hook-form` schema validation
+(installed, still unused), `FormView` adoption on the 2 remaining
+hand-rolled forms (`sales/quotations/new`, `purchasing/orders/new`),
+and the unsearchable product picker in Inventory's Stock/Transfer forms.
+
+**Immediately prior, same session** — on top of committed `646a0a7` (`main`) —
 **P0-6: RBAC audit and completion** (commit `646a0a7`), the 6th item of
 the 3-Day Sellable Product brief. Audited via a full read of the
 identity module's role/permission model first (join-only RBAC, no
