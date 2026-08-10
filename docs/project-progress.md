@@ -8,8 +8,39 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-11, on top of committed `3c79e24` (`main`) —
-**P0-9: Sales Return + Purchase Return** (commit `3c79e24`), an
+**Last verified**: 2026-08-11, on top of committed `67d05c5` (`main`) —
+**P0-9 follow-up: dedicated Sales Return / Purchase Return screens**
+(commit `67d05c5`). Owner feedback on the first P0-9 pass: the restock
+checkbox added to the Invoice/Bill detail pages' credit-note/debit-note
+forms was too buried — "أجد الخيار ضمن قائمة المبيعات أو المشتريات"
+(couldn't find the option within the Sales/Purchasing menu), and asked
+for it to be named exactly "مرتجع مبيعات" inside the Sales menu and
+"مرتجع مشتريات" inside the Purchasing menu. Added: a new Sales nav
+entry routing to `/sales/returns` (a list of every credit note —
+`invoice_type=credit_note` is already what a Sales Return is in the
+data model, no new document type needed) plus `/sales/returns/new` (a
+dedicated creation flow: pick the original invoice from a picker
+filtered to only tax/simplified invoices, reason, restock checkbox
+default-checked); the mirror for Purchasing at `/purchasing/returns`
+and `/purchasing/returns/new` for debit notes (`bill_type=debit_note`).
+`GET /sales/invoices` gained an `invoice_type` filter and
+`GET /purchasing/vendor-bills` gained a `bill_type` filter so both new
+screens ask the server for exactly the return rows server-side, rather
+than fetching everything and filtering client-side. The original
+checkbox-in-detail-page flow from the first P0-9 pass was left in
+place (still correct, still useful when already viewing a specific
+document) — this adds the primary, discoverable entry point the Owner
+actually asked for, not a replacement. 2 new backend tests (server-side
+type filtering, proving the original document never leaks into its own
+returns list). Full suite 354/355 (1 known-flaky, unrelated inventory-
+concurrency test), ruff/tsc/eslint/`next build` all clean. Live-
+verified end to end: created a return from the new `/sales/returns/new`
+screen, confirmed it appeared in the `/sales/returns` list with the
+exact Owner-requested Arabic naming, and produced a real `return` stock
+move in the Inventory moves list.
+
+**Immediately prior, same session** — on top of committed `3c79e24`
+(`main`) — **P0-9: Sales Return + Purchase Return** (commit `3c79e24`), an
 Owner-requested addition beyond the original 8-item 3-Day Brief
 ("اضافة اختيار مرتجع للمبيعات فى موديول المبيعات ومرتجع المشتريات فى
 موديول المشتريات"). Audited first: Sales' Credit Note and Purchasing's
