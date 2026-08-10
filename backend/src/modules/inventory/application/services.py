@@ -108,6 +108,7 @@ class InventoryValuationService:
         valuation_method: str,
         source_table: str,
         source_id: UUID,
+        move_type: str | None = None,
     ) -> StockMove:
         if qty <= 0:
             raise ValueError("Received quantity must be positive")
@@ -145,7 +146,7 @@ class InventoryValuationService:
             dest_location_id=location_id,
             qty=qty,
             unit_cost=unit_cost,
-            move_type="receipt" if source_table != "cycle_count_line" else "adjustment",
+            move_type=move_type or ("receipt" if source_table != "cycle_count_line" else "adjustment"),
             source_table=source_table,
             source_id=source_id,
         )
@@ -256,6 +257,13 @@ class InventoryValuationService:
             for uid in recipient_ids
         ]
         await self.notification_repo.add_many(notifications)
+
+    async def list_moves_for_source(self, company_id: UUID, source_table: str, source_id: UUID) -> list[StockMove]:
+        """Sales/Purchase Returns: exposes the move_repo query the callers
+        (Sales/Purchasing) need to find an original document's own stock
+        moves without reaching past this service into the repository
+        layer directly (Phase 8 §2 layering)."""
+        return await self.move_repo.list_by_source(company_id, source_table, source_id)
 
     async def product_cardex(
         self,

@@ -417,11 +417,22 @@ class SalesInvoiceService:
             await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=invoice.company_id)
 
     async def issue_credit_note(
-        self, *, original_invoice_id: UUID, company_id: UUID, branch_id: UUID, created_by: UUID, reason: str
+        self,
+        *,
+        original_invoice_id: UUID,
+        company_id: UUID,
+        branch_id: UUID,
+        created_by: UUID,
+        reason: str,
+        restock: bool = True,
     ) -> tuple[SalesInvoice, ZatcaSubmission]:
         """UC-SAL-05 — a Credit Note follows the same ZATCA path (Clearance
         vs Reporting) as the original invoice it corrects (FR-SAL-005,
-        FR-ZATCA-001..009)."""
+        FR-ZATCA-001..009). Product Owner request: `restock=True` (the
+        default — a credit note usually means the goods are physically
+        coming back) additionally reverses the original delivery, turning
+        this into a true Sales Return rather than a financial-only
+        correction."""
         original = await self.invoice_repo.get_by_id(original_invoice_id)
         if original is None or original.company_id != company_id:
             raise ValueError("Original invoice not found")
@@ -493,7 +504,73 @@ class SalesInvoiceService:
 
         await self._post_journal_entry(credit_note, branch_id=branch_id, created_by=created_by, is_credit_note=True)
 
+        if restock:
+            await self._restock_for_credit_note(
+                credit_note, original_invoice_id=original.id, branch_id=branch_id, created_by=created_by
+            )
+
         return credit_note, submission
+
+    async def _restock_for_credit_note(
+        self, credit_note: SalesInvoice, *, original_invoice_id: UUID, branch_id: UUID, created_by: UUID
+    ) -> None:
+        """Sales Return: reverses the original delivery's stock moves at
+        the exact same unit_cost those moves recorded (not the current
+        average/FIFO cost, which may have drifted since the sale) — the
+        same delivery StockMove rows already carry that cost per product
+        (`unit_cost=result.unit_cost` set in `_deduct_stock_for_lines`),
+        so this is a lookup, not a recompute. Silently a no-op when
+        inventory isn't configured for this company, or the original sale
+        never touched stock (e.g. a service-only invoice) — same guard
+        `_deduct_stock_for_lines` itself uses."""
+        if self.inventory_service is None or self.warehouse_repo is None:
+            return
+
+        original_moves = await self.inventory_service.list_moves_for_source(
+            credit_note.company_id, "sales_invoice", original_invoice_id
+        )
+        delivery_moves = [m for m in original_moves if m.move_type == "delivery"]
+        if not delivery_moves:
+            return
+
+        total_cost = Decimal("0")
+        for move in delivery_moves:
+            await self.inventory_service.receive_stock(
+                company_id=credit_note.company_id,
+                product_id=move.product_id,
+                location_id=move.source_location_id,
+                qty=move.qty,
+                unit_cost=move.unit_cost,
+                valuation_method=self.valuation_method or "average",
+                source_table="sales_invoice",
+                source_id=credit_note.id,
+                move_type="return",
+            )
+            total_cost += (move.qty * move.unit_cost).quantize(Decimal("0.0001"))
+
+        if total_cost <= 0:
+            return
+
+        cogs_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_COGS)
+        inventory_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_INVENTORY)
+        if not (cogs_account and inventory_account):
+            raise ValueError("Default Chart of Accounts is not seeded for this company")
+
+        entry = await self.journal_entry_service.create_draft_entry(
+            company_id=credit_note.company_id,
+            branch_id=branch_id,
+            journal_code="GEN",
+            entry_date=credit_note.invoice_date,
+            reference=f"Inventory return for {credit_note.number}",
+            lines=[
+                {"account_id": inventory_account.id, "debit": total_cost, "credit": 0},
+                {"account_id": cogs_account.id, "debit": 0, "credit": total_cost},
+            ],
+            created_by=created_by,
+            source_table="sales_invoice",
+            source_id=credit_note.id,
+        )
+        await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=credit_note.company_id)
 
     async def _run_zatca_pipeline(
         self,

@@ -195,6 +195,20 @@ class StockMoveRepository:
         result = await self.session.execute(query.order_by(StockMove.moved_at.desc()))
         return list(result.scalars().all())
 
+    async def list_by_source(self, company_id: UUID, source_table: str, source_id: UUID) -> list[StockMove]:
+        """Sales/Purchase Returns: looks up the exact moves (and their
+        per-line unit_cost) an original document already created, so a
+        return can restock at the same cost the original sale/receipt
+        used rather than recomputing it from the current valuation state."""
+        result = await self.session.execute(
+            select(StockMove).where(
+                StockMove.company_id == company_id,
+                StockMove.source_table == source_table,
+                StockMove.source_id == source_id,
+            )
+        )
+        return list(result.scalars().all())
+
     def _warehouse_filter(self, query, warehouse_id: UUID):
         """A move touches a warehouse if either its source or dest location
         belongs to it -- covers receipts/deliveries/adjustments (one side

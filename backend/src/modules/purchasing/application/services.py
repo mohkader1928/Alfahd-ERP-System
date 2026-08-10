@@ -465,6 +465,10 @@ class VendorBillService:
         product_repo: ProductRepository,
         account_repo: AccountRepository,
         journal_entry_service: JournalEntryService,
+        inventory_service: InventoryValuationService | None = None,
+        warehouse_repo: WarehouseRepository | None = None,
+        location_repo: LocationRepository | None = None,
+        valuation_method: str | None = None,
     ):
         self.bill_repo = bill_repo
         self.order_repo = order_repo
@@ -472,6 +476,13 @@ class VendorBillService:
         self.product_repo = product_repo
         self.account_repo = account_repo
         self.journal_entry_service = journal_entry_service
+        # Optional, same "not every caller needs it" pattern Sales'
+        # InvoiceService already uses — only issue_debit_note's restock
+        # path needs these; register_bill doesn't touch inventory at all.
+        self.inventory_service = inventory_service
+        self.warehouse_repo = warehouse_repo
+        self.location_repo = location_repo
+        self.valuation_method = valuation_method
 
     async def register_bill(
         self,
@@ -606,17 +617,26 @@ class VendorBillService:
         return bill
 
     async def issue_debit_note(
-        self, *, original_bill_id: UUID, company_id: UUID, branch_id: UUID, created_by: UUID, reason: str
+        self,
+        *,
+        original_bill_id: UUID,
+        company_id: UUID,
+        branch_id: UUID,
+        created_by: UUID,
+        reason: str,
+        restock: bool = True,
     ) -> VendorBill:
         """Product Owner audit finding: Sales has a Credit Note (reverses a
         posted invoice) but Purchasing had no equivalent for reversing a
         posted vendor bill (goods returned to the vendor, or a price
         correction) — a real asymmetry against SAP B1/Dynamics 365 BC/Odoo.
-        Mirrors issue_credit_note exactly: a full reversal of the original
-        bill's own amounts and its own posting journal entry (GRNI/VAT/AP),
-        not a partial-amount document and not a physical inventory reversal
-        — the same simplification the Sales Credit Note already makes by
-        not touching COGS/Inventory either."""
+        Mirrors issue_credit_note: a full reversal of the original bill's
+        own amounts and its own posting journal entry (GRNI/VAT/AP), not a
+        partial-amount document. Product Owner follow-up request:
+        `restock=True` (the default — a debit note usually means goods are
+        physically going back to the vendor) additionally removes the
+        returned qty from stock, turning this into a true Purchase Return
+        rather than a financial-only correction."""
         original = await self.bill_repo.get_by_id(original_bill_id)
         if original is None or original.company_id != company_id:
             raise ValueError("Original vendor bill not found")
@@ -693,4 +713,75 @@ class VendorBillService:
         posted = await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=company_id)
         debit_note.journal_entry_id = posted.id
 
+        if restock:
+            await self._restock_for_debit_note(
+                debit_note, lines=debit_note_lines, branch_id=branch_id, created_by=created_by
+            )
+
         return debit_note
+
+    async def _restock_for_debit_note(
+        self, debit_note: VendorBill, *, lines: list[VendorBillLine], branch_id: UUID, created_by: UUID
+    ) -> None:
+        """Purchase Return: removes the debit note's qty back out of stock
+        (the current valuation-engine cost, same as any other outgoing
+        move in this codebase — there is no single "original cost" to
+        reverse here the way Sales' delivery moves record one, since a
+        vendor bill's own unit_price already went into the moving-average/
+        FIFO pool at receipt time alongside every other receipt for that
+        product) and posts the exact-opposite of the goods-receipt entry
+        (Dr GRNI / Cr Inventory) for whatever that computes to. Silently a
+        no-op when inventory isn't configured for this company."""
+        if self.inventory_service is None or self.warehouse_repo is None:
+            return
+
+        warehouse = await self.warehouse_repo.get_default_for_company(debit_note.company_id)
+        if warehouse is None:
+            return
+        locations = await self.location_repo.list_by_warehouse(warehouse.id)
+        if not locations:
+            return
+        location = locations[0]
+
+        total_cost = Decimal("0")
+        for line in lines:
+            product = await self.product_repo.get_by_id(line.product_id)
+            if product is None or not product.is_stockable:
+                continue
+
+            _move, cost = await self.inventory_service.issue_stock(
+                company_id=debit_note.company_id,
+                product_id=line.product_id,
+                location_id=location.id,
+                qty=line.qty,
+                valuation_method=self.valuation_method or "average",
+                source_table="vendor_bill",
+                source_id=debit_note.id,
+                move_type="return",
+                allow_negative=True,
+            )
+            total_cost += cost
+
+        if total_cost <= 0:
+            return
+
+        grni_account = await self.account_repo.get_by_code(debit_note.company_id, ACCOUNT_CODE_GRNI)
+        inventory_account = await self.account_repo.get_by_code(debit_note.company_id, ACCOUNT_CODE_INVENTORY)
+        if not (grni_account and inventory_account):
+            raise ValueError("Default Chart of Accounts is not seeded for this company")
+
+        entry = await self.journal_entry_service.create_draft_entry(
+            company_id=debit_note.company_id,
+            branch_id=branch_id,
+            journal_code="PURCH",
+            entry_date=debit_note.bill_date,
+            reference=f"Inventory return for {debit_note.number}",
+            lines=[
+                {"account_id": grni_account.id, "debit": total_cost, "credit": 0},
+                {"account_id": inventory_account.id, "debit": 0, "credit": total_cost},
+            ],
+            created_by=created_by,
+            source_table="vendor_bill",
+            source_id=debit_note.id,
+        )
+        await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=debit_note.company_id)

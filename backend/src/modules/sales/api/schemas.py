@@ -83,6 +83,13 @@ class InvoiceIssueResponse(BaseModel):
 
 class CreditNoteCreateRequest(BaseModel):
     reason: str
+    # Product Owner request: a credit note previously reversed only the
+    # financial side (AR/Revenue/VAT), never the goods themselves — this
+    # makes it a true "Sales Return" when true (the common case: goods are
+    # physically coming back). False keeps the old financial-only behavior
+    # for cases where the goods are NOT coming back (e.g. a price
+    # correction, or goods damaged beyond resale).
+    restock: bool = True
 
 
 class SendInvoiceEmailRequest(BaseModel):

@@ -122,12 +122,67 @@ async def test_debit_note_reverses_the_original_bill_journal_entry(client):
     # Bill (Cr 2300) + Debit Note (Dr 2300) nets Accounts Payable to zero.
     assert rows["2100"]["total_debit"] == rows["2100"]["total_credit"] == "2300.0000"
     # GRNI: receipt accrual (Cr 2000) + bill's own clearing (Dr 2000) +
-    # debit note's reversal (Cr 2000) -> debit 2000, credit 4000.
-    assert rows["2300"]["total_debit"] == "2000.0000"
+    # debit note's AP reversal (Cr 2000) + restock's reversal (P0-9,
+    # Dr 2000, since debit_note's default restock=True actually removes
+    # the goods from stock too) -> debit 4000, credit 4000.
+    assert rows["2300"]["total_debit"] == "4000.0000"
     assert rows["2300"]["total_credit"] == "4000.0000"
     # VAT: bill's Dr 300 (input VAT) + debit note's Cr 300 (reversal) nets to zero net movement.
     assert rows["2200"]["total_debit"] == "300.0000"
     assert rows["2200"]["total_credit"] == "300.0000"
+    # P0-9 Purchase Return: Inventory received 2000 at goods-receipt time,
+    # then returned right back out at the same (only-ever) average cost —
+    # nets to zero, but both legs are real, separate postings.
+    assert rows["1300"]["total_debit"] == "2000.0000"
+    assert rows["1300"]["total_credit"] == "2000.0000"
+
+
+async def test_debit_note_restocks_inventory_by_default(client):
+    _, headers = await _bootstrap_and_login(client)
+    bill_id, _ = await _create_posted_bill(client, headers)
+    product_resp = await client.get("/api/v1/identity/products", headers=headers)
+    product_id = next(p["id"] for p in product_resp.json() if p["name"] == "Steel Rod")
+
+    quants_before = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    qty_before = next(q["qty_on_hand"] for q in quants_before if q["product_id"] == product_id)
+    assert qty_before == "100.000000"
+
+    debit_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}:debit-note",
+        headers=headers,
+        json={"reason": "Damaged goods returned to vendor"},
+    )
+    assert debit_resp.status_code == 201
+
+    quants_after = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    qty_after = next(q["qty_on_hand"] for q in quants_after if q["product_id"] == product_id)
+    assert qty_after == "0.000000"
+
+    moves = (await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})).json()
+    return_moves = [m for m in moves if m["move_type"] == "return"]
+    assert len(return_moves) == 1
+    assert return_moves[0]["qty"] == "100.000000"
+
+
+async def test_debit_note_with_restock_false_leaves_inventory_untouched(client):
+    _, headers = await _bootstrap_and_login(client)
+    bill_id, _ = await _create_posted_bill(client, headers)
+    product_resp = await client.get("/api/v1/identity/products", headers=headers)
+    product_id = next(p["id"] for p in product_resp.json() if p["name"] == "Steel Rod")
+
+    debit_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}:debit-note",
+        headers=headers,
+        json={"reason": "Price correction only", "restock": False},
+    )
+    assert debit_resp.status_code == 201
+
+    quants = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    qty = next(q["qty_on_hand"] for q in quants if q["product_id"] == product_id)
+    assert qty == "100.000000"  # unchanged — still the full original receipt
+
+    moves = (await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})).json()
+    assert not any(m["move_type"] == "return" for m in moves)
 
 
 async def test_debit_note_reduces_ap_aging_for_the_original_bill(client):

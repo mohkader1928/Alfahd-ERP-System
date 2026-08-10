@@ -206,6 +206,115 @@ async def test_credit_note_reverses_the_original_invoice_journal_entry(client):
     assert rows["1200"]["total_debit"] == rows["1200"]["total_credit"] == "2300.0000"
 
 
+# --- P0-9: Sales Return (credit note + restock) ---------------------------
+
+
+async def _create_quotation_and_confirm_with_qty(
+    client, headers, *, partner_id: str, product_id: str, tax_rate_id: str, qty: str
+):
+    create_resp = await client.post(
+        "/api/v1/sales/quotations",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "quote_date": "2026-03-01",
+            "lines": [{"product_id": product_id, "qty": qty, "unit_price": "1000.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    quotation_id = create_resp.json()["id"]
+    confirm_resp = await client.post(f"/api/v1/sales/quotations/{quotation_id}:confirm", headers=headers)
+    return confirm_resp.json()["id"]
+
+
+async def _sell_with_stock(client, headers, *, partner_id: str, product_id: str, tax_rate_id: str):
+    """Sets up a default warehouse, receives 10 units at cost 400.00, sells
+    2 of them, and returns the invoice_id and the location_id stock was
+    issued from — the shared setup for both restock tests below."""
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    location_id = wh_resp.json()["default_location"]["id"]
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "10", "unit_cost": "400.00"},
+    )
+    order_id = await _create_quotation_and_confirm_with_qty(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id, qty="2"
+    )
+    invoice_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    return invoice_resp.json()["invoice"]["id"], location_id
+
+
+async def test_credit_note_restocks_inventory_and_reverses_cogs_by_default(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+    invoice_id, _ = await _sell_with_stock(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+
+    quants_after_sale = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    qty_after_sale = next(q["qty_on_hand"] for q in quants_after_sale if q["product_id"] == product_id)
+    assert qty_after_sale == "8.000000"  # 10 received - 2 sold
+
+    credit_resp = await client.post(
+        f"/api/v1/sales/invoices/{invoice_id}:credit-note", headers=headers, json={"reason": "Customer return"}
+    )
+    assert credit_resp.status_code == 201
+
+    quants_after_return = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    qty_after_return = next(q["qty_on_hand"] for q in quants_after_return if q["product_id"] == product_id)
+    assert qty_after_return == "10.000000"  # back to the original 10
+
+    moves = (await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})).json()
+    return_moves = [m for m in moves if m["move_type"] == "return"]
+    assert len(return_moves) == 1
+    assert return_moves[0]["qty"] == "2.000000"
+    assert return_moves[0]["unit_cost"] == "400.0000"  # exact original cost, not a recomputed one
+
+    trial_balance = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+    )
+    rows = {row["account_code"]: row for row in trial_balance.json()}
+    # POST /inventory/stock/receive is a manual, GL-less adjustment (no
+    # journal entry of its own) — the only Inventory/COGS postings in this
+    # scenario are the sale's own COGS entry and this return's reversal of
+    # it: sale Cr 800 (2 @ 400), return Dr 800 -> nets to zero, both real.
+    assert rows["1300"]["total_debit"] == "800.0000"
+    assert rows["1300"]["total_credit"] == "800.0000"
+    # COGS: sale Dr 800, return's reversal Cr 800 -> nets to zero net movement.
+    assert rows["5100"]["total_debit"] == "800.0000"
+    assert rows["5100"]["total_credit"] == "800.0000"
+
+
+async def test_credit_note_with_restock_false_leaves_inventory_untouched(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+    invoice_id, _ = await _sell_with_stock(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+
+    credit_resp = await client.post(
+        f"/api/v1/sales/invoices/{invoice_id}:credit-note",
+        headers=headers,
+        json={"reason": "Price correction only", "restock": False},
+    )
+    assert credit_resp.status_code == 201
+
+    quants = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    qty = next(q["qty_on_hand"] for q in quants if q["product_id"] == product_id)
+    assert qty == "8.000000"  # unchanged — still just the original sale's deduction
+
+    moves = (await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})).json()
+    assert not any(m["move_type"] == "return" for m in moves)
+
+
 async def test_sales_endpoints_require_permission(client):
     resp = await client.post("/api/v1/sales/quotations", json={})
     assert resp.status_code == 401

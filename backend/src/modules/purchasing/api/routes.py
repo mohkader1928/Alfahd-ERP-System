@@ -352,6 +352,7 @@ async def issue_debit_note(
             branch_id=ctx.branch_id,
             created_by=ctx.user_id,
             reason=payload.reason,
+            restock=payload.restock,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e

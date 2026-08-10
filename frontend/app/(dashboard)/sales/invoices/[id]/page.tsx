@@ -32,6 +32,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
   const [reason, setReason] = useState("");
+  const [restock, setRestock] = useState(true);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [emailOverride, setEmailOverride] = useState("");
   const [downloading, setDownloading] = useState(false);
@@ -42,7 +43,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   });
 
   const creditNoteMutation = useMutation({
-    mutationFn: () => salesApi.issueCreditNote(companyId, branchId, id, reason),
+    mutationFn: () => salesApi.issueCreditNote(companyId, branchId, id, reason, restock),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["invoice", companyId, id] });
       toastSuccess(t("toast.success_title"), result.invoice.number);
@@ -167,6 +168,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={restock} onChange={(e) => setRestock(e.target.checked)} />
+                  {t("sales.invoice.restock_label")}
+                </label>
                 <Button
                   variant="outline"
                   onClick={() => creditNoteMutation.mutate()}

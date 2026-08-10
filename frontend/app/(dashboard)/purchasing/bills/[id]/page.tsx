@@ -30,6 +30,7 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId);
   const [debitNoteReason, setDebitNoteReason] = useState("");
+  const [debitNoteRestock, setDebitNoteRestock] = useState(true);
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor-bill", companyId, id],
@@ -55,7 +56,7 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
   });
 
   const debitNoteMutation = useMutation({
-    mutationFn: () => purchasingApi.issueDebitNote(companyId, branchId!, id, debitNoteReason),
+    mutationFn: () => purchasingApi.issueDebitNote(companyId, branchId!, id, debitNoteReason, debitNoteRestock),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["vendor-bill", companyId, id] });
       queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] });
@@ -144,6 +145,14 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
                   value={debitNoteReason}
                   onChange={(e) => setDebitNoteReason(e.target.value)}
                 />
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={debitNoteRestock}
+                    onChange={(e) => setDebitNoteRestock(e.target.checked)}
+                  />
+                  {t("purchasing.vendor_bills.restock_label")}
+                </label>
                 <Button
                   variant="outline"
                   onClick={() => debitNoteMutation.mutate()}

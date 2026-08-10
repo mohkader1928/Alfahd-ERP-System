@@ -95,6 +95,13 @@ class VendorBillCreateRequest(BaseModel):
 
 class DebitNoteCreateRequest(BaseModel):
     reason: str
+    # Product Owner request: a debit note previously reversed only the
+    # financial side (AP/GRNI/VAT), never the goods themselves — this
+    # makes it a true "Purchase Return" when true (the common case: goods
+    # are physically going back to the vendor). False keeps the old
+    # financial-only behavior (e.g. a price correction with no physical
+    # return).
+    restock: bool = True
 
 
 class VendorBillOut(BaseModel):

@@ -45,7 +45,7 @@ class Location(Base):
     is_virtual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
 
-MOVE_TYPES = ("receipt", "delivery", "transfer", "adjustment")
+MOVE_TYPES = ("receipt", "delivery", "transfer", "adjustment", "return")
 
 
 class StockMove(Base):

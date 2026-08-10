@@ -108,16 +108,31 @@ async def get_goods_receipt_service(
     )
 
 
+async def get_company_valuation_method(
+    db: AsyncSession = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
+) -> str:
+    company = await CompanyRepository(db).get_by_id(ctx.company_id)
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
+    return company.valuation_method
+
+
 async def get_vendor_bill_service(
     db: AsyncSession = Depends(get_db),
     bill_repo: VendorBillRepository = Depends(get_vendor_bill_repo),
     order_repo: PurchaseOrderRepository = Depends(get_purchase_order_repo),
     receipt_repo: GoodsReceiptRepository = Depends(get_goods_receipt_repo),
+    valuation_method: str = Depends(get_company_valuation_method),
 ) -> VendorBillService:
     product_repo = ProductRepository(db)
     account_repo = AccountRepository(db)
     journal_entry_service = JournalEntryService(
         JournalEntryRepository(db), JournalRepository(db), AccountRepository(db), FiscalPeriodRepository(db)
+    )
+    # P0-9 Purchase Return: issue_debit_note's restock path needs these —
+    # register_bill (the rest of this service) doesn't touch inventory.
+    inventory_service = InventoryValuationService(
+        StockQuantRepository(db), StockLayerRepository(db), StockMoveRepository(db)
     )
     return VendorBillService(
         bill_repo=bill_repo,
@@ -126,13 +141,8 @@ async def get_vendor_bill_service(
         product_repo=product_repo,
         account_repo=account_repo,
         journal_entry_service=journal_entry_service,
+        inventory_service=inventory_service,
+        warehouse_repo=WarehouseRepository(db),
+        location_repo=LocationRepository(db),
+        valuation_method=valuation_method,
     )
-
-
-async def get_company_valuation_method(
-    db: AsyncSession = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
-) -> str:
-    company = await CompanyRepository(db).get_by_id(ctx.company_id)
-    if company is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
-    return company.valuation_method

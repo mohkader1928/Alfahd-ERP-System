@@ -49,10 +49,10 @@ export const salesApi = {
     return apiClient.get<Page<SalesInvoice>>(`${BASE}/invoices?${qs.toString()}`, { companyId });
   },
 
-  issueCreditNote: (companyId: string, branchId: string, invoiceId: string, reason: string) =>
+  issueCreditNote: (companyId: string, branchId: string, invoiceId: string, reason: string, restock = true) =>
     apiClient.post<InvoiceIssueResponse>(
       `${BASE}/invoices/${invoiceId}:credit-note`,
-      { reason },
+      { reason, restock },
       { companyId, branchId }
     ),
 
