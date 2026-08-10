@@ -96,6 +96,18 @@ export const purchasingApi = {
   issueDebitNote: (companyId: string, branchId: string, id: string, reason: string, restock = true) =>
     apiClient.post<VendorBill>(`${BASE}/vendor-bills/${id}:debit-note`, { reason, restock }, { companyId, branchId }),
 
+  issueDebitNoteForLines: (
+    companyId: string,
+    branchId: string,
+    payload: {
+      partner_id: string;
+      original_bill_id?: string;
+      reason: string;
+      restock: boolean;
+      lines: PurchaseOrderLineIn[];
+    }
+  ) => apiClient.post<VendorBill>(`${BASE}/vendor-bills:return`, payload, { companyId, branchId }),
+
   getVendorBill: (companyId: string, id: string) =>
     apiClient.get<VendorBillDetail>(`${BASE}/vendor-bills/${id}`, { companyId }),
 };

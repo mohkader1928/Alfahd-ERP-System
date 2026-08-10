@@ -48,7 +48,7 @@ export interface VendorBill {
   id: string;
   company_id: string;
   partner_id: string;
-  purchase_order_id: string;
+  purchase_order_id: string | null;
   number: string;
   vendor_reference: string | null;
   status: string;
@@ -65,7 +65,7 @@ export interface VendorBill {
 export interface VendorBillLine {
   id: string;
   product_id: string;
-  purchase_order_line_id: string;
+  purchase_order_line_id: string | null;
   qty: string;
   unit_price: string;
   tax_rate_percent: string;

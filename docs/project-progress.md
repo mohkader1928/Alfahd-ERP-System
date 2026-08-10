@@ -8,36 +8,81 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-11, on top of committed `67d05c5` (`main`) —
-**P0-9 follow-up: dedicated Sales Return / Purchase Return screens**
-(commit `67d05c5`). Owner feedback on the first P0-9 pass: the restock
-checkbox added to the Invoice/Bill detail pages' credit-note/debit-note
-forms was too buried — "أجد الخيار ضمن قائمة المبيعات أو المشتريات"
-(couldn't find the option within the Sales/Purchasing menu), and asked
-for it to be named exactly "مرتجع مبيعات" inside the Sales menu and
-"مرتجع مشتريات" inside the Purchasing menu. Added: a new Sales nav
-entry routing to `/sales/returns` (a list of every credit note —
-`invoice_type=credit_note` is already what a Sales Return is in the
-data model, no new document type needed) plus `/sales/returns/new` (a
-dedicated creation flow: pick the original invoice from a picker
-filtered to only tax/simplified invoices, reason, restock checkbox
-default-checked); the mirror for Purchasing at `/purchasing/returns`
-and `/purchasing/returns/new` for debit notes (`bill_type=debit_note`).
-`GET /sales/invoices` gained an `invoice_type` filter and
-`GET /purchasing/vendor-bills` gained a `bill_type` filter so both new
+**Last verified**: 2026-08-11 — **P0-9 second follow-up: freeform
+multi-line returns, original document made optional**. Owner feedback
+on the dedicated-screens pass: "المرتجع لا يشترط ان يكون لكامل فاتورة
+المبيعات او المشتريات... اطلب منك ان يكون المرتجع لعدة اصناف ليسوا
+ضمن فاتورة واحدة مع وضع حقل اختيارى رقم الفاتورة... مع مراعاة معالجة
+ضريبة القيمة المضافة بطريقة صحيحة" — a return must not require a
+single whole invoice/bill; it must support arbitrary product lines
+that were never on one invoice together, with the original-document
+reference reduced to an optional traceability field, and VAT computed
+correctly per line.
+
+Sales side was schema-feasible immediately (`sales_invoice.
+original_invoice_id` and `.sales_order_id` were already nullable).
+Purchasing needed a real schema change: `vendor_bill.purchase_order_id`
+and `vendor_bill_line.purchase_order_line_id` were both `NOT NULL`
+(every debit note previously inherited its PO from the original bill,
+and every line 3-way-matched to a real PO line) — migration
+`b3c4d5e6f7a8` makes both nullable; standard bills are unaffected,
+enforced at the application layer, not the column.
+
+New backend methods, additive alongside the existing single-document
+`issue_credit_note`/`issue_debit_note` (both left untouched, still the
+right call when returning one whole document):
+`SalesInvoiceService.issue_credit_note_for_lines` (partner_id required,
+`original_invoice_id` optional, freeform `lines`, same flat-15%-VAT
+per-line computation `issue_invoice_from_order` already uses elsewhere
+in this codebase) and `VendorBillService.issue_debit_note_for_lines`
+(mirror, partner_id required, `original_bill_id` optional). New routes
+`POST /sales/invoices:return` and `POST /purchasing/vendor-bills:return`
+(collection-level, not nested under an ID, since there may be no single
+parent document). Restock: Sales resolves each line's cost from the
+original invoice's own delivery move when one is referenced and the
+product matches, else falls back to the location's current moving-
+average cost (`_restock_for_credit_note_lines`); Purchasing reuses the
+existing `_restock_for_debit_note` unchanged — it was already
+product/qty-driven via the valuation engine's current cost, never
+dependent on an original document.
+
+7 new backend tests (freeform with no original reference computing
+VAT correctly, freeform with an optional reference using its own
+custom lines instead of a verbatim copy, restock at original-delivery
+cost when the product matches vs. average-cost fallback when it
+doesn't). Full suite 361/362 (1 known-flaky, unrelated inventory-
+concurrency test — passes in isolation), ruff/tsc/eslint/`next build`
+all clean. Live-verified end to end in the browser for both modules:
+picked a customer/vendor directly (no invoice/bill selected at all),
+added a line via the product picker, submitted — real `201 Created`
+responses confirmed via network inspection (`credit_note`/`debit_note`
+type, `original_invoice_id`/`original_bill_id`/`purchase_order_id` all
+`null`, correct per-line VAT: e.g. 150.00 subtotal → 22.50 tax → 172.50
+total).
+
+**Immediately prior, same session** — on top of committed `67d05c5`
+(`main`) — **P0-9 follow-up: dedicated Sales Return / Purchase Return
+screens** (commit `67d05c5`). Owner feedback on the first P0-9 pass: the
+restock checkbox added to the Invoice/Bill detail pages'
+credit-note/debit-note forms was too buried — "أجد الخيار ضمن قائمة
+المبيعات أو المشتريات" (couldn't find the option within the
+Sales/Purchasing menu), and asked for it to be named exactly "مرتجع
+مبيعات" inside the Sales menu and "مرتجع مشتريات" inside the Purchasing
+menu. Added: a new Sales nav entry routing to `/sales/returns` (a list
+of every credit note — `invoice_type=credit_note` is already what a
+Sales Return is in the data model, no new document type needed) plus
+`/sales/returns/new` (originally a single-invoice picker; superseded by
+the freeform multi-line editor above); the mirror for Purchasing at
+`/purchasing/returns` and `/purchasing/returns/new`. `GET
+/sales/invoices` gained an `invoice_type` filter and `GET
+/purchasing/vendor-bills` gained a `bill_type` filter so both list
 screens ask the server for exactly the return rows server-side, rather
-than fetching everything and filtering client-side. The original
-checkbox-in-detail-page flow from the first P0-9 pass was left in
-place (still correct, still useful when already viewing a specific
-document) — this adds the primary, discoverable entry point the Owner
-actually asked for, not a replacement. 2 new backend tests (server-side
-type filtering, proving the original document never leaks into its own
-returns list). Full suite 354/355 (1 known-flaky, unrelated inventory-
-concurrency test), ruff/tsc/eslint/`next build` all clean. Live-
-verified end to end: created a return from the new `/sales/returns/new`
-screen, confirmed it appeared in the `/sales/returns` list with the
-exact Owner-requested Arabic naming, and produced a real `return` stock
-move in the Inventory moves list.
+than fetching everything and filtering client-side. 2 backend tests
+(server-side type filtering, proving the original document never leaks
+into its own returns list). Live-verified end to end: created a return
+from the new `/sales/returns/new` screen, confirmed it appeared in the
+`/sales/returns` list with the exact Owner-requested Arabic naming, and
+produced a real `return` stock move in the Inventory moves list.
 
 **Immediately prior, same session** — on top of committed `3c79e24`
 (`main`) — **P0-9: Sales Return + Purchase Return** (commit `3c79e24`), an

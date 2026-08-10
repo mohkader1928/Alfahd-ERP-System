@@ -519,6 +519,7 @@
   "purchasing.vendor_bills.debit_note_reason_placeholder": "سبب إشعار المدين",
   "purchasing.vendor_bills.restock_label": "إرجاع البضاعة للمورد (مرتجع مشتريات)",
   "common.loading": "جارٍ التحميل…",
+  "common.optional": "اختياري",
   "common.save": "حفظ",
   "common.cancel": "إلغاء",
   "common.close": "إغلاق",

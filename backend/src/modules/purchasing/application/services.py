@@ -15,6 +15,7 @@ from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository
 from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
+    PartnerRepository,
     ProductRepository,
     RoleRepository,
 )
@@ -469,6 +470,7 @@ class VendorBillService:
         warehouse_repo: WarehouseRepository | None = None,
         location_repo: LocationRepository | None = None,
         valuation_method: str | None = None,
+        partner_repo: PartnerRepository | None = None,
     ):
         self.bill_repo = bill_repo
         self.order_repo = order_repo
@@ -476,6 +478,11 @@ class VendorBillService:
         self.product_repo = product_repo
         self.account_repo = account_repo
         self.journal_entry_service = journal_entry_service
+        # Only issue_debit_note_for_lines needs this (a freeform Purchase
+        # Return states its vendor directly, with no bill/PO to infer it
+        # from) — register_bill/issue_debit_note both already get the
+        # vendor from an existing PO/bill.
+        self.partner_repo = partner_repo
         # Optional, same "not every caller needs it" pattern Sales'
         # InvoiceService already uses — only issue_debit_note's restock
         # path needs these; register_bill doesn't touch inventory at all.
@@ -706,6 +713,127 @@ class VendorBillService:
             reference=debit_note.number,
             description=reason,
             lines=lines,
+            created_by=created_by,
+            source_table="vendor_bill",
+            source_id=debit_note.id,
+        )
+        posted = await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=company_id)
+        debit_note.journal_entry_id = posted.id
+
+        if restock:
+            await self._restock_for_debit_note(
+                debit_note, lines=debit_note_lines, branch_id=branch_id, created_by=created_by
+            )
+
+        return debit_note
+
+    async def issue_debit_note_for_lines(
+        self,
+        *,
+        partner_id: UUID,
+        company_id: UUID,
+        branch_id: UUID,
+        created_by: UUID,
+        reason: str,
+        lines: list[dict],
+        original_bill_id: UUID | None = None,
+        restock: bool = True,
+    ) -> VendorBill:
+        """Product Owner request: a Purchase Return does not have to
+        correspond to one whole vendor bill (or even one purchase order) —
+        it can be a freeform set of lines with the original bill number
+        reduced to an OPTIONAL traceability field. Mirrors
+        `issue_debit_note`'s GRNI/AP/VAT JE + restock pipeline, but each
+        line is computed from scratch (same flat-15% VAT convention every
+        other from-scratch line in this codebase uses) instead of being
+        copied verbatim from a single original bill's own lines. Neither
+        `purchase_order_id` nor any line's `purchase_order_line_id` is set
+        (both nullable — see migration b3c4d5e6f7a8) since there may be no
+        PO behind this return at all."""
+        if self.partner_repo is None:
+            raise ValueError("Vendor lookup is not configured for this company")
+        if not lines:
+            raise ValueError("A debit note must have at least one line")
+
+        partner = await self.partner_repo.get_by_id(partner_id)
+        if partner is None or partner.company_id != company_id:
+            raise ValueError("Vendor not found")
+
+        original: VendorBill | None = None
+        if original_bill_id is not None:
+            original = await self.bill_repo.get_by_id(original_bill_id)
+            if original is None or original.company_id != company_id:
+                raise ValueError("Original vendor bill not found")
+            if original.bill_type != "standard":
+                raise ValueError("A debit note can only reference a standard vendor bill")
+            if original.partner_id != partner_id:
+                raise ValueError("The original vendor bill does not belong to this vendor")
+
+        number = await self.bill_repo.next_number(company_id)
+        subtotal = Decimal("0")
+        tax_total = Decimal("0")
+        debit_note_lines: list[VendorBillLine] = []
+
+        for line in lines:
+            line_total = (line["qty"] * line["unit_price"]).quantize(Decimal("0.01"))
+            tax_rate_percent = Decimal("15.00")  # nucleus default; per-line rate lookup is a follow-up
+            line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
+            subtotal += line_total
+            tax_total += line_tax
+            debit_note_lines.append(
+                VendorBillLine(
+                    id=uuid.uuid4(),
+                    company_id=company_id,
+                    purchase_order_line_id=None,
+                    product_id=line["product_id"],
+                    qty=line["qty"],
+                    unit_price=line["unit_price"],
+                    tax_rate_id=line["tax_rate_id"],
+                    tax_rate_percent=tax_rate_percent,
+                    line_total=line_total,
+                    tax_amount=line_tax,
+                )
+            )
+
+        debit_note = VendorBill(
+            id=uuid.uuid4(),
+            company_id=company_id,
+            branch_id=branch_id,
+            partner_id=partner_id,
+            purchase_order_id=None,
+            original_bill_id=original.id if original is not None else None,
+            bill_type="debit_note",
+            number=number,
+            status="posted",
+            bill_date=date.today(),
+            subtotal_amount=subtotal,
+            tax_amount=tax_total,
+            total_amount=subtotal + tax_total,
+        )
+        try:
+            await self.bill_repo.add(debit_note, debit_note_lines)
+        except IntegrityError as e:
+            raise ValueError("A vendor bill was created concurrently with the same number — please retry") from e
+
+        grni_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_GRNI)
+        ap_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_AP)
+        vat_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_VAT)
+        if not (grni_account and ap_account and vat_account):
+            raise ValueError("Default Chart of Accounts is not seeded for this company")
+
+        je_lines = [{"account_id": ap_account.id, "debit": debit_note.total_amount, "credit": 0}]
+        je_lines.append({"account_id": grni_account.id, "debit": 0, "credit": debit_note.subtotal_amount})
+        if debit_note.tax_amount > 0:
+            je_lines.append({"account_id": vat_account.id, "debit": 0, "credit": debit_note.tax_amount})
+
+        entry = await self.journal_entry_service.create_draft_entry(
+            company_id=company_id,
+            branch_id=branch_id,
+            journal_code="PURCH",
+            entry_date=debit_note.bill_date,
+            reference=debit_note.number,
+            description=reason,
+            lines=je_lines,
             created_by=created_by,
             source_table="vendor_bill",
             source_id=debit_note.id,

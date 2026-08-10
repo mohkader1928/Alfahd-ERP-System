@@ -104,11 +104,33 @@ class DebitNoteCreateRequest(BaseModel):
     restock: bool = True
 
 
+class DebitNoteLineIn(BaseModel):
+    product_id: UUID
+    qty: Decimal
+    unit_price: Decimal
+    tax_rate_id: UUID
+
+
+class DebitNoteLinesCreateRequest(BaseModel):
+    """Product Owner request: a Purchase Return is not necessarily for one
+    whole vendor bill — it can be a freeform set of lines that were never
+    on a single bill together. `original_bill_id` becomes purely
+    optional/informational (kept only for traceability when the return
+    genuinely does correspond to one bill); the vendor must be stated
+    explicitly since there may be no original document to infer it from."""
+
+    partner_id: UUID
+    original_bill_id: UUID | None = None
+    reason: str
+    restock: bool = True
+    lines: list[DebitNoteLineIn]
+
+
 class VendorBillOut(BaseModel):
     id: UUID
     company_id: UUID
     partner_id: UUID
-    purchase_order_id: UUID
+    purchase_order_id: UUID | None
     number: str
     vendor_reference: str | None
     status: str
@@ -127,7 +149,7 @@ class VendorBillOut(BaseModel):
 class VendorBillLineOut(BaseModel):
     id: UUID
     product_id: UUID
-    purchase_order_line_id: UUID
+    purchase_order_line_id: UUID | None
     qty: Decimal
     unit_price: Decimal
     tax_rate_percent: Decimal

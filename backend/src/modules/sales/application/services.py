@@ -511,6 +511,131 @@ class SalesInvoiceService:
 
         return credit_note, submission
 
+    async def issue_credit_note_for_lines(
+        self,
+        *,
+        partner_id: UUID,
+        company_id: UUID,
+        branch_id: UUID,
+        created_by: UUID,
+        reason: str,
+        lines: list[dict],
+        original_invoice_id: UUID | None = None,
+        restock: bool = True,
+    ) -> tuple[SalesInvoice, ZatcaSubmission]:
+        """Product Owner request: a Sales Return does not have to correspond
+        to one whole invoice — it can be a freeform set of lines (possibly
+        spanning several invoices, or none at all) with the original
+        invoice number reduced to an OPTIONAL traceability field. Mirrors
+        `issue_credit_note`'s ZATCA/JE/restock pipeline, but each line is
+        computed from scratch (same flat-15% VAT convention already used by
+        every other from-scratch line in this codebase, e.g.
+        `issue_invoice_from_order`) instead of being copied verbatim from a
+        single original invoice's own lines."""
+        if not lines:
+            raise ValueError("A credit note must have at least one line")
+
+        partner = await self.partner_repo.get_by_id(partner_id)
+        if partner is None or partner.company_id != company_id:
+            raise ValueError("Customer not found")
+
+        original: SalesInvoice | None = None
+        if original_invoice_id is not None:
+            original = await self.invoice_repo.get_by_id(original_invoice_id)
+            if original is None or original.company_id != company_id:
+                raise ValueError("Original invoice not found")
+            if original.invoice_type not in ("tax", "simplified"):
+                raise ValueError("A credit note can only reference a tax or simplified invoice")
+            if original.partner_id != partner_id:
+                raise ValueError("The original invoice does not belong to this customer")
+
+        # Same B2B/B2C split as a brand-new invoice (FR-ZATCA-001) — there is
+        # no single original invoice to inherit invoice_type/submission_mode
+        # from here.
+        submission_mode = "clearance" if partner.vat_number else "reporting"
+        number = await self.invoice_repo.next_number(company_id)
+
+        subtotal = Decimal("0")
+        tax_total = Decimal("0")
+        credit_lines: list[SalesInvoiceLine] = []
+        zatca_lines: list[InvoiceLineData] = []
+
+        for line in lines:
+            product = await self.product_repo.get_by_id(line["product_id"])
+            line_total = (line["qty"] * line["unit_price"]).quantize(Decimal("0.01"))
+            tax_rate_percent = Decimal("15.00")  # nucleus default; per-line rate lookup is a follow-up
+            line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
+            subtotal += line_total
+            tax_total += line_tax
+            credit_lines.append(
+                SalesInvoiceLine(
+                    id=uuid.uuid4(),
+                    company_id=company_id,
+                    product_id=line["product_id"],
+                    description=product.name if product else "",
+                    qty=line["qty"],
+                    unit_price=line["unit_price"],
+                    tax_rate_id=line["tax_rate_id"],
+                    tax_rate_percent=tax_rate_percent,
+                    line_total=line_total,
+                    tax_amount=line_tax,
+                )
+            )
+            zatca_lines.append(
+                InvoiceLineData(
+                    description=product.name if product else "",
+                    quantity=line["qty"],
+                    unit_price=line["unit_price"],
+                    tax_rate_percent=tax_rate_percent,
+                    line_total=line_total,
+                    tax_amount=line_tax,
+                )
+            )
+
+        credit_note = SalesInvoice(
+            id=uuid.uuid4(),
+            company_id=company_id,
+            branch_id=branch_id,
+            partner_id=partner_id,
+            original_invoice_id=original.id if original is not None else None,
+            invoice_type="credit_note",
+            number=number,
+            status="draft",
+            invoice_date=date.today(),
+            subtotal_amount=subtotal,
+            tax_amount=tax_total,
+            total_amount=subtotal + tax_total,
+        )
+        try:
+            await self.invoice_repo.add(credit_note, credit_lines)
+        except IntegrityError as e:
+            raise ValueError("An invoice was created concurrently with the same number — please retry") from e
+
+        submission = await self._run_zatca_pipeline(
+            invoice=credit_note,
+            partner_name=partner.name,
+            partner_vat=partner.vat_number,
+            submission_mode=submission_mode,
+            lines=zatca_lines,
+            subtotal=subtotal,
+            tax_total=tax_total,
+            call_gateway_now=(submission_mode == "clearance"),
+        )
+        credit_note.status = submission.status if submission_mode == "clearance" else "pending_submission"
+
+        await self._post_journal_entry(credit_note, branch_id=branch_id, created_by=created_by, is_credit_note=True)
+
+        if restock:
+            await self._restock_for_credit_note_lines(
+                credit_note,
+                lines=credit_lines,
+                original_invoice_id=original.id if original is not None else None,
+                branch_id=branch_id,
+                created_by=created_by,
+            )
+
+        return credit_note, submission
+
     async def _restock_for_credit_note(
         self, credit_note: SalesInvoice, *, original_invoice_id: UUID, branch_id: UUID, created_by: UUID
     ) -> None:
@@ -549,6 +674,100 @@ class SalesInvoiceService:
             total_cost += (move.qty * move.unit_cost).quantize(Decimal("0.0001"))
 
         if total_cost <= 0:
+            return
+
+        cogs_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_COGS)
+        inventory_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_INVENTORY)
+        if not (cogs_account and inventory_account):
+            raise ValueError("Default Chart of Accounts is not seeded for this company")
+
+        entry = await self.journal_entry_service.create_draft_entry(
+            company_id=credit_note.company_id,
+            branch_id=branch_id,
+            journal_code="GEN",
+            entry_date=credit_note.invoice_date,
+            reference=f"Inventory return for {credit_note.number}",
+            lines=[
+                {"account_id": inventory_account.id, "debit": total_cost, "credit": 0},
+                {"account_id": cogs_account.id, "debit": 0, "credit": total_cost},
+            ],
+            created_by=created_by,
+            source_table="sales_invoice",
+            source_id=credit_note.id,
+        )
+        await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=credit_note.company_id)
+
+    async def _restock_for_credit_note_lines(
+        self,
+        credit_note: SalesInvoice,
+        *,
+        lines: list[SalesInvoiceLine],
+        original_invoice_id: UUID | None,
+        branch_id: UUID,
+        created_by: UUID,
+    ) -> None:
+        """Freeform-lines counterpart of `_restock_for_credit_note`: each
+        returned line may or may not correspond to a delivery on the
+        (optional) original invoice, so the cost basis is resolved
+        per-product rather than by replaying that invoice's own moves
+        wholesale. When `original_invoice_id` is given, a product's exact
+        original delivery unit_cost is used if that product was actually
+        delivered on it (looked up once, kept in a dict); any other
+        product — either because there is no original invoice at all, or
+        this particular product wasn't on it — falls back to the location's
+        current moving-average cost (the same cost basis a brand-new
+        receipt with no unit_cost override would use elsewhere in this
+        codebase). Silently a no-op when inventory isn't configured for
+        this company."""
+        if self.inventory_service is None or self.warehouse_repo is None:
+            return
+
+        warehouse = await self.warehouse_repo.get_default_for_company(credit_note.company_id)
+        if warehouse is None:
+            return
+        locations = await self.location_repo.list_by_warehouse(warehouse.id)
+        if not locations:
+            return
+        location = locations[0]
+
+        original_cost_by_product: dict[UUID, Decimal] = {}
+        if original_invoice_id is not None:
+            original_moves = await self.inventory_service.list_moves_for_source(
+                credit_note.company_id, "sales_invoice", original_invoice_id
+            )
+            for move in original_moves:
+                if move.move_type == "delivery":
+                    original_cost_by_product[move.product_id] = move.unit_cost
+
+        total_cost = Decimal("0")
+        any_restocked = False
+        for line in lines:
+            product = await self.product_repo.get_by_id(line.product_id)
+            if product is None or not product.is_stockable:
+                continue
+
+            unit_cost = original_cost_by_product.get(line.product_id)
+            if unit_cost is None:
+                quant = await self.inventory_service.quant_repo.get(line.product_id, location.id)
+                unit_cost = quant.moving_avg_cost if quant is not None else Decimal("0")
+            if unit_cost <= 0:
+                continue
+
+            await self.inventory_service.receive_stock(
+                company_id=credit_note.company_id,
+                product_id=line.product_id,
+                location_id=location.id,
+                qty=line.qty,
+                unit_cost=unit_cost,
+                valuation_method=self.valuation_method or "average",
+                source_table="sales_invoice",
+                source_id=credit_note.id,
+                move_type="return",
+            )
+            total_cost += (line.qty * unit_cost).quantize(Decimal("0.0001"))
+            any_restocked = True
+
+        if not any_restocked or total_cost <= 0:
             return
 
         cogs_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_COGS)

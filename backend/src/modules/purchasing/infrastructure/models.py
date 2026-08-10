@@ -128,8 +128,12 @@ class VendorBill(Base):
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     branch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     partner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    purchase_order_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("purchase_order.id"), nullable=False
+    # Nullable (Product Owner request): a freeform Purchase Return
+    # (bill_type='debit_note' with no original_bill_id) has no PO of its
+    # own to reference — a standard bill always sets this in practice, the
+    # application layer enforces that, not this column.
+    purchase_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("purchase_order.id"), nullable=True
     )
     number: Mapped[str] = mapped_column(Text, nullable=False)
     vendor_reference: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -166,8 +170,11 @@ class VendorBillLine(Base):
     )
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     vendor_bill_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("vendor_bill.id"), nullable=False)
-    purchase_order_line_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("purchase_order_line.id"), nullable=False
+    # Nullable (Product Owner request): a freeform Purchase Return line has
+    # no 3-way-matched PO line behind it — a standard bill's lines always
+    # set this, enforced by the application layer, not this column.
+    purchase_order_line_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("purchase_order_line.id"), nullable=True
     )
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     qty: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)

@@ -21,6 +21,7 @@ from src.modules.sales.api.deps import (
 )
 from src.modules.sales.api.schemas import (
     CreditNoteCreateRequest,
+    CreditNoteLinesCreateRequest,
     InvoiceIssueResponse,
     QuotationCreateRequest,
     QuotationOut,
@@ -184,6 +185,69 @@ async def issue_credit_note(
             branch_id=ctx.branch_id,
             created_by=ctx.user_id,
             reason=payload.reason,
+            restock=payload.restock,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    response = InvoiceIssueResponse(invoice=credit_note, zatca_submission=submission)
+
+    if guard is not None:
+        await idempotency_repo.mark_completed(
+            guard, response_status=status.HTTP_201_CREATED, response_body=response.model_dump(mode="json")
+        )
+
+    await db.commit()
+
+    if submission.status == "pending_submission":
+        from src.workers.tasks.zatca_tasks import report_invoice_task
+
+        report_invoice_task.delay(str(credit_note.id), company_id=str(ctx.company_id), tenant_id=str(ctx.tenant_id))
+
+    return response
+
+
+@router.post("/invoices:return", response_model=InvoiceIssueResponse, status_code=status.HTTP_201_CREATED)
+async def issue_credit_note_for_lines(
+    payload: CreditNoteLinesCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("sales.invoice.credit_note", require_branch=True)),
+    service: SalesInvoiceService = Depends(get_sales_invoice_service),
+    idempotency_repo: IdempotencyKeyRepository = Depends(get_idempotency_key_repo),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    # Product Owner request: a Sales Return for lines that were never all
+    # on one invoice (`original_invoice_id` is purely optional here) —
+    # not nested under `/invoices/{id}` since there may be no single
+    # invoice to nest it under. Same idempotency treatment as the
+    # single-invoice credit note above, for the same reason (a second
+    # freeform return is also a legitimate separate action).
+    endpoint = "POST /sales/invoices:return"
+    try:
+        guard = await begin_idempotent_request(
+            idempotency_repo,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            endpoint=endpoint,
+            idempotency_key=idempotency_key,
+            body=payload.model_dump(mode="json"),
+        )
+    except IdempotencyKeyConflictError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+
+    if isinstance(guard, IdempotentReplay):
+        await db.commit()
+        return JSONResponse(status_code=guard.response_status, content=guard.response_body)
+
+    try:
+        credit_note, submission = await service.issue_credit_note_for_lines(
+            partner_id=payload.partner_id,
+            company_id=ctx.company_id,
+            branch_id=ctx.branch_id,
+            created_by=ctx.user_id,
+            reason=payload.reason,
+            lines=[line.model_dump() for line in payload.lines],
+            original_invoice_id=payload.original_invoice_id,
             restock=payload.restock,
         )
     except ValueError as e:

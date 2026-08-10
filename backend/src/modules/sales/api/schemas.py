@@ -92,5 +92,28 @@ class CreditNoteCreateRequest(BaseModel):
     restock: bool = True
 
 
+class CreditNoteLineIn(BaseModel):
+    product_id: UUID
+    qty: Decimal
+    unit_price: Decimal
+    tax_rate_id: UUID
+
+
+class CreditNoteLinesCreateRequest(BaseModel):
+    """Product Owner request: a Sales Return is not necessarily for one
+    whole invoice — it can be a freeform set of lines that were never on
+    a single invoice together. `original_invoice_id` becomes purely
+    optional/informational (kept only for traceability when the return
+    genuinely does correspond to one invoice); the customer must be
+    stated explicitly since there may be no original document to infer
+    it from."""
+
+    partner_id: UUID
+    original_invoice_id: UUID | None = None
+    reason: str
+    restock: bool = True
+    lines: list[CreditNoteLineIn]
+
+
 class SendInvoiceEmailRequest(BaseModel):
     to_email: EmailStr | None = None

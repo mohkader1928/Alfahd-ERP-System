@@ -315,6 +315,155 @@ async def test_credit_note_with_restock_false_leaves_inventory_untouched(client)
     assert not any(m["move_type"] == "return" for m in moves)
 
 
+# --- P0-9 follow-up: freeform Sales Return (no invoice-copy requirement) --
+
+
+async def test_freeform_credit_note_with_no_original_invoice_computes_vat_correctly(client):
+    """Product Owner request: a Sales Return doesn't have to correspond to
+    one whole invoice — this exercises the fully freeform case (no
+    original_invoice_id at all, two lines that were never on any single
+    invoice together), asserting VAT is computed per line and summed, not
+    copied from anywhere."""
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    other_product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    resp = await client.post(
+        "/api/v1/sales/invoices:return",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "reason": "Freeform multi-item return, no original invoice",
+            "restock": False,
+            "lines": [
+                {"product_id": product_id, "qty": "3", "unit_price": "100.00", "tax_rate_id": tax_rate_id},
+                {"product_id": other_product_id, "qty": "1", "unit_price": "250.00", "tax_rate_id": tax_rate_id},
+            ],
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()["invoice"]
+    assert body["invoice_type"] == "credit_note"
+    assert body["original_invoice_id"] is None
+    # subtotal = 3*100 + 1*250 = 550; VAT 15% = 82.50; total = 632.50
+    assert body["subtotal_amount"] == "550.00"
+    assert body["tax_amount"] == "82.50"
+    assert body["total_amount"] == "632.50"
+
+    trial_balance = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+    )
+    rows = {row["account_code"]: row for row in trial_balance.json()}
+    assert rows["1200"]["total_debit"] == "0.0000"
+    assert rows["1200"]["total_credit"] == "632.5000"
+    assert rows["2200"]["total_debit"] == "82.5000"  # VAT payable reduced (credit note direction)
+
+
+async def test_freeform_credit_note_with_optional_original_reference_uses_custom_lines(client):
+    """The original invoice is given for traceability only — the return's
+    own lines (different qty here) are what get billed, not a verbatim
+    copy of the original invoice's lines."""
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    order_id = await _create_quotation_and_confirm(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+    invoice_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    invoice_id = invoice_resp.json()["invoice"]["id"]  # original: 2 @ 1000.00 = 2300 total
+
+    resp = await client.post(
+        "/api/v1/sales/invoices:return",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "original_invoice_id": invoice_id,
+            "reason": "Only 1 unit actually came back",
+            "restock": False,
+            "lines": [{"product_id": product_id, "qty": "1", "unit_price": "1000.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()["invoice"]
+    assert body["original_invoice_id"] == invoice_id
+    # NOT the original's 2300 total — the freeform line's own 1150.
+    assert body["total_amount"] == "1150.00"
+
+
+async def test_freeform_credit_note_restocks_at_original_delivery_cost_when_product_matches(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+    invoice_id, _ = await _sell_with_stock(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+
+    resp = await client.post(
+        "/api/v1/sales/invoices:return",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "original_invoice_id": invoice_id,
+            "reason": "1 of the 2 sold units came back",
+            "lines": [{"product_id": product_id, "qty": "1", "unit_price": "1000.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    assert resp.status_code == 201
+
+    moves = (
+        await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})
+    ).json()
+    return_moves = [m for m in moves if m["move_type"] == "return"]
+    assert len(return_moves) == 1
+    assert return_moves[0]["qty"] == "1.000000"
+    assert return_moves[0]["unit_cost"] == "400.0000"  # exact original delivery cost, not recomputed
+
+
+async def test_freeform_credit_note_restocks_at_average_cost_with_no_original_reference(client):
+    """No original_invoice_id at all -> no delivery move to look the cost
+    up from, so the restock falls back to the location's current
+    moving-average cost."""
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    location_id = wh_resp.json()["default_location"]["id"]
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "10", "unit_cost": "500.00"},
+    )
+
+    resp = await client.post(
+        "/api/v1/sales/invoices:return",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "reason": "Return with no invoice at all",
+            "lines": [{"product_id": product_id, "qty": "2", "unit_price": "900.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    assert resp.status_code == 201
+
+    moves = (
+        await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})
+    ).json()
+    return_moves = [m for m in moves if m["move_type"] == "return"]
+    assert len(return_moves) == 1
+    assert return_moves[0]["unit_cost"] == "500.0000"  # current average cost, the only basis available
+
+
 async def test_list_invoices_filters_by_invoice_type_for_the_returns_screen(client):
     """P0-9 Owner follow-up: the dedicated Sales Returns screen needs to
     ask the list endpoint for exactly the credit notes, not fetch

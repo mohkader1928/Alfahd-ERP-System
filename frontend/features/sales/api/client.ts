@@ -58,6 +58,18 @@ export const salesApi = {
       { companyId, branchId }
     ),
 
+  issueCreditNoteForLines: (
+    companyId: string,
+    branchId: string,
+    payload: {
+      partner_id: string;
+      original_invoice_id?: string;
+      reason: string;
+      restock: boolean;
+      lines: QuotationLineIn[];
+    }
+  ) => apiClient.post<InvoiceIssueResponse>(`${BASE}/invoices:return`, payload, { companyId, branchId }),
+
   downloadInvoicePdf: (companyId: string, invoiceId: string, lang: string) =>
     apiClient.getBlob(`${BASE}/invoices/${invoiceId}/pdf?lang=${lang}`, { companyId }),
 

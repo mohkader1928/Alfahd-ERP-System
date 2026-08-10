@@ -519,6 +519,7 @@
   "purchasing.vendor_bills.subtotal": "Subtotal",
   "purchasing.vendor_bills.tax": "Tax",
   "common.loading": "Loading…",
+  "common.optional": "optional",
   "common.save": "Save",
   "common.cancel": "Cancel",
   "common.close": "Close",

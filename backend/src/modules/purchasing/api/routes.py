@@ -20,6 +20,7 @@ from src.modules.purchasing.api.deps import (
 )
 from src.modules.purchasing.api.schemas import (
     DebitNoteCreateRequest,
+    DebitNoteLinesCreateRequest,
     GoodsReceiptCreateRequest,
     GoodsReceiptOut,
     PurchaseOrderCreateRequest,
@@ -355,6 +356,62 @@ async def issue_debit_note(
             branch_id=ctx.branch_id,
             created_by=ctx.user_id,
             reason=payload.reason,
+            restock=payload.restock,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    response = VendorBillOut.model_validate(debit_note)
+
+    if guard is not None:
+        await idempotency_repo.mark_completed(
+            guard, response_status=status.HTTP_201_CREATED, response_body=response.model_dump(mode="json")
+        )
+
+    await db.commit()
+    return response
+
+
+@router.post("/vendor-bills:return", response_model=VendorBillOut, status_code=status.HTTP_201_CREATED)
+async def issue_debit_note_for_lines(
+    payload: DebitNoteLinesCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("purchasing.vendor_bill.debit_note", require_branch=True)),
+    service: VendorBillService = Depends(get_vendor_bill_service),
+    idempotency_repo: IdempotencyKeyRepository = Depends(get_idempotency_key_repo),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    # Product Owner request: a Purchase Return for lines that were never
+    # all on one bill (`original_bill_id` is purely optional here) — not
+    # nested under `/vendor-bills/{id}` since there may be no single bill
+    # to nest it under. Same idempotency treatment as the single-bill
+    # debit note above, for the same reason.
+    endpoint = "POST /purchasing/vendor-bills:return"
+    try:
+        guard = await begin_idempotent_request(
+            idempotency_repo,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            endpoint=endpoint,
+            idempotency_key=idempotency_key,
+            body=payload.model_dump(mode="json"),
+        )
+    except IdempotencyKeyConflictError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+
+    if isinstance(guard, IdempotentReplay):
+        await db.commit()
+        return JSONResponse(status_code=guard.response_status, content=guard.response_body)
+
+    try:
+        debit_note = await service.issue_debit_note_for_lines(
+            partner_id=payload.partner_id,
+            company_id=ctx.company_id,
+            branch_id=ctx.branch_id,
+            created_by=ctx.user_id,
+            reason=payload.reason,
+            lines=[line.model_dump() for line in payload.lines],
+            original_bill_id=payload.original_bill_id,
             restock=payload.restock,
         )
     except ValueError as e:

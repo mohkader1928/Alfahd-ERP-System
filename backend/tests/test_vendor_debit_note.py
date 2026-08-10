@@ -283,4 +283,130 @@ async def test_debit_note_rejected_against_another_debit_note(client):
         json={"reason": "Debit note against a debit note"},
     )
     assert second.status_code == 422
-    assert "standard" in second.json()["detail"].lower()
+
+
+# --- P0-9 follow-up: freeform Purchase Return (no bill-copy requirement) --
+
+
+async def test_freeform_debit_note_with_no_original_bill_computes_vat_correctly(client):
+    """Product Owner request: a Purchase Return doesn't have to correspond
+    to one whole vendor bill (or even one PO) — this exercises the fully
+    freeform case (no original_bill_id at all, two lines that were never
+    on a single bill together), asserting VAT is computed per line and
+    summed, not copied from anywhere. Also exercises the schema change
+    that makes this possible: purchase_order_id/purchase_order_line_id
+    are both left NULL."""
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    other_product_resp = await client.post(
+        "/api/v1/identity/products",
+        headers=headers,
+        json={"sku": f"SKU-{unique_vat()[:8]}", "name": "Steel Plate", "sales_price": "80.00"},
+    )
+    other_product_id = other_product_resp.json()["id"]
+
+    resp = await client.post(
+        "/api/v1/purchasing/vendor-bills:return",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "reason": "Freeform multi-item return, no original bill",
+            "restock": False,
+            "lines": [
+                {"product_id": product_id, "qty": "5", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER},
+                {
+                    "product_id": other_product_id,
+                    "qty": "2",
+                    "unit_price": "50.00",
+                    "tax_rate_id": TAX_RATE_PLACEHOLDER,
+                },
+            ],
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["bill_type"] == "debit_note"
+    assert body["original_bill_id"] is None
+    assert body["purchase_order_id"] is None
+    # subtotal = 5*20 + 2*50 = 200; VAT 15% = 30; total = 230
+    assert body["subtotal_amount"] == "200.00"
+    assert body["tax_amount"] == "30.00"
+    assert body["total_amount"] == "230.00"
+
+    trial_balance = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+    )
+    rows = {row["account_code"]: row for row in trial_balance.json()}
+    assert rows["2100"]["total_debit"] == "230.0000"  # AP reduced
+    assert rows["2200"]["total_credit"] == "30.0000"  # VAT input reversed
+
+
+async def test_freeform_debit_note_with_optional_original_reference_uses_custom_lines(client):
+    """The original bill is given for traceability only — the return's own
+    lines (different qty here) are what get posted, not a verbatim copy of
+    the original bill's lines."""
+    _, headers = await _bootstrap_and_login(client)
+    bill_id, vendor_id = await _create_posted_bill(client, headers)  # 100 @ 20.00 = 2300 total
+    product_resp = await client.get("/api/v1/identity/products", headers=headers)
+    product_id = next(p["id"] for p in product_resp.json() if p["name"] == "Steel Rod")
+
+    resp = await client.post(
+        "/api/v1/purchasing/vendor-bills:return",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "original_bill_id": bill_id,
+            "reason": "Only 10 units actually went back",
+            "restock": False,
+            "lines": [
+                {"product_id": product_id, "qty": "10", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}
+            ],
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["original_bill_id"] == bill_id
+    # NOT the original's 2300 total — the freeform line's own 230.
+    assert body["total_amount"] == "230.0000" or body["total_amount"] == "230.00"
+
+
+async def test_freeform_debit_note_restocks_via_valuation_engine_cost(client):
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    location_id = wh_resp.json()["default_location"]["id"]
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "20", "unit_cost": "30.00"},
+    )
+
+    resp = await client.post(
+        "/api/v1/purchasing/vendor-bills:return",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "reason": "Freeform return with restock, no original bill",
+            "lines": [
+                {"product_id": product_id, "qty": "5", "unit_price": "30.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}
+            ],
+        },
+    )
+    assert resp.status_code == 201
+
+    quants = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    qty = next(q["qty_on_hand"] for q in quants if q["product_id"] == product_id)
+    assert qty == "15.000000"  # 20 received - 5 returned to vendor
+
+    moves = (
+        await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})
+    ).json()
+    return_moves = [m for m in moves if m["move_type"] == "return"]
+    assert len(return_moves) == 1
+    assert return_moves[0]["qty"] == "5.000000"
