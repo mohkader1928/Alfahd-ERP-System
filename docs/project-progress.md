@@ -8,8 +8,64 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-10, on top of committed `2c689c0` (`main`) —
-**Fixed Asset Card and GL reconciliation** (commit `2c689c0`), an
+**Last verified**: 2026-08-10, on top of committed `646a0a7` (`main`) —
+**P0-6: RBAC audit and completion** (commit `646a0a7`), the 6th item of
+the 3-Day Sellable Product brief. Audited via a full read of the
+identity module's role/permission model first (join-only RBAC, no
+Super Admin bypass, `is_system` a dead column never set or checked)
+and found the single highest-severity gap: `backend/tests/test_settings_roles.py`
+had two tests that deliberately stripped `company.manage`/`role.manage`
+off the bootstrap Admin role to prove `require_permission` enforcement
+— proving, as a side effect, that a company could permanently strip
+`role.manage` off its only role with zero in-product recovery path.
+Fixed by making `is_system` real: `create_role(..., is_system=True)`
+is now set on the bootstrap Admin role at both `/bootstrap` and
+`/companies`, and `update_role_permissions`/the new rename/delete
+routes all reject a system role with 422. The two tests were rewritten
+to create a disposable custom role instead of stripping Admin,
+preserving their original intent (proving the permission check) without
+relying on the now-forbidden action.
+Added, from a prioritized subset of the audit's findings (explicitly
+deferred: app-wide `<Can>`-gating of page tabs, and
+`accounting.reports.*` vs `reporting.*` naming normalization — both
+cosmetic, not security-bearing, since the backend enforces regardless):
+`PATCH /roles/{id}` (rename) and `DELETE /roles/{id}` (blocked while
+any user still holds the role, mirroring P0-4's Chart-of-Accounts
+delete guard) — previously only possible via direct DB access; four
+default role templates (Accountant, Sales, Purchasing & Warehouse,
+Read-Only Viewer — the last derived from `scope=="screen"` in
+`PERMISSION_CATALOG` so it can't drift) seeded alongside Admin at both
+`/bootstrap` and `/companies` via `UserManagementService.seed_default_role_templates`,
+giving real separation-of-duties from day one instead of one
+all-powerful login; RLS on `role_permission`/`user_role`
+(migration `d1e2f3a4b5c6`) — pure join tables with no `company_id` of
+their own, so the policy is an `EXISTS` subquery against
+`role.company_id` rather than the usual column-based policy, and they
+had `relrowsecurity=false` (no isolation at all) before this; audit
+logging for `create_role`, the one role-related action that previously
+left no trail (`assign_role`/`remove_role`/`update_role_permissions`
+already had one). Frontend: rename/delete buttons and a locked-message
+banner on the role detail screen, all permission checkboxes disabled
+and the Save button hidden, gated on `role.is_system` — the existing
+"System"/"Custom" badge now reflects reality for the first time since
+Admin was actually never `is_system=True` before this change.
+18 new backend tests (system-role immutability × 3, custom-role
+rename/delete success and delete-blocked-by-assignment, default
+templates seeded at both bootstrap paths, Read-Only Viewer matches the
+full screen-permission catalog, RLS isolation for the two join tables
+verified via a direct `AsyncSessionLocal`+`SET LOCAL` query — the same
+connection path the API itself uses, not a mock), full suite 346/346
+(one pre-existing, unrelated inventory-concurrency test flaked in the
+full run and passed cleanly in isolation — confirmed not caused by
+this work), ruff/tsc/eslint/`next build` all clean. Live-verified end
+to end against a fresh bootstrap company: 5 roles appear with correct
+`is_system` flags and permission counts; Admin's permission grid is
+fully read-only with the lock message showing; a custom role's rename
+took effect immediately in both the detail header and the list;
+deleting that same role redirected to the list with it gone.
+
+**Immediately prior, same session** — on top of committed `2c689c0`
+(`main`) — **Fixed Asset Card and GL reconciliation** (commit `2c689c0`), an
 Owner-requested follow-up to P0-5 — the Owner asked for a per-asset
 inquiry "مثل كارت الصنف واستاذ مساعد العملاء والموردين" (like the
 Product Cardex and Customer/Vendor Subledger) plus proof that the
