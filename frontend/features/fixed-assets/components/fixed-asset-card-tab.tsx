@@ -30,6 +30,18 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
   const [ranAt, setRanAt] = useState<{ asset: string; from: string; to: string } | null>(() =>
     initialAssetId ? { asset: initialAssetId, from: dateFrom, to: dateTo } : null
   );
+  // Same class of bug found and fixed in accounting/page.tsx's
+  // Customer/Vendor Subledger and General Ledger tabs: drilling into a
+  // different asset while this tab is already mounted (same route, only
+  // the `asset` query param changes) would silently keep showing the
+  // first asset's card, since the lazy useState initializers above only
+  // fire on the very first mount.
+  const [syncedAssetId, setSyncedAssetId] = useState(initialAssetId);
+  if (initialAssetId !== syncedAssetId) {
+    setAssetId(initialAssetId ?? "");
+    setRanAt(initialAssetId ? { asset: initialAssetId, from: dateFrom, to: dateTo } : null);
+    setSyncedAssetId(initialAssetId);
+  }
 
   const assetsQuery = useQuery({
     queryKey: ["fixed-assets", companyId],

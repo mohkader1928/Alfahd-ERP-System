@@ -8,8 +8,46 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-10 — **Journal Entry visibility + pre-post
-editing**. Owner request: "أضف زر... لإظهار القيد المحاسبى الناتج عن
+**Last verified**: 2026-08-10 — **Bug fix: vendor/customer subledger and
+GL deep-links stuck on the first partner/account viewed**. Owner report:
+registering a purchase order (PO-000033, real vendor "شركة القارات
+الخمسة") and then checking a *different* vendor's account only ever
+showed "القارات الخمسة"'s movements — asked for the root cause, a fix,
+and prevention of recurrence anywhere else in the system.
+
+Root cause confirmed NOT a data bug: `purchase_order.partner_id` and
+`vendor_bill.partner_id` for PO-000033 and every other PO in that company
+were checked directly in the database and are all correct and distinct
+per vendor. The bug is in `frontend/app/(dashboard)/accounting/page.tsx`:
+`CustomerSubledgerTab`, `VendorSubledgerTab`, and `GeneralLedgerTab` (plus
+`FixedAssetCardTab` in `features/fixed-assets/components/`) each seed
+their selected partner/account from a `?partner=`/`?account=` deep-link
+query param using a lazy `useState(initialX ?? "")` initializer — which
+only runs on the component's *first* mount. Clicking "View vendor
+account" from one Partner Profile, then from a different Partner
+Profile's page, lands on the same `/accounting?tab=vendor-subledger`
+route both times with only the query param differing; since the
+component was already mounted from the first visit (Next.js App Router
+does not remount a page/tab just because search params changed, and can
+even revive an already-rendered instance from its client-side Router
+Cache after an intervening navigation to a different route), the second
+deep-link's new partner id was silently ignored and the report kept
+showing the first vendor's data under the second vendor's name — an
+honest, undetectable-to-the-user misattribution, not a crash.
+
+Fixed all 4 occurrences with the same pattern already used successfully
+in this session (compare the incoming prop against what was last synced,
+re-set state during render if it changed — not a `useEffect`, matching
+the `react-hooks/set-state-in-effect` rule already enforced in this
+repo). A repo-wide grep for the same `useState(initial\w+Id ?? ...)`
+shape confirmed these were the only 4 instances. tsc/eslint/`next build`
+all clean. Live-verified in the browser: opened Vendor A's subledger
+(correct), navigated away and into Vendor B's Partner Profile, clicked
+"View vendor account" again — now correctly shows Vendor B's own
+movements instead of Vendor A's.
+
+**Immediately prior** — on top of committed `baabb64` (`main`) —
+**Journal Entry visibility + pre-post editing**. Owner request: "أضف زر... لإظهار القيد المحاسبى الناتج عن
 هذه الحركة ودائمًا اسمح بالتعديل على أصل الحركة... وفى حالة الحفظ عدل
 بالطبع القيد المحاسبى المقترن" — a "View Journal Entry" button on every
 screen whose transaction posts one, and the ability to always edit the

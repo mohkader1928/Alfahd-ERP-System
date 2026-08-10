@@ -826,6 +826,17 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
   const [ranAt, setRanAt] = useState<{ account: string; from: string; to: string } | null>(() =>
     initialAccountId ? { account: initialAccountId, from: new Date().toISOString().slice(0, 8) + "01", to: new Date().toISOString().slice(0, 10) } : null
   );
+  // Same class of bug as Customer/Vendor Subledger below: drilling into a
+  // different account from the Chart of Accounts while this tab is
+  // already mounted (same route, only the `account` query param changes)
+  // silently kept showing the first account's ledger, since the lazy
+  // useState initializers above only fire on the very first mount.
+  const [syncedAccountId, setSyncedAccountId] = useState(initialAccountId);
+  if (initialAccountId !== syncedAccountId) {
+    setAccountId(initialAccountId ?? "");
+    setRanAt(initialAccountId ? { account: initialAccountId, from: dateFrom, to: dateTo } : null);
+    setSyncedAccountId(initialAccountId);
+  }
 
   const accountsQuery = useQuery({
     queryKey: ["accounts", companyId],
@@ -1446,14 +1457,28 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
   // Deep-link from a Partner Profile's Accounting tab ("smart action" per
   // the Unified Address Book bundle) — preselects and auto-runs the report
   // for that customer on first render instead of just landing on the right
-  // tab. Read once via lazy useState initializers (not an effect) since
-  // this only ever needs to apply once, on mount.
+  // tab.
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [partnerId, setPartnerId] = useState(initialPartnerId ?? "");
   const [ranAt, setRanAt] = useState<{ partner: string; from: string; to: string } | null>(() =>
     initialPartnerId ? { partner: initialPartnerId, from: dateFrom, to: dateTo } : null
   );
+  // Owner-reported bug: clicking "View customer account" from one Partner
+  // Profile, then from a *different* Partner Profile, kept showing the
+  // first customer's statement — this tab stays mounted across both
+  // deep-links (same `/accounting?tab=customer-subledger` route, only the
+  // `partner` query param changes), so the lazy useState initializers
+  // above only ever fired once, on the very first mount, and silently
+  // never re-synced to the new partner. Comparing the incoming prop
+  // against what was last synced (during render, not an effect) is what
+  // actually re-triggers on every subsequent deep-link.
+  const [syncedPartnerId, setSyncedPartnerId] = useState(initialPartnerId);
+  if (initialPartnerId !== syncedPartnerId) {
+    setPartnerId(initialPartnerId ?? "");
+    setRanAt(initialPartnerId ? { partner: initialPartnerId, from: dateFrom, to: dateTo } : null);
+    setSyncedPartnerId(initialPartnerId);
+  }
 
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, "customers"],
@@ -1544,6 +1569,21 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
   const [ranAt, setRanAt] = useState<{ partner: string; from: string; to: string } | null>(() =>
     initialPartnerId ? { partner: initialPartnerId, from: dateFrom, to: dateTo } : null
   );
+  // Owner-reported bug (PO-000033): "View vendor account" from one vendor's
+  // Partner Profile, then from a different vendor's, kept showing the
+  // first vendor's statement — the underlying purchase data was always
+  // correct (verified directly in the DB), this tab just never re-synced
+  // to the new `partner` query param once already mounted (same
+  // `/accounting?tab=vendor-subledger` route both times, only the query
+  // param changes, so the lazy useState initializers below only fire on
+  // the very first mount). Comparing the incoming prop against what was
+  // last synced, during render, is what actually re-triggers every time.
+  const [syncedPartnerId, setSyncedPartnerId] = useState(initialPartnerId);
+  if (initialPartnerId !== syncedPartnerId) {
+    setPartnerId(initialPartnerId ?? "");
+    setRanAt(initialPartnerId ? { partner: initialPartnerId, from: dateFrom, to: dateTo } : null);
+    setSyncedPartnerId(initialPartnerId);
+  }
 
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, "vendors"],
