@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Moon, Sun, Languages, LogOut, Repeat } from "lucide-react";
+import { Check, Moon, Palette, Sun, Languages, LogOut, Repeat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,14 +14,25 @@ import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { GlobalSearch } from "@/components/layout/global-search";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { useI18n } from "@/lib/i18n/config";
-import { useTheme } from "@/lib/theme";
+import { COLOR_THEMES, useTheme, type ColorTheme } from "@/lib/theme";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCompanyName } from "@/hooks/use-company-name";
 import { decodeAccessToken } from "@/lib/jwt";
 
+// One representative swatch color per theme, shown in the picker so the
+// choice is visually obvious rather than just a text label — kept as a
+// fixed light-mode reference color (not read from CSS vars) since the
+// swatch needs to look the same regardless of which theme is *currently*
+// active while the user is comparing options.
+const COLOR_THEME_SWATCH: Record<ColorTheme, string> = {
+  neutral: "oklch(0.556 0 0)",
+  blue: "oklch(0.52 0.16 254)",
+  green: "oklch(0.5 0.13 155)",
+};
+
 export function Topbar() {
   const { t, toggleLocale } = useI18n();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, colorTheme, setColorTheme } = useTheme();
   const router = useRouter();
   const logout = useAuthStore((s) => s.logout);
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -62,6 +73,23 @@ export function Topbar() {
         <Button variant="ghost" size="icon" onClick={toggleTheme} title={t("theme.toggle")}>
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon" title={t("color_theme.toggle")} />}>
+            <Palette className="h-4 w-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {COLOR_THEMES.map((option) => (
+              <DropdownMenuItem key={option} onClick={() => setColorTheme(option)}>
+                <span
+                  className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-border/50"
+                  style={{ backgroundColor: COLOR_THEME_SWATCH[option] }}
+                />
+                {t(`color_theme.${option}`)}
+                {colorTheme === option && <Check className="ms-auto h-4 w-4" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <NotificationBell />
         <DropdownMenu>
           {/* This stack is Base UI (@base-ui/react), not Radix — polymorphism

@@ -8,8 +8,43 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-10 — **UI/UX: Accounting/Inventory sidebar
-menus + far-away "Apply" button**. Owner request: list every option in
+**Last verified**: 2026-08-10 — **UI/UX: selectable color themes**. Owner
+request: a cosmetic change to the app's overall color — two additional,
+clearly-labeled, eye-comfortable color options alongside the existing
+default, with the end user choosing between them.
+
+Previously the app had exactly one palette (`app/globals.css`'s `:root`/
+`.dark`), a fully achromatic shadcn default (every OKLCH color has zero
+chroma — literally no hue anywhere except the red `--destructive`), and
+only a light/dark toggle (`lib/theme.tsx`, `erp.theme` in localStorage).
+
+Added two full palettes — "أزرق" (Blue, hue ~254) and "أخضر" (Green, hue
+~155) — each independently tuned for both light and dark mode (4 new
+`:root`/`.dark` variable blocks gated by a `data-color-theme` attribute
+on `<html>`, same structure as the existing default). Chroma kept low
+(0.1–0.18 on primary/accent, ~0.01–0.02 on background/card) so both read
+as calm and readable for long sessions rather than a saturated brand
+color — background/foreground/border still carry only a faint tint, the
+same "neutral with a slight hue bias toward the accent" principle used
+elsewhere in this app's design.
+
+`lib/theme.tsx`'s `ThemeProvider` now also tracks `colorTheme` (persisted
+separately as `erp.color-theme`, independent of light/dark). New palette
+picker in the Topbar next to the existing light/dark toggle: a palette
+icon opens a dropdown listing all three options, each with its own color
+swatch, label, and a checkmark on the active one — the same dropdown
+pattern already used elsewhere in the Topbar, so it's immediately
+recognizable rather than a new interaction to learn.
+
+tsc/eslint/`next build` clean. Live-verified: switching to Blue
+recolors `--primary`/`--background` live with no reload; switching to
+Green likewise; combining Green with dark mode produces a correctly
+dark, green-tinted palette; the checkmark tracks the active selection;
+and the choice survives a page reload (localStorage round-trip).
+
+**Immediately prior** — on top of committed `8a3205c` (`main`) —
+**UI/UX: Accounting/Inventory sidebar menus + far-away "Apply" button**.
+Owner request: list every option in
 the Accounting dropdown menu and land directly on the chosen screen
 instead of a screen showing all options horizontally, and move the
 "Apply" filter button since it required scrolling to reach.
