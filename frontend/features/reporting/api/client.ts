@@ -62,4 +62,8 @@ export const reportingApi = {
       `${BASE}/inventory-valuation${warehouseId ? `?warehouse_id=${warehouseId}` : ""}`,
       { companyId }
     ),
+
+  // ── CSV Exports ──────────────────────────────────────────────────────────────
+
+  exportSalesInvoicesCsv: (companyId: string) => apiClient.getBlob(`${BASE}/export/sales-invoices`, { companyId }),
 };

@@ -9,12 +9,14 @@ import { FilterBar, type FilterFieldConfig } from "@/components/erp/filter-bar/f
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
+import { reportingApi } from "@/features/reporting/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import type { SalesInvoice } from "@/features/sales/api/types";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
+import { toastError } from "@/lib/toast";
 
 const INVOICE_STATUSES = ["draft", "pending_submission", "cleared", "reported", "rejected", "cancelled"];
 
@@ -48,6 +50,22 @@ export default function SalesInvoicesPage() {
       }),
   });
   const invoices = data?.items;
+
+  async function handleExportCsv() {
+    try {
+      const { blob, filename } = await reportingApi.exportSalesInvoicesCsv(companyId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "sales_invoices.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error"));
+    }
+  }
 
   const filterFields: FilterFieldConfig[] = [
     {
@@ -123,6 +141,7 @@ export default function SalesInvoicesPage() {
       searchPlaceholder={t("list.search_placeholder")}
       searchText={(row) => `${row.number} ${customer.label(row.partner_id)}`}
       emptyDescription={t("sales.invoices.empty_description")}
+      exportAction={{ label: t("common.export"), onClick: handleExportCsv }}
       filters={
         <FilterBar
           fields={filterFields}

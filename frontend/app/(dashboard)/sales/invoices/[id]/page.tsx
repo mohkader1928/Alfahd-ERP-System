@@ -123,6 +123,23 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             <dd className="capitalize">{invoice.invoice_type.replace("_", " ")}</dd>
             <dt className="text-muted-foreground">{t("sales.invoice.date")}</dt>
             <dd>{formatDate(invoice.invoice_date, locale)}</dd>
+            {invoice.sales_order_id && (
+              <>
+                <dt className="text-muted-foreground">{t("sales.invoice.from_order")}</dt>
+                <dd>
+                  <a
+                    href={`/sales/orders/${invoice.sales_order_id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      router.push(`/sales/orders/${invoice.sales_order_id}`);
+                    }}
+                    className="underline-offset-4 hover:underline"
+                  >
+                    {t("common.view")}
+                  </a>
+                </dd>
+              </>
+            )}
             <dt className="text-muted-foreground">Subtotal</dt>
             <dd>{formatCurrency(invoice.subtotal_amount)}</dd>
             <dt className="text-muted-foreground">VAT</dt>
