@@ -24,6 +24,7 @@ from src.modules.sales.api.schemas import (
     CreditNoteLinesCreateRequest,
     InvoiceIssueResponse,
     QuotationCreateRequest,
+    QuotationDetailResponse,
     QuotationOut,
     SalesInvoiceOut,
     SalesOrderOut,
@@ -69,6 +70,29 @@ async def create_quotation(
         quotation = await service.create_quotation(
             company_id=ctx.company_id,
             branch_id=ctx.branch_id,
+            partner_id=payload.partner_id,
+            quote_date=payload.quote_date,
+            lines=[line.model_dump() for line in payload.lines],
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return quotation
+
+
+@router.put("/quotations/{quotation_id}", response_model=QuotationOut)
+async def update_quotation(
+    quotation_id: UUID,
+    payload: QuotationCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("sales.quotation.update", require_branch=True)),
+    service: QuotationService = Depends(get_quotation_service),
+):
+    try:
+        quotation = await service.update_quotation(
+            quotation_id=quotation_id,
+            company_id=ctx.company_id,
             partner_id=payload.partner_id,
             quote_date=payload.quote_date,
             lines=[line.model_dump() for line in payload.lines],
@@ -354,7 +378,7 @@ async def send_invoice_email(
     return invoice
 
 
-@router.get("/quotations/{quotation_id}", response_model=QuotationOut)
+@router.get("/quotations/{quotation_id}", response_model=QuotationDetailResponse)
 async def get_quotation(
     quotation_id: UUID,
     ctx: AuthContext = Depends(require_permission("sales.quotation.create")),
@@ -363,4 +387,5 @@ async def get_quotation(
     quotation = await quotation_repo.get_by_id(quotation_id)
     if quotation is None or quotation.company_id != ctx.company_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Quotation not found")
-    return quotation
+    lines = await quotation_repo.get_lines(quotation_id)
+    return QuotationDetailResponse(quotation=quotation, lines=lines)

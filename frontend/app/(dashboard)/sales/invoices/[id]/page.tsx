@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "react-qr-code";
 import { ArrowLeft } from "lucide-react";
-import { Download, Mail } from "lucide-react";
+import { BookOpenText, Download, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +112,18 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 {t("sales.invoice.send_email")}
               </Button>
             </Can>
+            {invoice.journal_entry_id && (
+              <Can permission="accounting.journal_entry.view">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/accounting/journal-entries/${invoice.journal_entry_id}`)}
+                >
+                  <BookOpenText className="h-4 w-4" />
+                  {t("common.view_journal_entry")}
+                </Button>
+              </Can>
+            )}
           </div>
           {invoice.last_emailed_at && (
             <p className="text-xs text-muted-foreground">

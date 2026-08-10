@@ -136,6 +136,46 @@ class PurchaseOrderService:
                     product.last_purchase_price = Decimal(str(line["unit_price"]))
         return created
 
+    async def update_purchase_order(
+        self,
+        *,
+        order_id: UUID,
+        company_id: UUID,
+        partner_id: UUID,
+        order_date: date,
+        lines: list[dict],
+    ) -> PurchaseOrder:
+        """Product Owner request: allow editing a transaction before it's
+        posted/confirmed. Full line replace, matching
+        `create_purchase_order`'s own computation — safe only pre-confirm,
+        since qty_received/qty_billed are guaranteed zero on every line
+        until then."""
+        if not lines:
+            raise ValueError("A purchase order needs at least one line")
+        order = await self.order_repo.get_by_id(order_id)
+        if order is None or order.company_id != company_id:
+            raise ValueError("Purchase order not found")
+        if order.status != "draft":
+            raise ValueError("Only a draft purchase order can be edited")
+
+        total = sum((Decimal(str(line["qty"])) * Decimal(str(line["unit_price"])) for line in lines), Decimal("0"))
+        orm_lines = [
+            PurchaseOrderLine(
+                id=uuid.uuid4(),
+                company_id=company_id,
+                product_id=line["product_id"],
+                qty=Decimal(str(line["qty"])),
+                unit_price=Decimal(str(line["unit_price"])),
+                tax_rate_id=line["tax_rate_id"],
+            )
+            for line in lines
+        ]
+        await self.order_repo.replace_lines(order_id, orm_lines)
+        order.partner_id = partner_id
+        order.order_date = order_date
+        order.total_amount = total
+        return order
+
     async def confirm_purchase_order(self, *, order_id: UUID, company_id: UUID) -> PurchaseOrder:
         order = await self.order_repo.get_by_id(order_id)
         if order is None or order.company_id != company_id:
@@ -575,6 +615,94 @@ class VendorBillService:
             po_line = await self.order_repo.get_line_by_id_for_update(line["purchase_order_line_id"])
             po_line.qty_billed += Decimal(str(line["qty"]))
 
+        return bill
+
+    async def update_bill(
+        self,
+        *,
+        bill_id: UUID,
+        company_id: UUID,
+        vendor_reference: str | None,
+        lines: list[dict],
+    ) -> VendorBill:
+        """Product Owner request: allow editing a transaction before it's
+        posted. A standard bill sitting in 'matched'/'mismatched' (before
+        `:approve`) has no JE yet — same shape as `register_bill`, run
+        again over a new set of lines. Each old line's qty_billed
+        contribution on its PO line is rolled back first, then the new
+        lines' 3-way match is computed exactly like a fresh registration
+        (a mismatched bill is otherwise a dead end today with no way to
+        correct it short of leaving it unpostable forever)."""
+        bill = await self.bill_repo.get_by_id(bill_id)
+        if bill is None or bill.company_id != company_id:
+            raise ValueError("Vendor bill not found")
+        if bill.bill_type != "standard":
+            raise ValueError("Only a standard vendor bill can be edited")
+        if bill.status not in ("matched", "mismatched"):
+            raise ValueError("Only a bill awaiting approval can be edited")
+        if not lines:
+            raise ValueError("A vendor bill needs at least one line")
+
+        old_lines = await self.bill_repo.get_lines(bill_id)
+        for old_line in old_lines:
+            po_line = await self.order_repo.get_line_by_id_for_update(old_line.purchase_order_line_id)
+            if po_line is not None:
+                po_line.qty_billed -= old_line.qty
+
+        subtotal = Decimal("0")
+        tax_total = Decimal("0")
+        new_lines: list[VendorBillLine] = []
+        match_lines: list[MatchLine] = []
+        for line in lines:
+            po_line = await self.order_repo.get_line_by_id(line["purchase_order_line_id"])
+            if po_line is None or po_line.purchase_order_id != bill.purchase_order_id:
+                raise ValueError("Purchase order line not found on this order")
+
+            bill_qty = Decimal(str(line["qty"]))
+            bill_unit_price = Decimal(str(line["unit_price"]))
+            line_total = (bill_qty * bill_unit_price).quantize(Decimal("0.01"))
+            tax_rate_percent = Decimal("15.00")
+            line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
+            subtotal += line_total
+            tax_total += line_tax
+
+            new_lines.append(
+                VendorBillLine(
+                    id=uuid.uuid4(),
+                    company_id=company_id,
+                    purchase_order_line_id=po_line.id,
+                    product_id=po_line.product_id,
+                    qty=bill_qty,
+                    unit_price=bill_unit_price,
+                    tax_rate_id=po_line.tax_rate_id,
+                    tax_rate_percent=tax_rate_percent,
+                    line_total=line_total,
+                    tax_amount=line_tax,
+                )
+            )
+            match_lines.append(
+                MatchLine(
+                    product_id=po_line.product_id,
+                    po_qty=po_line.qty,
+                    po_unit_price=po_line.unit_price,
+                    received_qty=po_line.qty_received,
+                    bill_qty=bill_qty,
+                    bill_unit_price=bill_unit_price,
+                )
+            )
+
+        mismatch_reasons = check_three_way_match(match_lines)
+        await self.bill_repo.replace_lines(bill_id, new_lines)
+        for line in lines:
+            po_line = await self.order_repo.get_line_by_id_for_update(line["purchase_order_line_id"])
+            po_line.qty_billed += Decimal(str(line["qty"]))
+
+        bill.vendor_reference = vendor_reference
+        bill.status = "mismatched" if mismatch_reasons else "matched"
+        bill.mismatch_reasons = "; ".join(mismatch_reasons) if mismatch_reasons else None
+        bill.subtotal_amount = subtotal
+        bill.tax_amount = tax_total
+        bill.total_amount = subtotal + tax_total
         return bill
 
     async def approve_and_post(self, *, bill_id: UUID, company_id: UUID, created_by: UUID) -> VendorBill:

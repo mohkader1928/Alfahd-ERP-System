@@ -104,6 +104,49 @@ class QuotationService:
         except IntegrityError as e:
             raise ValueError("A quotation was created concurrently with the same number — please retry") from e
 
+    async def update_quotation(
+        self,
+        *,
+        quotation_id: UUID,
+        company_id: UUID,
+        partner_id: UUID,
+        quote_date: date,
+        lines: list[dict],
+    ) -> Quotation:
+        """Product Owner request: allow editing a transaction before it's
+        posted/confirmed. A Quotation is the one genuinely pre-commitment
+        stage in the Sales flow (a SalesOrder is created already
+        'confirmed' — see `confirm_to_sales_order` — and a SalesInvoice is
+        created, ZATCA-submitted, and journaled in one atomic call with no
+        draft window of its own), so this is the edit surface for the
+        whole quote-to-order stage. Full line replace, matching
+        `create_quotation`'s own computation."""
+        if not lines:
+            raise ValueError("A quotation needs at least one line")
+        quotation = await self.quotation_repo.get_by_id(quotation_id)
+        if quotation is None or quotation.company_id != company_id:
+            raise ValueError("Quotation not found")
+        if quotation.status != "draft":
+            raise ValueError("Only a draft quotation can be edited")
+
+        total = sum((Decimal(str(line["qty"])) * Decimal(str(line["unit_price"])) for line in lines), Decimal("0"))
+        orm_lines = [
+            QuotationLine(
+                id=uuid.uuid4(),
+                company_id=company_id,
+                product_id=line["product_id"],
+                qty=Decimal(str(line["qty"])),
+                unit_price=Decimal(str(line["unit_price"])),
+                tax_rate_id=line["tax_rate_id"],
+            )
+            for line in lines
+        ]
+        await self.quotation_repo.replace_lines(quotation_id, orm_lines)
+        quotation.partner_id = partner_id
+        quotation.quote_date = quote_date
+        quotation.total_amount = total
+        return quotation
+
     async def confirm_to_sales_order(self, *, quotation_id: UUID, company_id: UUID) -> SalesOrder:
         quotation = await self.quotation_repo.get_by_id(quotation_id)
         if quotation is None or quotation.company_id != company_id:

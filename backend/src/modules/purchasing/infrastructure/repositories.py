@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.purchasing.infrastructure.models import (
@@ -39,6 +39,18 @@ class PurchaseOrderRepository:
             select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order_id)
         )
         return list(result.scalars().all())
+
+    async def replace_lines(self, order_id: UUID, lines: list[PurchaseOrderLine]) -> None:
+        """Full replace, not a diff — only ever called against a still-draft
+        order, where qty_received/qty_billed are guaranteed zero on every
+        existing line (nothing can be received or billed before
+        confirmation), so there's no downstream figure a line-level diff
+        would need to preserve."""
+        await self.session.execute(delete(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order_id))
+        for line in lines:
+            line.purchase_order_id = order_id
+            self.session.add(line)
+        await self.session.flush()
 
     async def get_line_by_id(self, line_id: UUID) -> PurchaseOrderLine | None:
         result = await self.session.execute(select(PurchaseOrderLine).where(PurchaseOrderLine.id == line_id))
@@ -168,6 +180,16 @@ class VendorBillRepository:
     async def get_lines(self, bill_id: UUID) -> list[VendorBillLine]:
         result = await self.session.execute(select(VendorBillLine).where(VendorBillLine.vendor_bill_id == bill_id))
         return list(result.scalars().all())
+
+    async def replace_lines(self, bill_id: UUID, lines: list[VendorBillLine]) -> None:
+        """Full replace, not a diff — only ever called against a bill still
+        in 'matched'/'mismatched' status (not yet approved/posted), so no
+        JE or downstream figure depends on any existing line's own id."""
+        await self.session.execute(delete(VendorBillLine).where(VendorBillLine.vendor_bill_id == bill_id))
+        for line in lines:
+            line.vendor_bill_id = bill_id
+            self.session.add(line)
+        await self.session.flush()
 
     async def next_number(self, company_id: UUID) -> str:
         result = await self.session.execute(select(func.count()).where(VendorBill.company_id == company_id))

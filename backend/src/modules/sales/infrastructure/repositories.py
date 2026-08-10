@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.sales.infrastructure.models import (
@@ -40,6 +40,16 @@ class QuotationRepository:
             select(QuotationLine).where(QuotationLine.quotation_id == quotation_id)
         )
         return list(result.scalars().all())
+
+    async def replace_lines(self, quotation_id: UUID, lines: list[QuotationLine]) -> None:
+        """Full replace, not a diff — only ever called against a still-draft
+        quotation (no downstream document references a line's own id yet),
+        so there's nothing a line-level diff would preserve."""
+        await self.session.execute(delete(QuotationLine).where(QuotationLine.quotation_id == quotation_id))
+        for line in lines:
+            line.quotation_id = quotation_id
+            self.session.add(line)
+        await self.session.flush()
 
     async def next_number(self, company_id: UUID) -> str:
         result = await self.session.execute(select(func.count()).where(Quotation.company_id == company_id))

@@ -141,6 +141,29 @@ async def create_purchase_order(
     return order
 
 
+@router.put("/orders/{order_id}", response_model=PurchaseOrderOut)
+async def update_purchase_order(
+    order_id: UUID,
+    payload: PurchaseOrderCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("purchasing.order.update", require_branch=True)),
+    service: PurchaseOrderService = Depends(get_purchase_order_service),
+):
+    try:
+        order = await service.update_purchase_order(
+            order_id=order_id,
+            company_id=ctx.company_id,
+            partner_id=payload.partner_id,
+            order_date=payload.order_date,
+            lines=[line.model_dump() for line in payload.lines],
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return order
+
+
 @router.post("/orders/{order_id}:confirm", response_model=PurchaseOrderOut)
 async def confirm_purchase_order(
     order_id: UUID,
@@ -304,6 +327,28 @@ async def register_vendor_bill(
             purchase_order_id=order_id,
             company_id=ctx.company_id,
             branch_id=ctx.branch_id,
+            vendor_reference=payload.vendor_reference,
+            lines=[line.model_dump() for line in payload.lines],
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return bill
+
+
+@router.put("/vendor-bills/{bill_id}", response_model=VendorBillOut)
+async def update_vendor_bill(
+    bill_id: UUID,
+    payload: VendorBillCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("purchasing.vendor_bill.update", require_branch=True)),
+    service: VendorBillService = Depends(get_vendor_bill_service),
+):
+    try:
+        bill = await service.update_bill(
+            bill_id=bill_id,
+            company_id=ctx.company_id,
             vendor_reference=payload.vendor_reference,
             lines=[line.model_dump() for line in payload.lines],
         )

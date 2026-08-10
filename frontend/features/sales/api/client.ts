@@ -1,6 +1,13 @@
 import { apiClient } from "@/lib/api-client";
 import type { Page } from "@/lib/pagination";
-import type { InvoiceIssueResponse, Quotation, QuotationLineIn, SalesInvoice, SalesOrder } from "./types";
+import type {
+  InvoiceIssueResponse,
+  Quotation,
+  QuotationDetailResponse,
+  QuotationLineIn,
+  SalesInvoice,
+  SalesOrder,
+} from "./types";
 
 export interface SalesInvoiceListFilters {
   partnerId?: string;
@@ -24,7 +31,14 @@ export const salesApi = {
   ) => apiClient.post<Quotation>(`${BASE}/quotations`, payload, { companyId, branchId }),
 
   getQuotation: (companyId: string, id: string) =>
-    apiClient.get<Quotation>(`${BASE}/quotations/${id}`, { companyId }),
+    apiClient.get<QuotationDetailResponse>(`${BASE}/quotations/${id}`, { companyId }),
+
+  updateQuotation: (
+    companyId: string,
+    branchId: string,
+    id: string,
+    payload: { partner_id: string; quote_date: string; lines: QuotationLineIn[] }
+  ) => apiClient.put<Quotation>(`${BASE}/quotations/${id}`, payload, { companyId, branchId }),
 
   confirmQuotation: (companyId: string, branchId: string, id: string) =>
     apiClient.post<SalesOrder>(`${BASE}/quotations/${id}:confirm`, undefined, { companyId, branchId }),

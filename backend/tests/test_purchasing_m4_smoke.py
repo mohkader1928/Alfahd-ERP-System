@@ -349,3 +349,174 @@ async def test_purchase_orders_not_visible_across_companies(client):
     assert all(o["id"] != order_id for o in list_resp.json()["items"])
     detail_resp = await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers_b)
     assert detail_resp.status_code == 404
+
+
+# --- Product Owner request: edit a transaction before it's posted, with a
+# "View Journal Entry" button on the screens that get one --------------
+
+
+async def test_draft_purchase_order_can_be_edited(client):
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    other_vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [{"product_id": product_id, "qty": "10", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+
+    edit_resp = await client.put(
+        f"/api/v1/purchasing/orders/{order_id}",
+        headers=headers,
+        json={
+            "partner_id": other_vendor_id,
+            "order_date": "2026-05-02",
+            "lines": [{"product_id": product_id, "qty": "5", "unit_price": "30.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    assert edit_resp.status_code == 200
+    edited = edit_resp.json()
+    assert edited["partner_id"] == other_vendor_id
+    assert edited["order_date"] == "2026-05-02"
+    assert edited["total_amount"] == "150.00"  # 5 * 30.00, not the original 200.00
+
+    detail = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()
+    assert len(detail["lines"]) == 1
+    assert detail["lines"][0]["qty"] == "5.000000"
+
+
+async def test_confirmed_purchase_order_cannot_be_edited(client):
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [{"product_id": product_id, "qty": "10", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+
+    edit_resp = await client.put(
+        f"/api/v1/purchasing/orders/{order_id}",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [{"product_id": product_id, "qty": "5", "unit_price": "30.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    assert edit_resp.status_code == 422
+    assert "draft" in edit_resp.json()["detail"].lower()
+
+
+async def test_editing_a_mismatched_bill_can_fix_it_and_allow_approval(client):
+    """A mismatched bill was previously a dead end — no way to correct it
+    short of leaving it unpostable forever. This is exactly the
+    `test_vendor_bill_price_mismatch_blocks_approval` setup, but now
+    corrected via PUT instead of stuck."""
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    await _create_warehouse(client, headers)
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [{"product_id": product_id, "qty": "10", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_detail = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()
+    po_line_id = po_detail["lines"][0]["id"]
+    await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "10"}]},
+    )
+
+    bill_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "10", "unit_price": "25.00"}]},
+    )
+    bill = bill_resp.json()
+    assert bill["status"] == "mismatched"
+    bill_id = bill["id"]
+
+    edit_resp = await client.put(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}",
+        headers=headers,
+        json={
+            "vendor_reference": "Corrected",
+            "lines": [{"purchase_order_line_id": po_line_id, "qty": "10", "unit_price": "20.00"}],
+        },
+    )
+    assert edit_resp.status_code == 200
+    edited = edit_resp.json()
+    assert edited["status"] == "matched"
+    assert edited["mismatch_reasons"] is None
+    assert edited["vendor_reference"] == "Corrected"
+    assert edited["total_amount"] == "230.00"  # 10 * 20.00 + 15% VAT
+
+    approve_resp = await client.post(f"/api/v1/purchasing/vendor-bills/{bill_id}:approve", headers=headers)
+    assert approve_resp.status_code == 200
+    assert approve_resp.json()["status"] == "posted"
+    assert approve_resp.json()["journal_entry_id"] is not None
+
+
+async def test_posted_vendor_bill_cannot_be_edited(client):
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    await _create_warehouse(client, headers)
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [{"product_id": product_id, "qty": "10", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_detail = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()
+    po_line_id = po_detail["lines"][0]["id"]
+    await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "10"}]},
+    )
+    bill_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "10", "unit_price": "20.00"}]},
+    )
+    bill_id = bill_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/vendor-bills/{bill_id}:approve", headers=headers)
+
+    edit_resp = await client.put(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "5", "unit_price": "20.00"}]},
+    )
+    assert edit_resp.status_code == 422
+    assert "approval" in edit_resp.json()["detail"].lower()

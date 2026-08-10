@@ -32,6 +32,21 @@ class QuotationOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class QuotationLineOut(BaseModel):
+    id: UUID
+    product_id: UUID
+    qty: Decimal
+    unit_price: Decimal
+    tax_rate_id: UUID
+
+    model_config = {"from_attributes": True}
+
+
+class QuotationDetailResponse(BaseModel):
+    quotation: QuotationOut
+    lines: list[QuotationLineOut]
+
+
 class SalesOrderOut(BaseModel):
     id: UUID
     company_id: UUID
@@ -70,6 +85,7 @@ class SalesInvoiceOut(BaseModel):
     subtotal_amount: Decimal
     tax_amount: Decimal
     total_amount: Decimal
+    journal_entry_id: UUID | None
     last_emailed_at: datetime | None = None
     last_emailed_to: str | None = None
 

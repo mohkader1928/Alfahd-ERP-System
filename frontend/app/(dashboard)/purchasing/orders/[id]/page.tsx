@@ -263,6 +263,13 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
           </Table>
           <div className="flex flex-wrap gap-2">
             {order.status === "draft" && (
+              <Can permission="purchasing.order.update">
+                <Button variant="outline" onClick={() => router.push(`/purchasing/orders/${id}/edit`)}>
+                  {t("common.edit")}
+                </Button>
+              </Can>
+            )}
+            {order.status === "draft" && (
               <Can permission="purchasing.order.confirm">
                 <Button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending}>
                   {confirmMutation.isPending ? t("common.loading") : t("purchasing.orders.confirm")}

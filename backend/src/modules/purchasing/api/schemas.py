@@ -142,6 +142,7 @@ class VendorBillOut(BaseModel):
     mismatch_reasons: str | None
     bill_type: str
     original_bill_id: UUID | None
+    journal_entry_id: UUID | None
 
     model_config = {"from_attributes": True}
 

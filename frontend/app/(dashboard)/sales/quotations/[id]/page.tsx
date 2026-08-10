@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { identityApi } from "@/features/identity/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
@@ -25,9 +27,13 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
 
-  const { data: quotation, isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["quotation", companyId, id],
     queryFn: () => salesApi.getQuotation(companyId, id),
+  });
+  const productsQuery = useQuery({
+    queryKey: ["products", companyId],
+    queryFn: () => identityApi.listProducts(companyId, branchId),
   });
 
   const confirmMutation = useMutation({
@@ -41,7 +47,9 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
   });
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!quotation) return null;
+  if (!data) return null;
+  const { quotation, lines } = data;
+  const productLabel = (productId: string) => productsQuery.data?.find((p) => p.id === productId)?.name ?? productId;
 
   return (
     <div className="max-w-xl space-y-4">
@@ -63,13 +71,40 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
             <dt className="text-muted-foreground">{t("sales.quotations.total")}</dt>
             <dd>{formatCurrency(quotation.total_amount)}</dd>
           </dl>
-          {quotation.status === "draft" && (
-            <Can permission="sales.quotation.confirm">
-              <Button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending}>
-                {confirmMutation.isPending ? t("common.loading") : t("sales.quotations.confirm")}
-              </Button>
-            </Can>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("sales.quotations.select_product")}</TableHead>
+                <TableHead className="text-end">{t("sales.quotations.qty")}</TableHead>
+                <TableHead className="text-end">{t("sales.quotations.unit_price")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lines.map((l) => (
+                <TableRow key={l.id}>
+                  <TableCell>{productLabel(l.product_id)}</TableCell>
+                  <TableCell className="text-end">{l.qty}</TableCell>
+                  <TableCell className="text-end">{formatCurrency(l.unit_price)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="flex flex-wrap gap-2">
+            {quotation.status === "draft" && (
+              <Can permission="sales.quotation.update">
+                <Button variant="outline" onClick={() => router.push(`/sales/quotations/${id}/edit`)}>
+                  {t("common.edit")}
+                </Button>
+              </Can>
+            )}
+            {quotation.status === "draft" && (
+              <Can permission="sales.quotation.confirm">
+                <Button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending}>
+                  {confirmMutation.isPending ? t("common.loading") : t("sales.quotations.confirm")}
+                </Button>
+              </Can>
+            )}
+          </div>
           {confirmMutation.isError && (
             <p className="text-sm text-destructive">
               {confirmMutation.error instanceof ApiError ? confirmMutation.error.detail : t("common.error")}

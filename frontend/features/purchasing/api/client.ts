@@ -49,6 +49,13 @@ export const purchasingApi = {
   getOrder: (companyId: string, id: string) =>
     apiClient.get<PurchaseOrderDetail>(`${BASE}/orders/${id}`, { companyId }),
 
+  updateOrder: (
+    companyId: string,
+    branchId: string,
+    id: string,
+    payload: { partner_id: string; order_date: string; lines: PurchaseOrderLineIn[] }
+  ) => apiClient.put<PurchaseOrder>(`${BASE}/orders/${id}`, payload, { companyId, branchId }),
+
   confirmOrder: (companyId: string, id: string) =>
     apiClient.post<PurchaseOrder>(`${BASE}/orders/${id}:confirm`, undefined, { companyId }),
 
@@ -110,4 +117,14 @@ export const purchasingApi = {
 
   getVendorBill: (companyId: string, id: string) =>
     apiClient.get<VendorBillDetail>(`${BASE}/vendor-bills/${id}`, { companyId }),
+
+  updateVendorBill: (
+    companyId: string,
+    branchId: string,
+    id: string,
+    payload: {
+      vendor_reference?: string;
+      lines: { purchase_order_line_id: string; qty: string; unit_price: string }[];
+    }
+  ) => apiClient.put<VendorBill>(`${BASE}/vendor-bills/${id}`, payload, { companyId, branchId }),
 };

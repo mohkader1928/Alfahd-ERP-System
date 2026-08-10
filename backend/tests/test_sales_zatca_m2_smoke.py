@@ -488,6 +488,97 @@ async def test_list_invoices_filters_by_invoice_type_for_the_returns_screen(clie
     assert returns_ids == {credit_note_id}  # the original invoice must NOT appear
 
 
+# --- Product Owner request: edit a transaction before it's posted, with a
+# "View Journal Entry" button on the screens that get one --------------
+
+
+async def test_draft_quotation_can_be_edited(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    other_partner_id = await _create_partner(client, headers, is_b2b=False)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    create_resp = await client.post(
+        "/api/v1/sales/quotations",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "quote_date": "2026-03-01",
+            "lines": [{"product_id": product_id, "qty": "2", "unit_price": "1000.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    quotation_id = create_resp.json()["id"]
+
+    edit_resp = await client.put(
+        f"/api/v1/sales/quotations/{quotation_id}",
+        headers=headers,
+        json={
+            "partner_id": other_partner_id,
+            "quote_date": "2026-03-05",
+            "lines": [{"product_id": product_id, "qty": "1", "unit_price": "500.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    assert edit_resp.status_code == 200
+    edited = edit_resp.json()
+    assert edited["partner_id"] == other_partner_id
+    assert edited["quote_date"] == "2026-03-05"
+    assert edited["total_amount"] == "500.00"  # not the original 2000.00
+
+    detail = (await client.get(f"/api/v1/sales/quotations/{quotation_id}", headers=headers)).json()
+    assert len(detail["lines"]) == 1
+    assert detail["lines"][0]["qty"] == "1.000000"
+
+
+async def test_confirmed_quotation_cannot_be_edited(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    order_id_or_quotation = await _create_quotation_and_confirm(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+    # _create_quotation_and_confirm returns the sales_order_id; re-fetch the
+    # quotation itself via the list endpoint to get its own id.
+    quotations = (await client.get("/api/v1/sales/quotations", headers=headers)).json()
+    quotation_id = next(q["id"] for q in quotations if q["status"] == "confirmed")
+    assert order_id_or_quotation  # sanity: an order really was created
+
+    edit_resp = await client.put(
+        f"/api/v1/sales/quotations/{quotation_id}",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "quote_date": "2026-03-01",
+            "lines": [{"product_id": product_id, "qty": "1", "unit_price": "1.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    assert edit_resp.status_code == 422
+    assert "draft" in edit_resp.json()["detail"].lower()
+
+
+async def test_invoice_and_credit_note_expose_journal_entry_id(client):
+    """The 'View Journal Entry' button on the Sales Invoice detail screen
+    depends on this field actually being in the API response."""
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    order_id = await _create_quotation_and_confirm(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+    invoice_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    invoice = invoice_resp.json()["invoice"]
+    assert invoice["journal_entry_id"] is not None
+
+    credit_resp = await client.post(
+        f"/api/v1/sales/invoices/{invoice['id']}:credit-note", headers=headers, json={"reason": "Return"}
+    )
+    assert credit_resp.json()["invoice"]["journal_entry_id"] is not None
+
+
 async def test_sales_endpoints_require_permission(client):
     resp = await client.post("/api/v1/sales/quotations", json={})
     assert resp.status_code == 401

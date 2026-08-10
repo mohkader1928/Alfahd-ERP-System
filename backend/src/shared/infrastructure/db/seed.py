@@ -74,6 +74,7 @@ PERMISSION_CATALOG = [
     ("payment.aging.view", "screen"),
     # M2 — Sales + ZATCA
     ("sales.quotation.create", "action"),
+    ("sales.quotation.update", "action"),
     ("sales.quotation.confirm", "action"),
     ("sales.order.view", "screen"),
     ("sales.invoice.create", "action"),
@@ -88,6 +89,7 @@ PERMISSION_CATALOG = [
     ("inventory.cycle_count.manage", "action"),
     # M4 — Purchasing
     ("purchasing.order.create", "action"),
+    ("purchasing.order.update", "action"),
     ("purchasing.order.confirm", "action"),
     ("purchasing.order.approve", "action"),
     ("purchasing.order.view", "screen"),
@@ -95,6 +97,7 @@ PERMISSION_CATALOG = [
     ("purchasing.order.reopen", "action"),
     ("purchasing.goods_receipt.create", "action"),
     ("purchasing.vendor_bill.create", "action"),
+    ("purchasing.vendor_bill.update", "action"),
     ("purchasing.vendor_bill.view", "screen"),
     ("purchasing.vendor_bill.approve", "action"),
     ("purchasing.vendor_bill.debit_note", "action"),

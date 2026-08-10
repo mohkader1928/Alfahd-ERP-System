@@ -15,6 +15,19 @@ export interface Quotation {
   total_amount: string;
 }
 
+export interface QuotationLine {
+  id: string;
+  product_id: string;
+  qty: string;
+  unit_price: string;
+  tax_rate_id: string;
+}
+
+export interface QuotationDetailResponse {
+  quotation: Quotation;
+  lines: QuotationLine[];
+}
+
 export interface SalesOrder {
   id: string;
   company_id: string;
@@ -49,6 +62,7 @@ export interface SalesInvoice {
   subtotal_amount: string;
   tax_amount: string;
   total_amount: string;
+  journal_entry_id: string | null;
   last_emailed_at: string | null;
   last_emailed_to: string | null;
 }

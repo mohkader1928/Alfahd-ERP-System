@@ -4,12 +4,13 @@ import { use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BookOpenText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { paymentsApi } from "@/features/payments/api/client";
@@ -89,6 +90,18 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
               </>
             )}
           </dl>
+          {payment.journal_entry_id && (
+            <Can permission="accounting.journal_entry.view">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/accounting/journal-entries/${payment.journal_entry_id}`)}
+              >
+                <BookOpenText className="h-4 w-4" />
+                {t("common.view_journal_entry")}
+              </Button>
+            </Can>
+          )}
           <Table>
             <TableHeader>
               <TableRow>

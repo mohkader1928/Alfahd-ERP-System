@@ -60,6 +60,7 @@ export interface VendorBill {
   mismatch_reasons: string | null;
   bill_type: "standard" | "debit_note";
   original_bill_id: string | null;
+  journal_entry_id: string | null;
 }
 
 export interface VendorBillLine {

@@ -3,7 +3,7 @@
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BookOpenText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +31,12 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
   const branchId = useAuthStore((s) => s.activeBranchId);
   const [debitNoteReason, setDebitNoteReason] = useState("");
   const [debitNoteRestock, setDebitNoteRestock] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editVendorReference, setEditVendorReference] = useState("");
+  const [editLines, setEditLines] = useState<{ purchase_order_line_id: string; qty: string; unit_price: string }[]>(
+    []
+  );
+  const [editError, setEditError] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor-bill", companyId, id],
@@ -66,6 +72,47 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
     onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      purchasingApi.updateVendorBill(companyId, branchId!, id, {
+        vendor_reference: editVendorReference || undefined,
+        lines: editLines,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vendor-bill", companyId, id] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] });
+      toastSuccess(t("toast.success_title"), t("common.edit"));
+      setIsEditing(false);
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setEditError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  function startEditing() {
+    if (!data) return;
+    setEditVendorReference(data.bill.vendor_reference ?? "");
+    // Only ever shown for a bill_type='standard' bill, where every line is
+    // guaranteed a real purchase_order_line_id (3-way match requires it) —
+    // the field is nullable on the type only because a freeform Purchase
+    // Return line has none.
+    setEditLines(
+      data.lines.map((l) => ({
+        purchase_order_line_id: l.purchase_order_line_id as string,
+        qty: l.qty,
+        unit_price: l.unit_price,
+      }))
+    );
+    setEditError(null);
+    setIsEditing(true);
+  }
+
+  function updateEditLine(index: number, patch: Partial<{ qty: string; unit_price: string }>) {
+    setEditLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  }
+
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data) return null;
 
@@ -96,7 +143,7 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
             <dd>{vendorLabel}</dd>
             <dt className="text-muted-foreground">{t("purchasing.orders.date")}</dt>
             <dd>{formatDate(bill.bill_date, locale)}</dd>
-            {bill.vendor_reference && (
+            {!isEditing && bill.vendor_reference && (
               <>
                 <dt className="text-muted-foreground">{t("purchasing.vendor_bills.vendor_reference")}</dt>
                 <dd>{bill.vendor_reference}</dd>
@@ -109,27 +156,98 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
             <dt className="text-muted-foreground">{t("purchasing.orders.total")}</dt>
             <dd>{formatCurrency(bill.total_amount)}</dd>
           </dl>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("purchasing.orders.select_product")}</TableHead>
-                <TableHead className="text-end">{t("purchasing.orders.qty")}</TableHead>
-                <TableHead className="text-end">{t("purchasing.orders.unit_price")}</TableHead>
-                <TableHead className="text-end">{t("purchasing.orders.total")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {lines.map((l) => (
-                <TableRow key={l.id}>
-                  <TableCell>{productLabel(l.product_id)}</TableCell>
-                  <TableCell className="text-end">{l.qty}</TableCell>
-                  <TableCell className="text-end">{formatCurrency(l.unit_price)}</TableCell>
-                  <TableCell className="text-end">{formatCurrency(l.line_total)}</TableCell>
+
+          {isEditing ? (
+            <div className="space-y-3 border-t pt-4">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">{t("purchasing.vendor_bills.vendor_reference")}</label>
+                <Input value={editVendorReference} onChange={(e) => setEditVendorReference(e.target.value)} />
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("purchasing.orders.select_product")}</TableHead>
+                    <TableHead className="text-end">{t("purchasing.orders.qty")}</TableHead>
+                    <TableHead className="text-end">{t("purchasing.orders.unit_price")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lines.map((l, index) => (
+                    <TableRow key={l.id}>
+                      <TableCell>{productLabel(l.product_id)}</TableCell>
+                      <TableCell className="text-end">
+                        <Input
+                          className="w-24 text-end"
+                          value={editLines[index]?.qty ?? ""}
+                          onChange={(e) => updateEditLine(index, { qty: e.target.value })}
+                        />
+                      </TableCell>
+                      <TableCell className="text-end">
+                        <Input
+                          className="w-28 text-end"
+                          value={editLines[index]?.unit_price ?? ""}
+                          onChange={(e) => updateEditLine(index, { unit_price: e.target.value })}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {editError && <p className="text-sm text-destructive">{editError}</p>}
+              <div className="flex gap-2">
+                <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? t("common.loading") : t("common.save")}
+                </Button>
+                <Button variant="outline" onClick={() => setIsEditing(false)}>
+                  {t("common.cancel")}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("purchasing.orders.select_product")}</TableHead>
+                  <TableHead className="text-end">{t("purchasing.orders.qty")}</TableHead>
+                  <TableHead className="text-end">{t("purchasing.orders.unit_price")}</TableHead>
+                  <TableHead className="text-end">{t("purchasing.orders.total")}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {bill.status !== "posted" && (
+              </TableHeader>
+              <TableBody>
+                {lines.map((l) => (
+                  <TableRow key={l.id}>
+                    <TableCell>{productLabel(l.product_id)}</TableCell>
+                    <TableCell className="text-end">{l.qty}</TableCell>
+                    <TableCell className="text-end">{formatCurrency(l.unit_price)}</TableCell>
+                    <TableCell className="text-end">{formatCurrency(l.line_total)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+
+          {!isEditing && bill.status !== "posted" && bill.bill_type === "standard" && (
+            <Can permission="purchasing.vendor_bill.update">
+              <Button variant="outline" size="sm" onClick={startEditing}>
+                {t("common.edit")}
+              </Button>
+            </Can>
+          )}
+
+          {!isEditing && bill.journal_entry_id && (
+            <Can permission="accounting.journal_entry.view">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/accounting/journal-entries/${bill.journal_entry_id}`)}
+              >
+                <BookOpenText className="h-4 w-4" />
+                {t("common.view_journal_entry")}
+              </Button>
+            </Can>
+          )}
+
+          {!isEditing && bill.status !== "posted" && (
             <Can permission="purchasing.vendor_bill.approve">
               <Button onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending}>
                 {approveMutation.isPending ? t("common.loading") : t("purchasing.vendor_bills.approve")}

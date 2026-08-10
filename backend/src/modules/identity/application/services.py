@@ -200,6 +200,7 @@ class UserManagementService:
                 "Sales",
                 [
                     "sales.quotation.create",
+                    "sales.quotation.update",
                     "sales.quotation.confirm",
                     "sales.order.view",
                     "sales.invoice.create",
@@ -222,6 +223,7 @@ class UserManagementService:
                 "Purchasing & Warehouse",
                 [
                     "purchasing.order.create",
+                    "purchasing.order.update",
                     "purchasing.order.confirm",
                     "purchasing.order.approve",
                     "purchasing.order.view",
@@ -229,6 +231,7 @@ class UserManagementService:
                     "purchasing.order.reopen",
                     "purchasing.goods_receipt.create",
                     "purchasing.vendor_bill.create",
+                    "purchasing.vendor_bill.update",
                     "purchasing.vendor_bill.view",
                     "purchasing.vendor_bill.approve",
                     "purchasing.vendor_bill.debit_note",

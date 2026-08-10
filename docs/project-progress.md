@@ -8,8 +8,79 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-11 — **P0-9 second follow-up: freeform
-multi-line returns, original document made optional**. Owner feedback
+**Last verified**: 2026-08-10 — **Journal Entry visibility + pre-post
+editing**. Owner request: "أضف زر... لإظهار القيد المحاسبى الناتج عن
+هذه الحركة ودائمًا اسمح بالتعديل على أصل الحركة... وفى حالة الحفظ عدل
+بالطبع القيد المحاسبى المقترن" — a "View Journal Entry" button on every
+screen whose transaction posts one, and the ability to always edit the
+original document, regenerating its journal entry on save.
+
+The edit-and-regenerate-JE part collided with two invariants already
+built into this system: `trg_journal_entry_posted_immutable` /
+`trg_journal_entry_line_immutable` (migration `461205cf56a6`, FR-ACC-004)
+physically block any UPDATE on a posted journal entry at the database
+level — correcting one requires reversing it and posting a new one, not
+an in-place edit — and a cleared/reported ZATCA Tax Invoice is legally
+required to stay immutable, correctable only via a Credit Note (the
+mechanism the P0-9 work above just built out). Flagged this conflict to
+the Owner before implementing; the Owner chose **edit allowed only
+pre-posting** (the option matching the existing architecture, zero
+compliance risk) — editing a transaction that already has a posted
+journal entry stays impossible by design, correctable only through the
+existing reversal-document flow (Credit Note / Debit Note / JE reverse).
+
+**"View Journal Entry" button** — added to Sales Invoice, Vendor Bill,
+and Payment detail pages (all three already stored their own
+`journal_entry_id`; `SalesInvoiceOut`/`VendorBillOut` didn't expose it
+over the API yet — added). Live-verified: opened a Credit Note's
+`journal_entry_id`, landed on the real JE detail page showing its actual
+Dr Revenue / Cr AR / Dr VAT lines.
+
+**"Always allow editing pre-post"** — three document types previously
+had **no edit endpoint at all**, not even in their own pre-post window:
+- `PUT /sales/quotations/{id}` — only while `status='draft'`. New
+  `sales/quotations/[id]/edit` page (mirrors the create-page's line
+  editor, pre-filled). `GET /sales/quotations/{id}` changed shape from a
+  flat `QuotationOut` to `{quotation, lines}` (`QuotationDetailResponse`)
+  since there was previously no way to fetch a quotation's own lines at
+  all — the quotation detail page now also shows a lines table for the
+  first time.
+- `PUT /purchasing/orders/{id}` — only while `status='draft'` (safe: every
+  line's `qty_received`/`qty_billed` is guaranteed zero until confirmed).
+  New `purchasing/orders/[id]/edit` page.
+- `PUT /purchasing/vendor-bills/{id}` — only while `status` is
+  `matched`/`mismatched` (before `:approve`), standard bills only. A
+  **mismatched bill was previously a dead end** — no way to correct a
+  wrong qty/price against the PO short of leaving it permanently
+  unpostable; this closes that gap. Inline edit directly on the bill
+  detail page (its lines are already tied to real PO lines, so a picker
+  wasn't needed — just editable qty/price per existing line). Old lines'
+  `qty_billed` contribution on their PO line is rolled back before the
+  new lines' 3-way match recomputes, reusing `register_bill`'s own match
+  logic.
+
+3 new permission codes (`sales.quotation.update`,
+`purchasing.order.update`, `purchasing.vendor_bill.update`), granted to
+the Sales/Purchasing & Warehouse role templates and (as with every
+permission added mid-engagement) automatically included in any newly
+bootstrapped company's Admin role; existing companies' Admin role needs
+these granted once via Settings → Security (done for the demo company
+during verification).
+
+11 new backend tests (draft-quotation/PO edit round-trips, confirmed-
+quotation/PO edit correctly rejected, mismatched-bill-corrected-then-
+approved, posted-bill edit correctly rejected, invoice/credit-note
+`journal_entry_id` exposure). Full suite 368/369 (1 known-flaky,
+unrelated inventory-concurrency test, passes in isolation),
+ruff/tsc/eslint/`next build` all clean. Live-verified end to end in the
+browser: edited a draft quotation's customer/date/line (total recomputed
+450.00 SAR from 150.00 SAR) and a draft PO's qty (total recomputed 770.00
+SAR from 77.00 SAR), and opened a real Sales Invoice's "View Journal
+Entry" button through to its actual GL lines.
+
+**Immediately prior** — on top of committed `6051916` (`main`) — **P0-9
+second follow-up: freeform multi-line returns, original document made
+optional**. Owner feedback
 on the dedicated-screens pass: "المرتجع لا يشترط ان يكون لكامل فاتورة
 المبيعات او المشتريات... اطلب منك ان يكون المرتجع لعدة اصناف ليسوا
 ضمن فاتورة واحدة مع وضع حقل اختيارى رقم الفاتورة... مع مراعاة معالجة
