@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
+import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -166,42 +167,25 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
               <div key={index} className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
                   <Label className="text-xs">{t("sales.quotations.select_product")}</Label>
-                  <Select
-                    value={line.product_id}
-                    onValueChange={(v) => {
+                  <EntitySearchSelect
+                    items={(productsQuery.data ?? []).map((p) => ({
+                      id: p.id,
+                      label: p.name,
+                      code: p.sku,
+                      searchText: `${p.sku} ${p.name} ${p.name_ar ?? ""}`,
+                      imageSrc: p.image_path,
+                      imageShape: "square" as const,
+                    }))}
+                    value={line.product_id || null}
+                    onChange={(v) => {
                       const product = productsQuery.data?.find((p) => p.id === v);
                       updateLine(index, {
                         product_id: v ?? "",
                         unit_price: product ? String(product.sales_price) : line.unit_price,
                       });
                     }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t("sales.quotations.select_product")}>
-                        {(value: string) => {
-                          const product = productsQuery.data?.find((p) => p.id === value);
-                          return product ? (
-                            <span className="flex items-center gap-2">
-                              <EntityImage src={product.image_path} name={product.name} size="xs" shape="square" />
-                              {product.name}
-                            </span>
-                          ) : (
-                            value
-                          );
-                        }}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {productsQuery.data?.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          <span className="flex items-center gap-2">
-                            <EntityImage src={p.image_path} name={p.name} size="xs" shape="square" />
-                            {p.name}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder={t("sales.quotations.select_product")}
+                  />
                 </div>
                 <div className="w-20 space-y-1">
                   <Label className="text-xs">{t("sales.quotations.qty")}</Label>

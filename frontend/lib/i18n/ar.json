@@ -569,6 +569,7 @@
   "common.view": "عرض",
   "common.error": "حدث خطأ ما",
   "common.empty": "لا توجد سجلات",
+  "common.search_select_placeholder": "اكتب للبحث...",
   "common.coming_soon": "هذه الشاشة لم تُبنَ بعد في النسخة الأساسية.",
   "common.retry": "إعادة المحاولة",
   "common.confirm": "تأكيد",

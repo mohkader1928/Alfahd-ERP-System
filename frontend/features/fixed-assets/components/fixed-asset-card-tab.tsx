@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { ReportView } from "@/components/erp/report-view/report-view";
@@ -61,23 +61,12 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
         <>
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("fixed_assets.card.select_asset")}</Label>
-            <Select value={assetId} onValueChange={(v) => setAssetId(v ?? "")}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("fixed_assets.card.select_asset")}>
-                  {(value: string) => {
-                    const asset = assetsQuery.data?.find((a) => a.id === value);
-                    return asset ? `${asset.asset_code} — ${asset.name}` : value;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {assetsQuery.data?.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.asset_code} — {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EntitySearchSelect
+              items={(assetsQuery.data ?? []).map((a) => ({ id: a.id, label: a.name, code: a.asset_code }))}
+              value={assetId || null}
+              onChange={(v) => setAssetId(v ?? "")}
+              placeholder={t("fixed_assets.card.select_asset")}
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t("accounting.tb.date_from")}</Label>

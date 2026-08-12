@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -124,20 +125,17 @@ export default function NewCycleCountPage() {
               <div key={index} className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
                   <Label className="text-xs">{t("inventory.stock.product")}</Label>
-                  <Select value={line.product_id} onValueChange={(v) => updateLine(index, { product_id: v ?? "" })}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t("inventory.stock.product")}>
-                        {(value: string) => productsQuery.data?.find((p) => p.id === value)?.name ?? value}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {productsQuery.data?.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <EntitySearchSelect
+                    items={(productsQuery.data ?? []).map((p) => ({
+                      id: p.id,
+                      label: p.name,
+                      code: p.sku,
+                      searchText: `${p.sku} ${p.name} ${p.name_ar ?? ""}`,
+                    }))}
+                    value={line.product_id || null}
+                    onChange={(v) => updateLine(index, { product_id: v ?? "" })}
+                    placeholder={t("inventory.stock.product")}
+                  />
                 </div>
                 <div className="w-36 space-y-1">
                   <Label className="text-xs">{t("inventory.cycle_counts.location")}</Label>

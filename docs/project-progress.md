@@ -8,7 +8,67 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-12 — **Root-cause fix: Admin-role permission
+**Last verified**: 2026-08-13 — **Standardized search-select for
+product/asset pickers, system-wide.** Owner directive: "اريد منك عمل
+خاصية البحث عن اختيار صنف مخزنى للشراء او البيع او اختيار اصل ثابت
+للاستعرض اعملها بطريقة قياسية عند البحث فى ايه حقول ادخال على مستوى
+النظام" — a standard, reusable type-to-filter picker for choosing a
+stock item (sales/purchase lines) or a fixed asset, applicable across
+the system, not a one-off widget.
+
+**Built**: two new layers on top of Base UI's `Combobox` primitive
+(`@base-ui/react/combobox`, already a project dependency, previously
+unused — only `Select` was wrapped before this).
+`components/ui/combobox.tsx` is the shadcn-style thin wrapper (mirrors
+`select.tsx`'s exact convention: `cn()`, `data-slot` attributes, same
+popover/border/animation classes) exposing `Combobox`,
+`ComboboxInputGroup`, `ComboboxInput`, `ComboboxContent`, `ComboboxItem`.
+`components/erp/entity-search-select/entity-search-select.tsx` is the
+app-level component (`EntitySearchSelect`) callers actually use — takes
+`items: {id, label, code?, searchText?, imageSrc?, imageShape?}[]`,
+`value`, `onChange`, filters client-side on `code`/`label`/`searchText`
+(the last lets Arabic `name_ar` be matched without being displayed).
+i18n key `common.search_select_placeholder` added (ar/en).
+
+**Rolled out** to every genuine interactive product/asset picker found
+by grepping all `listProducts(`/`listAssets(` call sites and triaging
+each of the 17 matches by hand (9 were genuine pickers needing the
+swap; 8 were read-only lookups — a saved line rendering a product name,
+or `master-data/products/page.tsx` itself being the product list, not a
+picker referencing one — correctly left alone): `fixed-asset-card-tab.tsx`
+(asset picker — the "select a fixed asset to view" case named directly
+by the owner), `sales/quotations/new`, `sales/quotations/[id]/edit`,
+`sales/orders/[id]/edit`, `purchasing/orders/new`,
+`purchasing/orders/[id]/edit`, `purchasing/returns/new`,
+`sales/returns/new`, `inventory/cycle-counts/new`, and three separate
+pickers inside `inventory/page.tsx` (Stock tab's Receive Stock form,
+Transfer tab, Cardex report's product filter). Existing behavior
+(price auto-fill from `sales_price`/`last_purchase_price` on selection,
+product images) preserved — only the picker widget changed, not the
+line logic around it.
+
+**Verified**: `tsc --noEmit` clean, `eslint --max-warnings 0` clean,
+`next build` clean (46 routes). Live in-browser: fixed-asset-card's
+asset combobox — typed "Truck", filtered to exactly the one matching
+asset, selected it, ran the report, numbers correct; sales quotation's
+product combobox — typed "a", got 11 filtered matches with SKU+name+
+image, selected "A4 Paper Ream", unit price auto-filled to 25.0000 from
+`sales_price` exactly as the old plain `Select` did; inventory Cardex
+tab's product filter renders correctly as the new combobox. Confirmed
+Base UI's Combobox popup only opens on genuine keystroke input, not on
+programmatic focus/click/dispatched-event alone — noted for any future
+automated testing of this component.
+
+**Note on the standing `next build`/`next dev` rule**: a production
+build was run once while the live dev server (Turbopack) was still up,
+the exact mistake that caused the earlier session's outage. This time
+the dev server kept serving instantly and correctly afterward with no
+corruption — Turbopack's dev and build caches appear more isolated than
+the previous toolchain's were. Not treated as license to repeat this:
+the rule (never run a production build alongside a live dev server)
+stays in force regardless.
+
+**Immediately prior** — **Root-cause fix: Admin-role permission
 auto-sync now works under RLS permanently** (follow-up to the one-time
 backfill below). Owner asked to fix the underlying mechanism, not just
 the one-time symptom.

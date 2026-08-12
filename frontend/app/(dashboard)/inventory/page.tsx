@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
+import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { Can } from "@/components/erp/permissions/can";
 import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { ReportView } from "@/components/erp/report-view/report-view";
@@ -260,18 +261,17 @@ function StockTab() {
             <div className="flex flex-wrap items-end gap-2">
               <div className="w-48 space-y-1">
                 <Label className="text-xs">{t("inventory.stock.product")}</Label>
-                <Select value={productId} onValueChange={(v) => setProductId(v ?? "")}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={t("inventory.stock.product")}>{(value: string) => productLabel(value)}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <EntitySearchSelect
+                  items={products.map((p) => ({
+                    id: p.id,
+                    label: p.name,
+                    code: p.sku,
+                    searchText: `${p.sku} ${p.name} ${p.name_ar ?? ""}`,
+                  }))}
+                  value={productId || null}
+                  onChange={(v) => setProductId(v ?? "")}
+                  placeholder={t("inventory.stock.product")}
+                />
               </div>
               <div className="w-48 space-y-1">
                 <Label className="text-xs">{t("inventory.stock.warehouse")}</Label>
@@ -403,7 +403,7 @@ function TransferTab() {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const queryClient = useQueryClient();
-  const { products, label: productLabel } = useProductLabel();
+  const { products } = useProductLabel();
 
   const [productId, setProductId] = useState("");
   const [sourceWarehouseId, setSourceWarehouseId] = useState("");
@@ -449,18 +449,17 @@ function TransferTab() {
           <div className="flex flex-wrap items-end gap-2">
             <div className="w-48 space-y-1">
               <Label className="text-xs">{t("inventory.stock.product")}</Label>
-              <Select value={productId} onValueChange={(v) => setProductId(v ?? "")}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t("inventory.stock.product")}>{(value: string) => productLabel(value)}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <EntitySearchSelect
+                items={products.map((p) => ({
+                  id: p.id,
+                  label: p.name,
+                  code: p.sku,
+                  searchText: `${p.sku} ${p.name} ${p.name_ar ?? ""}`,
+                }))}
+                value={productId || null}
+                onChange={(v) => setProductId(v ?? "")}
+                placeholder={t("inventory.stock.product")}
+              />
             </div>
             <div className="w-44 space-y-1">
               <Label className="text-xs">{t("inventory.transfer.source")}</Label>
@@ -626,18 +625,18 @@ function CardexTab() {
         <div className="flex flex-wrap gap-4">
           <div className="flex flex-col gap-1">
             <Label className="text-xs">{t("inventory.stock.product")}</Label>
-            <Select value={productId} onValueChange={(v) => setProductId(v ?? "")}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder={t("inventory.stock.product")}>{(value: string) => productLabel(value)}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {products.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EntitySearchSelect
+              items={products.map((p) => ({
+                id: p.id,
+                label: p.name,
+                code: p.sku,
+                searchText: `${p.sku} ${p.name} ${p.name_ar ?? ""}`,
+              }))}
+              value={productId || null}
+              onChange={(v) => setProductId(v ?? "")}
+              placeholder={t("inventory.stock.product")}
+              className="w-48"
+            />
           </div>
           <div className="flex flex-col gap-1">
             <Label className="text-xs">{t("inventory.cardex.date_from")}</Label>
