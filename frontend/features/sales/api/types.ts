@@ -34,9 +34,35 @@ export interface SalesOrder {
   partner_id: string;
   quotation_id: string | null;
   number: string;
-  status: "draft" | "confirmed" | "done" | "cancelled";
+  status: "draft" | "confirmed" | "partially_invoiced" | "done" | "cancelled";
   order_date: string;
   total_amount: string;
+  cancellation_reason: string | null;
+}
+
+export interface SalesOrderLine {
+  id: string;
+  product_id: string;
+  qty: string;
+  unit_price: string;
+  qty_invoiced: string;
+}
+
+export interface SalesOrderDetailResponse {
+  order: SalesOrder;
+  lines: SalesOrderLine[];
+}
+
+export interface SalesOrderLineIn {
+  product_id: string;
+  qty: string;
+  unit_price: string;
+  tax_rate_id: string;
+}
+
+export interface InvoiceLineQtyIn {
+  sales_order_line_id: string;
+  qty: string;
 }
 
 export interface ZatcaSubmission {

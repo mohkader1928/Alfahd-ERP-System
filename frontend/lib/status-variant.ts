@@ -36,7 +36,7 @@ const NEGATIVE = new Set([
 // Neither fully resolved nor rejected — an open state that still needs a
 // decision (e.g. a PO left mid-receipt). Distinct from POSITIVE/NEGATIVE
 // so it doesn't silently blend into the "secondary" default like "draft".
-const WARNING = new Set(["partially_received"]);
+const WARNING = new Set(["partially_received", "partially_invoiced"]);
 
 export function statusVariant(status: string | null | undefined): BadgeVariant {
   const s = (status ?? "").toLowerCase();

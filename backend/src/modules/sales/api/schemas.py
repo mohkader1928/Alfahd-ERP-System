@@ -56,8 +56,56 @@ class SalesOrderOut(BaseModel):
     status: str
     order_date: date
     total_amount: Decimal
+    cancellation_reason: str | None
 
     model_config = {"from_attributes": True}
+
+
+class SalesOrderLineOut(BaseModel):
+    id: UUID
+    product_id: UUID
+    qty: Decimal
+    unit_price: Decimal
+    qty_invoiced: Decimal
+
+    model_config = {"from_attributes": True}
+
+
+class SalesOrderDetailResponse(BaseModel):
+    order: SalesOrderOut
+    lines: list[SalesOrderLineOut]
+
+
+class SalesOrderLineIn(BaseModel):
+    product_id: UUID
+    qty: Decimal
+    unit_price: Decimal
+    tax_rate_id: UUID
+
+
+class UpdateSalesOrderRequest(BaseModel):
+    partner_id: UUID
+    order_date: date
+    lines: list[SalesOrderLineIn]
+
+
+class CancelSalesOrderRequest(BaseModel):
+    reason: str
+
+
+class InvoiceLineQtyIn(BaseModel):
+    sales_order_line_id: UUID
+    qty: Decimal
+
+
+class IssueInvoiceRequest(BaseModel):
+    """Product Owner request (SO-000035): omitting `lines` invoices
+    everything still remaining on the order (the original all-at-once
+    behavior); passing `lines` invoices only that subset/quantity now,
+    leaving the rest open as a backorder to invoice later — standard
+    partial-fulfillment practice for a stock shortfall."""
+
+    lines: list[InvoiceLineQtyIn] | None = None
 
 
 class ZatcaSubmissionOut(BaseModel):
@@ -133,3 +181,4 @@ class CreditNoteLinesCreateRequest(BaseModel):
 
 class SendInvoiceEmailRequest(BaseModel):
     to_email: EmailStr | None = None
+

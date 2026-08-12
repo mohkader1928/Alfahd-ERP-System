@@ -8,7 +8,80 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-10 — **UI/UX: selectable color themes**. Owner
+**Last verified**: 2026-08-11 — **Sales Order partial invoicing / backorder
+support** (SAP/Oracle/Odoo-standard). Owner-reported blocker: SO-000035
+(1000 units ordered, 0 in stock, a matching PO for the shortfall already
+confirmed but not yet received) could not be invoiced — insufficient
+stock blocked it outright — and the order itself had zero edit or cancel
+path, a genuine architectural dead end (Sales Orders were the one
+document type in this system with no mutation path at all once created).
+Owner chose partial invoicing over allow-negative-stock or edit-only.
+
+**Schema** (migration `c4d5e6f7a8b9`): `sales_order.status` gains
+`partially_invoiced` (own `SO_STATUSES`, mirroring `PurchaseOrder`'s
+existing `PO_STATUSES` split for the identical reason); `cancellation_reason`
+column added; `ux_sales_invoice_sales_order_id` — the unique index that
+was the old all-or-nothing "one invoice per order" guarantee — dropped
+and replaced with a plain index, since multiple invoices per order (one
+per backorder release) are now a legitimate, expected shape.
+
+**Service**: `issue_invoice_from_order` takes an optional per-line
+`lines: [{sales_order_line_id, qty}]` — omitted, it invoices everything
+remaining (fully backward compatible, matches every pre-existing test
+unmodified); provided, it invoices only that subset, tracks
+`SalesOrderLine.qty_invoiced`, and sets order status to `done` or
+`partially_invoiced` accordingly. New `update_order`/`cancel_order`
+methods mirror the Quotation/PO editing pattern already built this
+session, gated on nothing invoiced yet on any line.
+
+**A real concurrency bug found and fixed along the way** (not present in
+the plan, found while writing the concurrency test): both
+`SalesOrderRepository.get_line_by_id_for_update` and the pre-existing
+`PurchaseOrderRepository.get_line_by_id_for_update` acquire a real row
+lock, but without `.execution_options(populate_existing=True)`,
+SQLAlchemy's identity map returns the *earlier*, already-loaded (and by
+then stale) Python object once the lock clears — silently discarding the
+fresh post-lock row. The lock itself worked; the values read back
+didn't. Caught directly by
+`test_concurrent_duplicate_invoice_exactly_one_succeeds` firing two
+genuine concurrent HTTP requests via `asyncio.gather()`: got `[201, 201]`
+(both invoiced) instead of `[201, 422]` before the fix. Since Purchasing
+has the exact same pattern (`register_bill` loads a PO line unlocked for
+3-way-match, then locks the same line again later to update
+`qty_billed`), it carried the identical latent lost-update risk — fixed
+there too, same one-line change.
+
+New routes: `PUT /sales/orders/{id}` (edit), `POST /sales/orders/{id}:cancel`,
+`POST /sales/orders/{id}:invoice` now accepts an optional body; `GET
+/sales/orders/{id}` now returns `{order, lines}` instead of a flat
+object (first time a line was fetchable at all for a Sales Order). 2 new
+permissions (`sales.order.update`, `sales.order.cancel`).
+
+Frontend: Sales Order detail page reworked with an editable
+"qty to invoice now" per line (mirrors Purchasing's goods-receipt
+pattern), a `partially_invoiced` badge + hint banner, Edit/Cancel buttons
+gated identically to the backend; new edit page mirroring the
+Quotation/PO edit pages already built this session.
+
+21 tests in `test_sales_zatca_m2_smoke.py` (6 new: partial invoice
+leaves the order open, invoicing the remainder completes it, over-
+invoicing a line rejected, edit/cancel allowed pre-invoice, edit/cancel
+blocked once anything is invoiced) plus all 7 pre-existing
+`test_invoice_duplicate_prevention.py` tests (one updated for the new
+nested GET response shape — not a behavior change). Full suite 373/374
+(1 pre-existing flaky, unrelated inventory-concurrency test, passes in
+isolation) — up from 361 at the last checkpoint, net +12 after
+accounting for the tests changed rather than added. ruff/tsc/eslint/build
+all clean. Live-verified against real running data: an existing
+partially-invoiced order correctly showed Ordered/Invoiced/Remaining
+columns and the hint banner with Edit/Cancel correctly hidden;
+attempting to invoice more of a since-fully-depleted line correctly
+returned "Insufficient stock: requested 2, available 0.000000" — the
+exact error class SO-000035 hit, now paired with an actual path forward
+instead of a dead end.
+
+**Immediately prior** — on top of committed `7f0ac39` (`main`) —
+**UI/UX: selectable color themes**. Owner
 request: a cosmetic change to the app's overall color — two additional,
 clearly-labeled, eye-comfortable color options alongside the existing
 default, with the end user choosing between them.

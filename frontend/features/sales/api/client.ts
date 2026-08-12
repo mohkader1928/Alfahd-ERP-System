@@ -2,11 +2,14 @@ import { apiClient } from "@/lib/api-client";
 import type { Page } from "@/lib/pagination";
 import type {
   InvoiceIssueResponse,
+  InvoiceLineQtyIn,
   Quotation,
   QuotationDetailResponse,
   QuotationLineIn,
   SalesInvoice,
   SalesOrder,
+  SalesOrderDetailResponse,
+  SalesOrderLineIn,
 } from "./types";
 
 export interface SalesInvoiceListFilters {
@@ -45,10 +48,30 @@ export const salesApi = {
 
   listOrders: (companyId: string) => apiClient.get<SalesOrder[]>(`${BASE}/orders`, { companyId }),
 
-  getSalesOrder: (companyId: string, id: string) => apiClient.get<SalesOrder>(`${BASE}/orders/${id}`, { companyId }),
+  getSalesOrder: (companyId: string, id: string) =>
+    apiClient.get<SalesOrderDetailResponse>(`${BASE}/orders/${id}`, { companyId }),
 
-  issueInvoice: (companyId: string, branchId: string, orderId: string) =>
-    apiClient.post<InvoiceIssueResponse>(`${BASE}/orders/${orderId}:invoice`, undefined, { companyId, branchId }),
+  updateSalesOrder: (
+    companyId: string,
+    branchId: string,
+    id: string,
+    payload: { partner_id: string; order_date: string; lines: SalesOrderLineIn[] }
+  ) => apiClient.put<SalesOrder>(`${BASE}/orders/${id}`, payload, { companyId, branchId }),
+
+  cancelSalesOrder: (companyId: string, id: string, reason: string) =>
+    apiClient.post<SalesOrder>(`${BASE}/orders/${id}:cancel`, { reason }, { companyId }),
+
+  // Product Owner request (SO-000035): omitting `lines` invoices
+  // everything still remaining (unchanged default behavior); passing
+  // `lines` invoices only that subset/quantity, leaving the rest open as
+  // a backorder — standard partial-fulfillment practice for a stock
+  // shortfall.
+  issueInvoice: (companyId: string, branchId: string, orderId: string, lines?: InvoiceLineQtyIn[]) =>
+    apiClient.post<InvoiceIssueResponse>(
+      `${BASE}/orders/${orderId}:invoice`,
+      lines ? { lines } : undefined,
+      { companyId, branchId }
+    ),
 
   getInvoice: (companyId: string, id: string) =>
     apiClient.get<InvoiceIssueResponse>(`${BASE}/invoices/${id}`, { companyId }),

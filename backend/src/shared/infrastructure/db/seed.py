@@ -77,6 +77,8 @@ PERMISSION_CATALOG = [
     ("sales.quotation.update", "action"),
     ("sales.quotation.confirm", "action"),
     ("sales.order.view", "screen"),
+    ("sales.order.update", "action"),
+    ("sales.order.cancel", "action"),
     ("sales.invoice.create", "action"),
     ("sales.invoice.credit_note", "action"),
     ("sales.invoice.send_email", "action"),

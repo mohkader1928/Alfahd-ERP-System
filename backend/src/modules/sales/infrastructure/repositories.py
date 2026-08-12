@@ -86,6 +86,41 @@ class SalesOrderRepository:
         )
         return list(result.scalars().all())
 
+    async def get_line_by_id_for_update(self, line_id: UUID) -> SalesOrderLine | None:
+        """Row-locked read — mirrors PurchaseOrderRepository's own
+        get_line_by_id_for_update. Without this, two concurrent partial
+        invoice requests against the same order line can both read the
+        same qty_invoiced and both pass the not-over-invoiced check,
+        over-invoicing past what was actually ordered (same race the
+        Purchasing side already closed for qty_received/qty_billed).
+
+        `populate_existing=True` is required, not optional, whenever this
+        line was already loaded earlier in the same request via a plain
+        (unlocked) `get_lines()` call — which `issue_invoice_from_order`
+        always does first. Without it, SQLAlchemy's identity map returns
+        the *original* Python object once the lock is acquired, with its
+        stale pre-lock `qty_invoiced` still intact, silently discarding
+        the fresh row the FOR UPDATE query just read. The lock itself
+        still blocks correctly; only the returned attribute values were
+        wrong, which made two concurrent requests both see qty_invoiced=0
+        and both invoice the same quantity — caught by
+        test_concurrent_duplicate_invoice_exactly_one_succeeds (got
+        [201, 201] instead of [201, 422] before this fix)."""
+        result = await self.session.execute(
+            select(SalesOrderLine)
+            .where(SalesOrderLine.id == line_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
+    async def replace_lines(self, order_id: UUID, lines: list[SalesOrderLine]) -> None:
+        await self.session.execute(delete(SalesOrderLine).where(SalesOrderLine.sales_order_id == order_id))
+        for line in lines:
+            line.sales_order_id = order_id
+            self.session.add(line)
+        await self.session.flush()
+
     async def next_number(self, company_id: UUID) -> str:
         result = await self.session.execute(select(func.count()).where(SalesOrder.company_id == company_id))
         count = result.scalar_one()

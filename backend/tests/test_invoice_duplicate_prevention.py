@@ -135,7 +135,7 @@ async def test_normal_invoice_creation(client):
     assert resp.json()["invoice"]["sales_order_id"] == order_id
 
     order = (await client.get(f"/api/v1/sales/orders/{order_id}", headers=company["headers"])).json()
-    assert order["status"] == "done"
+    assert order["order"]["status"] == "done"
 
 
 # ---------------------------------------------------------------------------

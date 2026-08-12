@@ -20,15 +20,19 @@ from src.modules.sales.api.deps import (
     require_permission,
 )
 from src.modules.sales.api.schemas import (
+    CancelSalesOrderRequest,
     CreditNoteCreateRequest,
     CreditNoteLinesCreateRequest,
     InvoiceIssueResponse,
+    IssueInvoiceRequest,
     QuotationCreateRequest,
     QuotationDetailResponse,
     QuotationOut,
     SalesInvoiceOut,
+    SalesOrderDetailResponse,
     SalesOrderOut,
     SendInvoiceEmailRequest,
+    UpdateSalesOrderRequest,
 )
 from src.modules.sales.application.services import QuotationService, SalesInvoiceService
 from src.modules.sales.infrastructure.repositories import (
@@ -128,7 +132,7 @@ async def list_sales_orders(
     return await order_repo.list_by_company(ctx.company_id)
 
 
-@router.get("/orders/{order_id}", response_model=SalesOrderOut)
+@router.get("/orders/{order_id}", response_model=SalesOrderDetailResponse)
 async def get_sales_order(
     order_id: UUID,
     ctx: AuthContext = Depends(require_permission("sales.order.view")),
@@ -137,19 +141,65 @@ async def get_sales_order(
     order = await order_repo.get_by_id(order_id)
     if order is None or order.company_id != ctx.company_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sales order not found")
+    lines = await order_repo.get_lines(order_id)
+    return SalesOrderDetailResponse(order=order, lines=lines)
+
+
+@router.put("/orders/{order_id}", response_model=SalesOrderOut)
+async def update_sales_order(
+    order_id: UUID,
+    payload: UpdateSalesOrderRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("sales.order.update", require_branch=True)),
+    service: QuotationService = Depends(get_quotation_service),
+):
+    try:
+        order = await service.update_order(
+            order_id=order_id,
+            company_id=ctx.company_id,
+            partner_id=payload.partner_id,
+            order_date=payload.order_date,
+            lines=[line.model_dump() for line in payload.lines],
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return order
+
+
+@router.post("/orders/{order_id}:cancel", response_model=SalesOrderOut)
+async def cancel_sales_order(
+    order_id: UUID,
+    payload: CancelSalesOrderRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("sales.order.cancel")),
+    service: QuotationService = Depends(get_quotation_service),
+):
+    try:
+        order = await service.cancel_order(order_id=order_id, company_id=ctx.company_id, reason=payload.reason)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
     return order
 
 
 @router.post("/orders/{order_id}:invoice", response_model=InvoiceIssueResponse, status_code=status.HTTP_201_CREATED)
 async def issue_invoice(
     order_id: UUID,
+    payload: IssueInvoiceRequest | None = None,
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_permission("sales.invoice.create", require_branch=True)),
     service: SalesInvoiceService = Depends(get_sales_invoice_service),
 ):
     try:
         invoice, submission = await service.issue_invoice_from_order(
-            sales_order_id=order_id, company_id=ctx.company_id, branch_id=ctx.branch_id, created_by=ctx.user_id
+            sales_order_id=order_id,
+            company_id=ctx.company_id,
+            branch_id=ctx.branch_id,
+            created_by=ctx.user_id,
+            lines=[line.model_dump() for line in payload.lines] if payload and payload.lines else None,
         )
     except (ValueError, InsufficientStockError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e

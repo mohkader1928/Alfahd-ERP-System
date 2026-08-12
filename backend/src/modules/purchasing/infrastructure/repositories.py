@@ -63,9 +63,24 @@ class PurchaseOrderRepository:
         this, two concurrent receipts (or bills) against the same PO line
         can both read the same cumulative qty and both pass the
         not-over-ordered check, over-receiving/over-billing past what was
-        actually ordered (docs/16b, finding #4)."""
+        actually ordered (docs/16b, finding #4).
+
+        `populate_existing=True` is required, not optional: `register_bill`
+        and `record_goods_receipt` both call `get_line_by_id` (unlocked) on
+        this same line earlier in the same request, before reaching this
+        locked call. Without `populate_existing`, SQLAlchemy's identity map
+        returns that *earlier* Python object once the lock is acquired,
+        with its stale pre-lock qty_received/qty_billed still attached —
+        the lock itself blocks correctly, but the attribute values read
+        back are wrong, silently under-counting qty_billed/qty_received
+        under real concurrent load (a lost-update bug, found while adding
+        the identical pattern to Sales — see the equivalent fix and its
+        test in SalesOrderRepository.get_line_by_id_for_update)."""
         result = await self.session.execute(
-            select(PurchaseOrderLine).where(PurchaseOrderLine.id == line_id).with_for_update()
+            select(PurchaseOrderLine)
+            .where(PurchaseOrderLine.id == line_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 

@@ -193,6 +193,72 @@ class QuotationService:
         quotation.status = "confirmed"
         return order
 
+    async def update_order(
+        self,
+        *,
+        order_id: UUID,
+        company_id: UUID,
+        partner_id: UUID,
+        order_date: date,
+        lines: list[dict],
+    ) -> SalesOrder:
+        """Product Owner-reported blocker (SO-000035): a confirmed order
+        for more than what's currently in stock had no way to be
+        corrected — a Sales Order previously had zero edit path at all,
+        unlike Quotation/Purchase Order/Vendor Bill. Gated on nothing
+        having been invoiced yet (`qty_invoiced == 0` on every line): once
+        even a partial invoice exists, the order's own numbers are no
+        longer just a plan — they're tied to a real posted document, so
+        correction from there on is via the order's remaining balance
+        (invoice less, or cancel what wasn't shipped), not a silent
+        rewrite. Full line replace, matching `confirm_to_sales_order`'s
+        own computation."""
+        if not lines:
+            raise ValueError("A sales order needs at least one line")
+        order = await self.order_repo.get_by_id(order_id)
+        if order is None or order.company_id != company_id:
+            raise ValueError("Sales order not found")
+        if order.status not in ("draft", "confirmed"):
+            raise ValueError("Only an order with nothing invoiced yet can be edited")
+        existing_lines = await self.order_repo.get_lines(order_id)
+        if any(line.qty_invoiced > 0 for line in existing_lines):
+            raise ValueError("This order has already been partially invoiced and can no longer be edited")
+
+        total = sum((Decimal(str(line["qty"])) * Decimal(str(line["unit_price"])) for line in lines), Decimal("0"))
+        orm_lines = [
+            SalesOrderLine(
+                id=uuid.uuid4(),
+                company_id=company_id,
+                product_id=line["product_id"],
+                description="",
+                qty=Decimal(str(line["qty"])),
+                unit_price=Decimal(str(line["unit_price"])),
+                tax_rate_id=line["tax_rate_id"],
+            )
+            for line in lines
+        ]
+        await self.order_repo.replace_lines(order_id, orm_lines)
+        order.partner_id = partner_id
+        order.order_date = order_date
+        order.total_amount = total
+        return order
+
+    async def cancel_order(self, *, order_id: UUID, company_id: UUID, reason: str) -> SalesOrder:
+        order = await self.order_repo.get_by_id(order_id)
+        if order is None or order.company_id != company_id:
+            raise ValueError("Sales order not found")
+        if order.status not in ("draft", "confirmed"):
+            raise ValueError("Only an order with nothing invoiced yet can be cancelled")
+        existing_lines = await self.order_repo.get_lines(order_id)
+        if any(line.qty_invoiced > 0 for line in existing_lines):
+            raise ValueError("This order has already been partially invoiced and can no longer be cancelled")
+        if not reason.strip():
+            raise ValueError("A cancellation reason is required")
+
+        order.status = "cancelled"
+        order.cancellation_reason = reason
+        return order
+
 
 class SalesInvoiceService:
     """UC-SAL-03/04/05 — Issue Tax/Simplified Invoice, Credit Note.
@@ -264,18 +330,71 @@ class SalesInvoiceService:
         return latest.icv + 1, latest.invoice_hash
 
     async def issue_invoice_from_order(
-        self, *, sales_order_id: UUID, company_id: UUID, branch_id: UUID, created_by: UUID
+        self,
+        *,
+        sales_order_id: UUID,
+        company_id: UUID,
+        branch_id: UUID,
+        created_by: UUID,
+        lines: list[dict] | None = None,
     ) -> tuple[SalesInvoice, ZatcaSubmission]:
+        """`lines=None` invoices everything still remaining on the order
+        (the original, backward-compatible all-in-one-shot path). Passing
+        `lines=[{sales_order_line_id, qty}, ...]` invoices only that
+        subset/quantity — Product Owner-reported blocker: an order for
+        more than what's currently in stock (e.g. SO-000035: 1000 units
+        ordered, 0 on hand, a matching Purchase Order for the shortfall
+        already confirmed but not yet received) had no path forward,
+        since invoicing was all-or-nothing. Standard ERP practice
+        (SAP/Oracle/Odoo): invoice what's available now, leave the rest
+        open as a backorder — `SalesOrderLine.qty_invoiced` tracks how
+        much of each line has been invoiced so far, and the order's own
+        status reflects whether it's fully or only partially fulfilled."""
         order = await self.order_repo.get_by_id(sales_order_id)
         if order is None or order.company_id != company_id:
             raise ValueError("Sales order not found")
-        if order.status != "confirmed":
+        if order.status not in ("confirmed", "partially_invoiced"):
             raise ValueError("Only a confirmed sales order can be invoiced")
 
         order_lines = await self.order_repo.get_lines(sales_order_id)
         partner = await self.partner_repo.get_by_id(order.partner_id)
         if partner is None:
             raise ValueError("Customer not found")
+
+        # Row-locked selection: without this, two concurrent partial-
+        # invoice requests against the same line can both read the same
+        # qty_invoiced and both pass the not-over-invoiced check (same
+        # race Purchasing already closes for qty_received/qty_billed via
+        # get_line_by_id_for_update). This replaces the old DB-level
+        # ux_sales_invoice_sales_order_id uniqueness, which assumed only
+        # one invoice would ever exist per order — no longer true now
+        # that partial/backorder invoicing is a legitimate, repeated shape.
+        selected: list[tuple[SalesOrderLine, Decimal]] = []
+        if lines is None:
+            for line in order_lines:
+                locked = await self.order_repo.get_line_by_id_for_update(line.id)
+                remaining = locked.qty - locked.qty_invoiced
+                if remaining > 0:
+                    selected.append((locked, remaining))
+        else:
+            order_line_ids = {line.id for line in order_lines}
+            for item in lines:
+                line_id = item["sales_order_line_id"]
+                if line_id not in order_line_ids:
+                    raise ValueError("Sales order line not found on this order")
+                locked = await self.order_repo.get_line_by_id_for_update(line_id)
+                qty = Decimal(str(item["qty"]))
+                if qty <= 0:
+                    continue
+                remaining = locked.qty - locked.qty_invoiced
+                if qty > remaining:
+                    raise ValueError(
+                        f"Cannot invoice {qty} — only {remaining} remains un-invoiced on this line"
+                    )
+                selected.append((locked, qty))
+
+        if not selected:
+            raise ValueError("Nothing to invoice — every line is already fully invoiced, or none was selected")
 
         # FR-ZATCA-001: B2B (VAT-registered) -> Tax invoice + Clearance;
         # B2C/unregistered -> Simplified invoice + Reporting.
@@ -288,7 +407,7 @@ class SalesInvoiceService:
         invoice_lines: list[SalesInvoiceLine] = []
         zatca_lines: list[InvoiceLineData] = []
 
-        for line in order_lines:
+        for line, qty in selected:
             product = await self.product_repo.get_by_id(line.product_id)
             # Quantized to currency precision immediately — qty (scale 6) *
             # unit_price (scale 4) otherwise retains full arithmetic
@@ -296,7 +415,7 @@ class SalesInvoiceService:
             # NUMERIC(18,4) column would round it on storage, so an
             # unquantized value returned straight from the in-memory ORM
             # object (no round-trip SELECT) would leak that mismatch to the API.
-            line_total = (line.qty * line.unit_price).quantize(Decimal("0.01"))
+            line_total = (qty * line.unit_price).quantize(Decimal("0.01"))
             tax_rate_percent = Decimal("15.00")  # nucleus default; per-line rate lookup is a follow-up
             line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
             subtotal += line_total
@@ -307,7 +426,7 @@ class SalesInvoiceService:
                     company_id=company_id,
                     product_id=line.product_id,
                     description=product.name if product else "",
-                    qty=line.qty,
+                    qty=qty,
                     unit_price=line.unit_price,
                     tax_rate_id=line.tax_rate_id,
                     tax_rate_percent=tax_rate_percent,
@@ -318,7 +437,7 @@ class SalesInvoiceService:
             zatca_lines.append(
                 InvoiceLineData(
                     description=product.name if product else "",
-                    quantity=line.qty,
+                    quantity=qty,
                     unit_price=line.unit_price,
                     tax_rate_percent=tax_rate_percent,
                     line_total=line_total,
@@ -352,35 +471,26 @@ class SalesInvoiceService:
         try:
             await self.invoice_repo.add(invoice, invoice_lines)
         except IntegrityError as e:
-            # Two different unique constraints can land here, and they mean
-            # different things — conflating them gave a misleading message
-            # (found via a genuine-concurrency test that invoices two
-            # *different* orders for the same company simultaneously: the
-            # real cause was a next_number() collision between them, not
-            # either order being double-invoiced, but the error claimed
-            # "already invoiced" regardless).
+            # ux_sales_invoice_number is the only unique constraint left
+            # that can land here — multiple invoices per order are now a
+            # legitimate shape (one per backorder release), so there is no
+            # more "already invoiced" case to translate; a next_number()
+            # collision between two different orders invoiced concurrently
+            # is the only realistic cause.
             constraint = getattr(getattr(e.orig, "__cause__", None), "constraint_name", None)
             if constraint == "ux_sales_invoice_number":
                 raise ValueError(
                     "An invoice was created concurrently with the same number — please retry"
                 ) from e
-            # ux_sales_invoice_sales_order_id (or anything else unexpected):
-            # belt-and-suspenders against the exact race the status check
-            # above can't close on its own (two concurrent requests can both
-            # read status="confirmed" before either commits) — this partial
-            # unique index is the actual guarantee, translated into the same
-            # clean, expected error the sequential-retry case gets from the
-            # status check.
-            raise ValueError("This sales order has already been invoiced") from e
+            raise
 
-        # Closes the sequential-retry half of the same bug: without this, the
-        # status check above never stops a second call once the order is
-        # already invoiced, since nothing ever advanced it past "confirmed".
-        # (The database constraint above is what actually closes the
-        # concurrent-request half — this alone would not be sufficient for
-        # that case, since two simultaneous requests can both read
-        # "confirmed" before either writes "done".)
-        order.status = "done"
+        # The row locks taken during line selection above are what actually
+        # prevent two concurrent requests from over-invoicing the same
+        # line; this qty_invoiced update and the order-status recompute
+        # just record the result once that's already guaranteed safe.
+        for line, qty in selected:
+            line.qty_invoiced += qty
+        order.status = "done" if all(line.qty_invoiced >= line.qty for line in order_lines) else "partially_invoiced"
 
         submission = await self._run_zatca_pipeline(
             invoice=invoice,
@@ -396,7 +506,7 @@ class SalesInvoiceService:
         invoice.status = submission.status if submission_mode == "clearance" else "pending_submission"
 
         await self._post_journal_entry(invoice, branch_id=branch_id, created_by=created_by)
-        await self._deduct_stock_for_lines(invoice, order_lines, created_by=created_by)
+        await self._deduct_stock_for_lines(invoice, invoice_lines, created_by=created_by)
 
         return invoice, submission
 

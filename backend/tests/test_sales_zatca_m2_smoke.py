@@ -579,6 +579,191 @@ async def test_invoice_and_credit_note_expose_journal_entry_id(client):
     assert credit_resp.json()["invoice"]["journal_entry_id"] is not None
 
 
+# --- Product Owner-reported blocker (SO-000035): partial invoicing /
+# backorder support, plus Sales Order edit/cancel before anything is
+# invoiced ---------------------------------------------------------------
+
+
+async def test_partial_invoice_when_stock_is_short_leaves_order_open_for_the_rest(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    location_id = wh_resp.json()["default_location"]["id"]
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "3", "unit_cost": "400.00"},
+    )
+
+    order_id = await _create_quotation_and_confirm_with_qty(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id, qty="10"
+    )
+    order_detail = (await client.get(f"/api/v1/sales/orders/{order_id}", headers=headers)).json()
+    line_id = order_detail["lines"][0]["id"]
+
+    # Invoicing everything at once (the default, omitted-lines path) still
+    # fails outright — only 3 of the 10 ordered are in stock.
+    full_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    assert full_resp.status_code == 422
+    assert "insufficient stock" in full_resp.json()["detail"].lower()
+
+    # Invoicing just what's available now succeeds and leaves the order
+    # open for the remainder — the actual fix for the reported blocker.
+    partial_resp = await client.post(
+        f"/api/v1/sales/orders/{order_id}:invoice",
+        headers=headers,
+        json={"lines": [{"sales_order_line_id": line_id, "qty": "3"}]},
+    )
+    assert partial_resp.status_code == 201
+    assert partial_resp.json()["invoice"]["subtotal_amount"] == "3000.00"  # 3 * 1000.00
+
+    order_detail = (await client.get(f"/api/v1/sales/orders/{order_id}", headers=headers)).json()
+    assert order_detail["order"]["status"] == "partially_invoiced"
+    assert order_detail["lines"][0]["qty_invoiced"] == "3.000000"
+
+    orders_list = (await client.get("/api/v1/sales/orders", headers=headers)).json()
+    assert next(o["status"] for o in orders_list if o["id"] == order_id) == "partially_invoiced"
+
+
+async def test_invoicing_the_remainder_completes_the_order_with_a_second_invoice(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    location_id = wh_resp.json()["default_location"]["id"]
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "3", "unit_cost": "400.00"},
+    )
+    order_id = await _create_quotation_and_confirm_with_qty(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id, qty="10"
+    )
+    order_detail = (await client.get(f"/api/v1/sales/orders/{order_id}", headers=headers)).json()
+    line_id = order_detail["lines"][0]["id"]
+    first_invoice = (
+        await client.post(
+            f"/api/v1/sales/orders/{order_id}:invoice",
+            headers=headers,
+            json={"lines": [{"sales_order_line_id": line_id, "qty": "3"}]},
+        )
+    ).json()["invoice"]["id"]
+
+    # The Purchase Order shortfall "arrives" — remaining 7 units received.
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "7", "unit_cost": "400.00"},
+    )
+
+    # The omitted-lines default now invoices exactly the 7 still remaining
+    # — this is the second invoice against the same order, which the old
+    # ux_sales_invoice_sales_order_id unique constraint would have blocked
+    # outright.
+    second_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    assert second_resp.status_code == 201
+    second_invoice = second_resp.json()["invoice"]
+    assert second_invoice["id"] != first_invoice
+    assert second_invoice["subtotal_amount"] == "7000.00"
+
+    order_detail = (await client.get(f"/api/v1/sales/orders/{order_id}", headers=headers)).json()
+    assert order_detail["order"]["status"] == "done"
+    assert order_detail["lines"][0]["qty_invoiced"] == "10.000000"
+
+    quants = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    assert next(q["qty_on_hand"] for q in quants if q["product_id"] == product_id) == "0.000000"
+
+
+async def test_invoicing_more_than_remaining_on_a_line_is_rejected(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+    order_id = await _create_quotation_and_confirm_with_qty(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id, qty="5"
+    )
+    order_detail = (await client.get(f"/api/v1/sales/orders/{order_id}", headers=headers)).json()
+    line_id = order_detail["lines"][0]["id"]
+
+    resp = await client.post(
+        f"/api/v1/sales/orders/{order_id}:invoice",
+        headers=headers,
+        json={"lines": [{"sales_order_line_id": line_id, "qty": "999"}]},
+    )
+    assert resp.status_code == 422
+    assert "remains un-invoiced" in resp.json()["detail"]
+
+
+async def test_sales_order_can_be_edited_and_cancelled_before_anything_is_invoiced(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    other_partner_id = await _create_partner(client, headers, is_b2b=False)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+    order_id = await _create_quotation_and_confirm(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+
+    edit_resp = await client.put(
+        f"/api/v1/sales/orders/{order_id}",
+        headers=headers,
+        json={
+            "partner_id": other_partner_id,
+            "order_date": "2026-03-02",
+            "lines": [{"product_id": product_id, "qty": "5", "unit_price": "1200.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    assert edit_resp.status_code == 200
+    edited = edit_resp.json()
+    assert edited["partner_id"] == other_partner_id
+    assert edited["total_amount"] == "6000.00"  # not the original 2000.00
+
+    cancel_resp = await client.post(
+        f"/api/v1/sales/orders/{order_id}:cancel", headers=headers, json={"reason": "Customer withdrew the order"}
+    )
+    assert cancel_resp.status_code == 200
+    assert cancel_resp.json()["status"] == "cancelled"
+    assert cancel_resp.json()["cancellation_reason"] == "Customer withdrew the order"
+
+
+async def test_sales_order_edit_and_cancel_blocked_once_anything_is_invoiced(client):
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+    order_id = await _create_quotation_and_confirm(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+    # No warehouse configured — invoicing proceeds financial-only, same as
+    # every other service-only test in this file.
+    await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+
+    edit_resp = await client.put(
+        f"/api/v1/sales/orders/{order_id}",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "order_date": "2026-03-01",
+            "lines": [{"product_id": product_id, "qty": "1", "unit_price": "1.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    assert edit_resp.status_code == 422
+
+    cancel_resp = await client.post(
+        f"/api/v1/sales/orders/{order_id}:cancel", headers=headers, json={"reason": "Too late"}
+    )
+    assert cancel_resp.status_code == 422
+
+
 async def test_sales_endpoints_require_permission(client):
     resp = await client.post("/api/v1/sales/quotations", json={})
     assert resp.status_code == 401

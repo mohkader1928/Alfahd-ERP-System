@@ -14,6 +14,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from src.shared.infrastructure.db.base import Base
 
 DOC_STATUSES = ("draft", "confirmed", "done", "cancelled")
+# Sales Order gets its own status set (not the shared DOC_STATUSES, which
+# Quotation also uses and doesn't need this state) — mirrors Purchasing's
+# own PO_STATUSES, added for the identical reason: partial fulfillment.
+# Product Owner-reported blocker: an order for more than what's currently
+# in stock had no path forward (invoicing the whole order at once fails
+# outright, and the order itself had no edit path either). Standard ERP
+# practice is partial invoicing — invoice what's available now, leave the
+# rest open as a backorder to invoice later.
+SO_STATUSES = ("draft", "confirmed", "partially_invoiced", "done", "cancelled")
 
 
 class Quotation(Base):
@@ -71,9 +80,10 @@ class SalesOrder(Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     version: Mapped[int] = mapped_column(nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
-        CheckConstraint(f"status IN {DOC_STATUSES}", name="ck_sales_order_status"),
+        CheckConstraint(f"status IN {SO_STATUSES}", name="ck_sales_order_status"),
         UniqueConstraint("company_id", "number", name="ux_sales_order_number"),
     )
 
