@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.infrastructure.models import AccountType
 from src.modules.identity.infrastructure.models import Currency, Permission
+from src.shared.infrastructure.db.session import set_admin_sync
 
 DEFAULT_CURRENCIES = [
     ("SAR", "ر.س", 2),
@@ -159,12 +160,20 @@ async def seed_core_data(session: AsyncSession) -> None:
     # not an error, just a no-op — for every DB user, `erp_app` included
     # (confirmed live: this exact bug left `role.manage` missing from an
     # existing company's Admin role for as long as the previous version of
-    # this sync existed; see migration `<role_manage_backfill>` for the
-    # one-time repair). `permission`/`role_permission` carry no RLS at all
-    # (same fact migration c1d2e3f4a5b6 relies on), so identifying Admin
-    # roles *indirectly* — any role already holding a permission only an
-    # Admin role would have — works unconditionally, regardless of DB user
-    # or company context.
+    # this sync existed; see migration `d3e4f5a6b7c8` for the one-time
+    # repair). Identifying Admin roles *indirectly* — any role already
+    # holding a permission only an Admin role would have — avoids needing
+    # `role` at all, working unconditionally regardless of DB user.
+    #
+    # `role_permission` ALSO carries FORCE ROW LEVEL SECURITY (added later,
+    # P0-6, after the paragraph above was first written — a second
+    # occurrence of the exact same bug, found live and one-time-repaired by
+    # migration `a5b6c7d8e9f0`). `set_admin_sync()` below is the permanent
+    # fix: the same narrow, additive escape-hatch policy pattern the login
+    # flow already uses for `user_company_access` (`set_login_lookup`,
+    # migrations `f7004fe055a4`/`0fc571b91522`), added here for
+    # `role_permission` by migration `b6c7d8e9f0a1`.
+    await set_admin_sync(session)
     # Performance note (found live: this query saturated a dev DB that had
     # accumulated ~9,000 roles from repeated test bootstrapping — every
     # role x every catalog permission with a correlated NOT EXISTS is
@@ -174,6 +183,15 @@ async def seed_core_data(session: AsyncSession) -> None:
     # the expensive CROSS JOIN below only ever runs against roles that
     # actually need it (freshly created, or a permission was just added to
     # the catalog).
+    # ON CONFLICT DO NOTHING, not a NOT EXISTS predicate: this can run
+    # concurrently with itself — multiple API replicas/workers starting up
+    # around the same time (or, found live, this same test's direct call
+    # racing the actual dev server's own reload-triggered run against the
+    # same DB) both see the same gap and both try to fill it. A
+    # check-then-insert NOT EXISTS has a real TOCTOU race there
+    # (confirmed live: `role_permission_pkey` UniqueViolationError); the
+    # role_permission PK IS exactly (role_id, permission_id), so ON
+    # CONFLICT makes the fill atomic and idempotent instead.
     catalog_size = len(PERMISSION_CATALOG)
     await session.execute(
         text("""
@@ -189,10 +207,7 @@ async def seed_core_data(session: AsyncSession) -> None:
             HAVING COUNT(*) < :catalog_size
         ) incomplete
         CROSS JOIN permission p_missing
-        WHERE NOT EXISTS (
-            SELECT 1 FROM role_permission rp2
-            WHERE rp2.role_id = incomplete.role_id AND rp2.permission_id = p_missing.id
-        )
+        ON CONFLICT (role_id, permission_id) DO NOTHING
     """),
         {"catalog_size": catalog_size},
     )

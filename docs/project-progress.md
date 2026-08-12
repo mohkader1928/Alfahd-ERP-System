@@ -8,7 +8,48 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-12 — **Fix: Admin-role permission auto-sync
+**Last verified**: 2026-08-12 — **Root-cause fix: Admin-role permission
+auto-sync now works under RLS permanently** (follow-up to the one-time
+backfill below). Owner asked to fix the underlying mechanism, not just
+the one-time symptom.
+
+**Fix**: mirrors the exact pattern already proven for the identical
+problem on `user_company_access` (`set_login_lookup`,
+`f7004fe055a4`/`0fc571b91522`): migration `b6c7d8e9f0a1` adds two
+narrow, additive RLS policies to `role_permission`
+(`role_permission_admin_sync_read` FOR SELECT, `role_permission_admin_
+sync_write` FOR INSERT), gated by a new transaction-local flag `app.
+admin_sync` — `company_isolation` on that table is untouched, Postgres
+OR's permissive policies together. `session.py` gained `set_admin_
+sync()`, called from `seed_core_data()` right before the sync now runs.
+
+A genuine concurrency bug was found and fixed along the way (not
+present in the original design, found live by the regression test
+racing against the actual dev server's own reload-triggered sync): the
+sync's INSERT used a `WHERE NOT EXISTS` check-then-insert, real TOCTOU
+risk when the sync runs concurrently with itself (multiple API
+replicas starting together, or — as caught live — a direct test call
+racing the real server's own concurrent run). Fixed with `INSERT ...
+ON CONFLICT (role_id, permission_id) DO NOTHING`, atomic instead.
+
+Two regression tests (`test_admin_role_permission_sync.py`): one proves
+the fix — delete one permission from a real Admin role's `role_
+permission`, call `seed_core_data()` exactly as API startup does, assert
+it's healed; the other proves the new policy didn't weaken RLS in
+general (a query with no context still sees nothing).
+
+**Live-verified beyond the test suite**: manually deleted
+`fixed_assets.category.manage` from the demo company's live Admin role,
+triggered a genuine cold API restart (not a migration), confirmed the
+permission count went 75 → 76 automatically — the actual bug's exact
+real-world shape, healed by a real restart with zero manual
+intervention.
+
+Full regression: 391 passed, 1 pre-existing unrelated flaky failure
+(`test_stock_quant_concurrency.py`, confirmed unrelated — untouched by
+this or the prior session's work). ruff clean.
+
+**Immediately prior** — **Fix: Admin-role permission auto-sync
 was silently broken, hiding the new Fixed Assets Categories screen.**
 User-reported: "تصنيفات الأصول الثابتة — هذا الموديول لا يعمل وليس به
 زر لادخال تصنيف جديد" (no "New Category" button, looked broken).

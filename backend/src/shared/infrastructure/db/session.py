@@ -95,3 +95,28 @@ async def set_login_lookup(session: AsyncSession) -> None:
     await session.execute(text("SET LOCAL app.login_lookup = 'true'"))
     await session.execute(text(f"SET LOCAL app.current_tenant_id = '{_NIL_UUID}'"))
     await session.execute(text(f"SET LOCAL app.current_company_id = '{_NIL_UUID}'"))
+
+
+async def set_admin_sync(session: AsyncSession) -> None:
+    """Escape hatch for `seed_core_data()`'s cross-company Admin-role
+    permission sync (migration `b6c7d8e9f0a1`) — same shape of problem
+    `set_login_lookup` above already solves for `user_company_access`:
+    a system-level operation that must read/write across every company
+    before any single company's context is known. Gates two additive
+    SELECT/INSERT-only policies on `role_permission`
+    (`role_permission_admin_sync_read`/`_write`) via the same
+    transaction-local-flag pattern; `company_isolation` on that table is
+    untouched.
+
+    Also resets `app.current_company_id` to the nil UUID sentinel, same
+    reason and same fix as `set_login_lookup` above: the connection this
+    session gets from the pool may have already had that GUC set and
+    reset to `''` by an earlier request on the same physical connection
+    (confirmed live by this fix's own regression test, which runs after
+    hundreds of other tests have used the pool) — `role_permission`'s
+    `company_isolation` policy casts that setting to `uuid`, and `''`
+    fails that cast with a hard error, not a silent false, before this
+    function's own additive policy is ever reached.
+    """
+    await session.execute(text("SET LOCAL app.admin_sync = 'true'"))
+    await session.execute(text(f"SET LOCAL app.current_company_id = '{_NIL_UUID}'"))
