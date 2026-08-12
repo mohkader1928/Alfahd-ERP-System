@@ -403,7 +403,15 @@ export function FixedAssetsTab() {
             <Label className="text-xs">{t("fixed_assets.filter.status")}</Label>
             <Select value={filterStatus || "__all__"} onValueChange={(v) => setFilterStatus(v === "__all__" ? "" : (v as "active" | "disposed"))}>
               <SelectTrigger className="w-full">
-                <SelectValue />
+                <SelectValue>
+                  {(v: string) =>
+                    v === "active"
+                      ? t("fixed_assets.status_active")
+                      : v === "disposed"
+                        ? t("fixed_assets.status_disposed")
+                        : t("fixed_assets.filter.status_all")
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">{t("fixed_assets.filter.status_all")}</SelectItem>
@@ -490,7 +498,9 @@ export function FixedAssetsTab() {
                 }}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(v: string) => (v === "category" ? t("fixed_assets.run.scope_category") : t("fixed_assets.run.scope_all"))}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("fixed_assets.run.scope_all")}</SelectItem>

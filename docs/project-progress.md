@@ -8,7 +8,49 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-12 — **System-wide auto-generated master-data
+**Last verified**: 2026-08-12 — **Fix: Admin-role permission auto-sync
+was silently broken, hiding the new Fixed Assets Categories screen.**
+User-reported: "تصنيفات الأصول الثابتة — هذا الموديول لا يعمل وليس به
+زر لادخال تصنيف جديد" (no "New Category" button, looked broken).
+
+**Root cause**: `seed_core_data()`'s Admin-role sync (`backend/src/
+shared/infrastructure/db/seed.py`, ~line 153-200) is meant to auto-grant
+any new `PERMISSION_CATALOG` entry to every company's Admin role on API
+startup. It has been a permanent no-op since RLS (with FORCE ROW LEVEL
+SECURITY) was added to `role_permission`/`user_role` in P0-6: the sync
+runs as `erp_app`, which does not own `role_permission` (`erp_migrate`
+does), so RLS applies regardless of FORCE, and with no
+`app.current_company_id` GUC set at startup the company-scoped policy
+silently matches zero rows — every restart, every company. Confirmed
+live: the demo company's Admin role was missing exactly
+`fixed_assets.category.manage` (75/76 catalog permissions) despite many
+API restarts since the permission was added.
+
+**Fix applied**: migration `a5b6c7d8e9f0` — a second occurrence of the
+exact same bug class `d3e4f5a6b7c8` already fixed once on a different
+table; identical detection/INSERT, run via `erp_migrate` bracketed with
+`NO FORCE`/`FORCE ROW LEVEL SECURITY` on `role_permission` (same pattern
+`f4a5b6c7d8e9`'s partner_code backfill used). Verified live post-fix:
+Admin role now holds all 76 permissions; the Categories screen's
+"New Category" button appeared after a fresh login, and creating a
+category end-to-end (`POST .../categories` → 201) now works. The
+runtime sync itself is still broken for any FUTURE new permission —
+flagged as a separate follow-up (`task_799d3327`), not fixed here, since
+a wrong fix could crash the API's startup `lifespan()` for every company.
+
+Also fixed live: two Fixed Assets `Select` dropdowns (Register's status
+filter, Run Depreciation's scope selector) were rendering their raw
+value string (`__all__`, `all`, `category`) instead of the translated
+label — missing the `children` render-prop this UI kit's `SelectValue`
+requires (every other `Select` in the codebase already has one; these
+two were added without it). Fixed both; confirmed live.
+
+Full regression re-run after both fixes: 389 passed, 1 pre-existing
+unrelated flaky failure (`test_stock_quant_concurrency.py`, inventory
+module — confirmed via `git diff` untouched this session, fails the same
+way in isolation).
+
+**Immediately prior** — **System-wide auto-generated master-data
 codes** (Product SKU, Partner code). Owner directive: every master-data
 entity's business identifier must be system-assigned and guaranteed
 unique — never left to the user to type — and pre-existing entries must
