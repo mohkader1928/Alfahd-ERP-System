@@ -7,9 +7,29 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class FixedAssetCategoryCreateRequest(BaseModel):
+    name: str
+    parent_id: UUID | None = None
+
+
+class FixedAssetCategoryUpdateRequest(BaseModel):
+    name: str
+    parent_id: UUID | None = None
+
+
+class FixedAssetCategoryOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    name: str
+    parent_id: UUID | None
+
+    model_config = {"from_attributes": True}
+
+
 class FixedAssetCreateRequest(BaseModel):
     name: str
     name_ar: str | None = None
+    category_id: UUID | None = None
     fixed_asset_account_id: UUID
     accumulated_depreciation_account_id: UUID
     depreciation_expense_account_id: UUID
@@ -26,6 +46,7 @@ class FixedAssetOut(BaseModel):
     asset_code: str
     name: str
     name_ar: str | None
+    category_id: UUID | None
     fixed_asset_account_id: UUID
     accumulated_depreciation_account_id: UUID
     depreciation_expense_account_id: UUID
@@ -52,6 +73,7 @@ class DepreciationEntryOut(BaseModel):
 
 class RunDepreciationRequest(BaseModel):
     period_month: date
+    category_id: UUID | None = None
 
 
 class RunDepreciationResultRow(BaseModel):
@@ -121,3 +143,18 @@ class ReconciliationResponse(BaseModel):
     total_register_accumulated_depreciation: Decimal
     total_register_net_book_value: Decimal
     fully_matched: bool
+
+
+class DepreciationScheduleLine(BaseModel):
+    period_month: date
+    asset_id: UUID
+    asset_code: str
+    asset_name: str
+    amount: Decimal
+
+
+class DepreciationScheduleResponse(BaseModel):
+    date_from: date
+    date_to: date
+    lines: list[DepreciationScheduleLine]
+    total_amount: Decimal

@@ -94,12 +94,6 @@ export const NAV_CONFIG: NavEntry[] = [
       },
       {
         type: "link",
-        href: "/accounting?tab=fixed-assets",
-        labelKey: "accounting.tabs.fixed_assets",
-        icon: Landmark,
-      },
-      {
-        type: "link",
         href: "/accounting?tab=trial-balance",
         labelKey: "accounting.tabs.trial_balance",
         icon: Scale,
@@ -130,18 +124,6 @@ export const NAV_CONFIG: NavEntry[] = [
       },
       {
         type: "link",
-        href: "/accounting?tab=fixed-asset-card",
-        labelKey: "fixed_assets.card.title",
-        icon: IdCard,
-      },
-      {
-        type: "link",
-        href: "/accounting?tab=fixed-assets-reconciliation",
-        labelKey: "fixed_assets.reconciliation.title",
-        icon: ClipboardCheck,
-      },
-      {
-        type: "link",
         href: "/accounting?tab=customer-subledger",
         labelKey: "accounting.tabs.customer_subledger",
         icon: BookUser,
@@ -163,6 +145,28 @@ export const NAV_CONFIG: NavEntry[] = [
         href: "/accounting?tab=ap-aging",
         labelKey: "accounting.tabs.ap_aging",
         icon: ArrowLeftRight,
+      },
+    ],
+  },
+  {
+    type: "group",
+    labelKey: "nav.fixed_assets",
+    icon: Landmark,
+    children: [
+      { type: "link", href: "/fixed-assets", labelKey: "accounting.tabs.fixed_assets", icon: Landmark },
+      { type: "link", href: "/fixed-assets/categories", labelKey: "fixed_assets.categories.title", icon: FolderTree },
+      {
+        type: "link",
+        href: "/fixed-assets/depreciation-schedule",
+        labelKey: "fixed_assets.schedule.title",
+        icon: BarChart3,
+      },
+      { type: "link", href: "/fixed-assets/card", labelKey: "fixed_assets.card.title", icon: IdCard },
+      {
+        type: "link",
+        href: "/fixed-assets/reconciliation",
+        labelKey: "fixed_assets.reconciliation.title",
+        icon: ClipboardCheck,
       },
     ],
   },

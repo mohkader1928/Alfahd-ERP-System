@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Download, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { CategorySelect } from "@/components/erp/category-select/category-select";
 import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -21,6 +22,7 @@ import type { FixedAsset, RunDepreciationResult } from "@/features/fixed-assets/
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { downloadReportExport } from "@/lib/report-export";
 import { ApiError } from "@/lib/api-client";
 
 export function FixedAssetsTab() {
@@ -31,6 +33,7 @@ export function FixedAssetsTab() {
 
   const [name, setName] = useState("");
   const [nameAr, setNameAr] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [fixedAssetAccountId, setFixedAssetAccountId] = useState("");
   const [accumAccountId, setAccumAccountId] = useState("");
   const [expenseAccountId, setExpenseAccountId] = useState("");
@@ -41,8 +44,13 @@ export function FixedAssetsTab() {
   const [usefulLifeMonths, setUsefulLifeMonths] = useState("60");
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const [filterStatus, setFilterStatus] = useState<"" | "active" | "disposed">("");
+  const [filterCategoryId, setFilterCategoryId] = useState<string | null>(null);
+
   const [runOpen, setRunOpen] = useState(false);
   const [periodMonth, setPeriodMonth] = useState(() => new Date().toISOString().slice(0, 10));
+  const [runScope, setRunScope] = useState<"all" | "category">("all");
+  const [runCategoryId, setRunCategoryId] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunDepreciationResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
 
@@ -62,9 +70,18 @@ export function FixedAssetsTab() {
   // relying only on the 422 the backend would otherwise return.
   const postingAccounts = (accountsQuery.data ?? []).filter((a) => !a.is_group);
 
+  const categoriesQuery = useQuery({
+    queryKey: ["fixed-asset-categories", companyId],
+    queryFn: () => fixedAssetsApi.listCategories(companyId),
+  });
+
   const assetsQuery = useQuery({
-    queryKey: ["fixed-assets", companyId],
-    queryFn: () => fixedAssetsApi.listAssets(companyId),
+    queryKey: ["fixed-assets", companyId, filterStatus, filterCategoryId],
+    queryFn: () =>
+      fixedAssetsApi.listAssets(companyId, {
+        status: filterStatus || undefined,
+        categoryId: filterCategoryId || undefined,
+      }),
   });
   // Sum of ACTIVE assets only -- a disposed asset's cost/accumulated
   // depreciation were already cleared out of the GL by its disposal entry,
@@ -89,6 +106,7 @@ export function FixedAssetsTab() {
       fixedAssetsApi.createAsset(companyId, branchId, {
         name,
         name_ar: nameAr || null,
+        category_id: categoryId,
         fixed_asset_account_id: fixedAssetAccountId,
         accumulated_depreciation_account_id: accumAccountId,
         depreciation_expense_account_id: expenseAccountId,
@@ -103,6 +121,7 @@ export function FixedAssetsTab() {
       toastSuccess(t("toast.success_title"), asset.asset_code);
       setName("");
       setNameAr("");
+      setCategoryId(null);
       setFixedAssetAccountId("");
       setAccumAccountId("");
       setExpenseAccountId("");
@@ -119,7 +138,13 @@ export function FixedAssetsTab() {
   });
 
   const runMutation = useMutation({
-    mutationFn: () => fixedAssetsApi.runDepreciation(companyId, branchId, periodMonth),
+    mutationFn: () =>
+      fixedAssetsApi.runDepreciation(
+        companyId,
+        branchId,
+        periodMonth,
+        runScope === "category" ? runCategoryId : null
+      ),
     onSuccess: (result) => {
       setRunResult(result);
       setRunError(null);
@@ -170,7 +195,7 @@ export function FixedAssetsTab() {
       sortValue: (r) => r.asset_code,
       render: (r) => (
         <Link
-          href={`/accounting?tab=fixed-asset-card&asset=${r.id}`}
+          href={`/fixed-assets/card?asset=${r.id}`}
           className="font-mono underline-offset-4 hover:underline"
           title={t("fixed_assets.card.drill_down_hint")}
         >
@@ -179,6 +204,11 @@ export function FixedAssetsTab() {
       ),
     },
     { key: "name", header: t("fixed_assets.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
+    {
+      key: "category",
+      header: t("fixed_assets.category"),
+      render: (r) => categoriesQuery.data?.find((c) => c.id === r.category_id)?.name ?? "—",
+    },
     {
       key: "acquisition_date",
       header: t("fixed_assets.acquisition_date"),
@@ -244,6 +274,10 @@ export function FixedAssetsTab() {
               <div className="space-y-1">
                 <Label className="text-xs">{t("fixed_assets.name_ar")}</Label>
                 <Input value={nameAr} onChange={(e) => setNameAr(e.target.value)} dir="rtl" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.category")}</Label>
+                <CategorySelect categories={categoriesQuery.data ?? []} value={categoryId} onChange={setCategoryId} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("fixed_assets.acquisition_date")}</Label>
@@ -363,6 +397,65 @@ export function FixedAssetsTab() {
         </div>
       )}
 
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-40 space-y-1">
+            <Label className="text-xs">{t("fixed_assets.filter.status")}</Label>
+            <Select value={filterStatus || "__all__"} onValueChange={(v) => setFilterStatus(v === "__all__" ? "" : (v as "active" | "disposed"))}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">{t("fixed_assets.filter.status_all")}</SelectItem>
+                <SelectItem value="active">{t("fixed_assets.status_active")}</SelectItem>
+                <SelectItem value="disposed">{t("fixed_assets.status_disposed")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-56 space-y-1">
+            <Label className="text-xs">{t("fixed_assets.filter.category")}</Label>
+            <CategorySelect
+              categories={categoriesQuery.data ?? []}
+              value={filterCategoryId}
+              onChange={setFilterCategoryId}
+              placeholder={t("fixed_assets.filter.all_categories")}
+            />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              downloadReportExport(
+                "/api/v1/fixed-assets",
+                { status_filter: filterStatus || undefined, category_id: filterCategoryId || undefined, lang: locale },
+                "pdf",
+                companyId
+              ).catch((e) => toastError(e instanceof Error ? e.message : String(e)))
+            }
+          >
+            <Download className="h-4 w-4" />
+            PDF
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              downloadReportExport(
+                "/api/v1/fixed-assets",
+                { status_filter: filterStatus || undefined, category_id: filterCategoryId || undefined, lang: locale },
+                "xlsx",
+                companyId
+              ).catch((e) => toastError(e instanceof Error ? e.message : String(e)))
+            }
+          >
+            <Download className="h-4 w-4" />
+            Excel
+          </Button>
+        </div>
+      </div>
+
       <ERPListView
         title={t("accounting.tabs.fixed_assets")}
         columns={columns}
@@ -387,6 +480,34 @@ export function FixedAssetsTab() {
               <Label className="text-xs">{t("fixed_assets.run.period_month")}</Label>
               <Input type="date" value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} />
             </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t("fixed_assets.run.scope")}</Label>
+              <Select
+                value={runScope}
+                onValueChange={(v) => {
+                  setRunScope((v as "all" | "category") ?? "all");
+                  if (v !== "category") setRunCategoryId(null);
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("fixed_assets.run.scope_all")}</SelectItem>
+                  <SelectItem value="category">{t("fixed_assets.run.scope_category")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {runScope === "category" && (
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.filter.category")}</Label>
+                <CategorySelect
+                  categories={categoriesQuery.data ?? []}
+                  value={runCategoryId}
+                  onChange={setRunCategoryId}
+                />
+              </div>
+            )}
             {runError && <p className="text-sm text-destructive">{runError}</p>}
             {runResult && (
               <div className="rounded-md border p-3 text-sm space-y-1">
@@ -403,7 +524,10 @@ export function FixedAssetsTab() {
             <Button variant="outline" onClick={() => setRunOpen(false)}>
               {t("common.close")}
             </Button>
-            <Button disabled={runMutation.isPending} onClick={() => runMutation.mutate()}>
+            <Button
+              disabled={runMutation.isPending || (runScope === "category" && !runCategoryId)}
+              onClick={() => runMutation.mutate()}
+            >
               {runMutation.isPending ? t("common.loading") : t("fixed_assets.run.action")}
             </Button>
           </DialogFooter>

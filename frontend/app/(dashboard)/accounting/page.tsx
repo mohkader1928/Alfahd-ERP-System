@@ -22,9 +22,6 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
 import type { Account, JournalEntry, JournalEntryLineIn } from "@/features/accounting/api/types";
-import { FixedAssetCardTab } from "@/features/fixed-assets/components/fixed-asset-card-tab";
-import { FixedAssetsReconciliationTab } from "@/features/fixed-assets/components/fixed-assets-reconciliation-tab";
-import { FixedAssetsTab } from "@/features/fixed-assets/components/fixed-assets-tab";
 import { identityApi } from "@/features/identity/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
 import { reportingApi } from "@/features/reporting/api/client";
@@ -1850,7 +1847,6 @@ export default function AccountingPage() {
   }
   const deepLinkPartnerId = searchParams.get("partner") ?? undefined;
   const deepLinkAccountId = searchParams.get("account") ?? undefined;
-  const deepLinkAssetId = searchParams.get("asset") ?? undefined;
   // Owner-requested: the sidebar's "Accounting" group now lists every
   // report/screen directly (nav-config.ts), so picking one should land on
   // that screen alone — not also show a giant row of all 14 report names
@@ -1860,9 +1856,6 @@ export default function AccountingPage() {
     <div className="space-y-6">
       {tab === "accounts" && <ChartOfAccountsTab />}
       {tab === "journal-entries" && <JournalEntriesTab />}
-      {tab === "fixed-assets" && <FixedAssetsTab />}
-      {tab === "fixed-asset-card" && <FixedAssetCardTab initialAssetId={deepLinkAssetId} />}
-      {tab === "fixed-assets-reconciliation" && <FixedAssetsReconciliationTab />}
       {tab === "trial-balance" && <TrialBalanceTab />}
       {tab === "general-ledger" && <GeneralLedgerTab initialAccountId={deepLinkAccountId} />}
       {tab === "income-statement" && <IncomeStatementTab />}

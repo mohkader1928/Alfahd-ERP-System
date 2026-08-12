@@ -51,6 +51,9 @@ _LABELS: dict[str, dict[str, str]] = {
         "register_total": "إجمالي السجل",
         "gl_balance": "رصيد الأستاذ العام",
         "difference": "الفرق",
+        "asset_name": "اسم الأصل",
+        "category": "التصنيف",
+        "useful_life_months": "العمر الإنتاجي (أشهر)",
     },
     "en": {
         "account": "Account",
@@ -99,6 +102,9 @@ _LABELS: dict[str, dict[str, str]] = {
         "register_total": "Register Total",
         "gl_balance": "GL Balance",
         "difference": "Difference",
+        "asset_name": "Asset Name",
+        "category": "Category",
+        "useful_life_months": "Useful Life (months)",
     },
 }
 
@@ -121,6 +127,8 @@ _TITLES: dict[str, dict[str, str]] = {
         "inventory_valuation": "تقييم المخزون",
         "fixed_asset_card": "بطاقة الأصل الثابت",
         "fixed_assets_reconciliation": "تسوية الأصول الثابتة مع الأستاذ العام",
+        "fixed_assets_register": "سجل الأصول الثابتة",
+        "fixed_assets_depreciation_schedule": "جدول إهلاك الأصول الثابتة",
     },
     "en": {
         "trial_balance": "Trial Balance",
@@ -140,6 +148,8 @@ _TITLES: dict[str, dict[str, str]] = {
         "inventory_valuation": "Inventory Valuation",
         "fixed_asset_card": "Fixed Asset Card",
         "fixed_assets_reconciliation": "Fixed Assets Reconciliation to GL",
+        "fixed_assets_register": "Fixed Assets Register",
+        "fixed_assets_depreciation_schedule": "Fixed Assets Depreciation Schedule",
     },
 }
 

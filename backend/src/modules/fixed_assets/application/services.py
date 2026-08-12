@@ -35,8 +35,13 @@ from sqlalchemy.exc import IntegrityError
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository
 from src.modules.fixed_assets.domain.entities import AssetAlreadyDisposedError
-from src.modules.fixed_assets.infrastructure.models import FixedAsset, FixedAssetDepreciationEntry
+from src.modules.fixed_assets.infrastructure.models import (
+    FixedAsset,
+    FixedAssetCategory,
+    FixedAssetDepreciationEntry,
+)
 from src.modules.fixed_assets.infrastructure.repositories import (
+    FixedAssetCategoryRepository,
     FixedAssetDepreciationRepository,
     FixedAssetRepository,
 )
@@ -60,11 +65,13 @@ class FixedAssetService:
         depreciation_repo: FixedAssetDepreciationRepository,
         account_repo: AccountRepository,
         journal_entry_service: JournalEntryService,
+        category_repo: FixedAssetCategoryRepository | None = None,
     ):
         self.asset_repo = asset_repo
         self.depreciation_repo = depreciation_repo
         self.account_repo = account_repo
         self.journal_entry_service = journal_entry_service
+        self.category_repo = category_repo
 
     async def create_asset(
         self,
@@ -73,6 +80,7 @@ class FixedAssetService:
         branch_id: UUID,
         name: str,
         name_ar: str | None,
+        category_id: UUID | None = None,
         fixed_asset_account_id: UUID,
         accumulated_depreciation_account_id: UUID,
         depreciation_expense_account_id: UUID,
@@ -83,6 +91,11 @@ class FixedAssetService:
         useful_life_months: int,
         created_by: UUID,
     ) -> FixedAsset:
+        if category_id is not None:
+            assert self.category_repo is not None
+            category = await self.category_repo.get_by_id(company_id, category_id)
+            if category is None:
+                raise ValueError("Invalid asset category")
         fixed_asset_account = await self._require_account(fixed_asset_account_id, company_id)
         accum_account = await self._require_account(accumulated_depreciation_account_id, company_id)
         expense_account = await self._require_account(depreciation_expense_account_id, company_id)
@@ -103,6 +116,7 @@ class FixedAssetService:
             asset_code=number,
             name=name,
             name_ar=name_ar,
+            category_id=category_id,
             fixed_asset_account_id=fixed_asset_account_id,
             accumulated_depreciation_account_id=accumulated_depreciation_account_id,
             depreciation_expense_account_id=depreciation_expense_account_id,
@@ -142,8 +156,10 @@ class FixedAssetService:
             return None
         return await self._to_dict(asset)
 
-    async def list_assets(self, company_id: UUID) -> list[dict]:
-        assets = await self.asset_repo.list_by_company(company_id)
+    async def list_assets(
+        self, company_id: UUID, *, category_id: UUID | None = None, status: str | None = None
+    ) -> list[dict]:
+        assets = await self.asset_repo.list_by_company(company_id, category_id=category_id, status=status)
         return [await self._to_dict(asset) for asset in assets]
 
     async def list_depreciation_entries(self, company_id: UUID, asset_id: UUID) -> list[FixedAssetDepreciationEntry]:
@@ -367,11 +383,56 @@ class FixedAssetService:
             "fully_matched": all(r["matches"] for r in rows),
         }
 
+    async def get_depreciation_schedule(
+        self, *, company_id: UUID, date_from: date, date_to: date, category_id: UUID | None = None
+    ) -> dict:
+        """Company-wide standard report: every depreciation entry actually
+        posted within the window, across all assets (or one category) —
+        answers "what did we depreciate, and how much" the way the
+        per-asset Asset Card answers it for a single asset."""
+        asset_ids = None
+        if category_id is not None:
+            assets_in_category = await self.asset_repo.list_by_company(company_id, category_id=category_id)
+            asset_ids = [a.id for a in assets_in_category]
+            if not asset_ids:
+                return {"date_from": date_from, "date_to": date_to, "lines": [], "total_amount": Decimal("0")}
+
+        entries = await self.depreciation_repo.list_for_company_in_range(
+            company_id, date_from, date_to, asset_ids=asset_ids
+        )
+        asset_cache: dict[UUID, FixedAsset] = {}
+        lines = []
+        for entry in entries:
+            if entry.fixed_asset_id not in asset_cache:
+                asset_cache[entry.fixed_asset_id] = await self.asset_repo.get_by_id(entry.fixed_asset_id)
+            asset = asset_cache[entry.fixed_asset_id]
+            lines.append(
+                {
+                    "period_month": entry.period_month,
+                    "asset_id": entry.fixed_asset_id,
+                    "asset_code": asset.asset_code if asset else "?",
+                    "asset_name": asset.name if asset else "?",
+                    "amount": entry.amount,
+                }
+            )
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "lines": lines,
+            "total_amount": sum((line["amount"] for line in lines), Decimal("0")),
+        }
+
     async def run_depreciation(
-        self, *, company_id: UUID, branch_id: UUID, period_month: date, created_by: UUID
+        self,
+        *,
+        company_id: UUID,
+        branch_id: UUID,
+        period_month: date,
+        created_by: UUID,
+        category_id: UUID | None = None,
     ) -> dict:
         period = _month_start(period_month)
-        assets = await self.asset_repo.list_by_company(company_id, active_only=True)
+        assets = await self.asset_repo.list_by_company(company_id, active_only=True, category_id=category_id)
         posted: list[dict] = []
         skipped: list[dict] = []
         for asset in assets:
@@ -517,6 +578,7 @@ class FixedAssetService:
             "asset_code": asset.asset_code,
             "name": asset.name,
             "name_ar": asset.name_ar,
+            "category_id": asset.category_id,
             "fixed_asset_account_id": asset.fixed_asset_account_id,
             "accumulated_depreciation_account_id": asset.accumulated_depreciation_account_id,
             "depreciation_expense_account_id": asset.depreciation_expense_account_id,
@@ -531,3 +593,80 @@ class FixedAssetService:
             "disposed_at": asset.disposed_at,
             "disposal_proceeds": asset.disposal_proceeds,
         }
+
+
+class FixedAssetCategoryService:
+    """Mirrors ProductCategoryService exactly (identity/application/
+    services.py) — same cycle/duplicate/dependency validation, swapping
+    "assigned to a product" for "assigned to a fixed asset" as the
+    delete-guard dependency check."""
+
+    def __init__(self, category_repo: FixedAssetCategoryRepository, asset_repo: FixedAssetRepository):
+        self.category_repo = category_repo
+        self.asset_repo = asset_repo
+
+    async def _validate_parent(
+        self, *, company_id: UUID, parent_id: UUID | None, editing_id: UUID | None = None
+    ) -> None:
+        if parent_id is None:
+            return
+        if editing_id is not None and parent_id == editing_id:
+            raise ValueError("A category cannot be its own parent")
+        parent = await self.category_repo.get_by_id(company_id, parent_id)
+        if parent is None:
+            raise ValueError("Invalid parent category")
+        if editing_id is None:
+            return
+        visited: set[UUID] = {editing_id}
+        current = parent
+        while current.parent_id is not None:
+            if current.parent_id in visited:
+                raise ValueError("Circular category hierarchy is not allowed")
+            visited.add(current.id)
+            current = await self.category_repo.get_by_id(company_id, current.parent_id)
+            if current is None:
+                break
+
+    async def create_category(
+        self, *, company_id: UUID, name: str, parent_id: UUID | None = None
+    ) -> FixedAssetCategory:
+        name = name.strip()
+        if not name:
+            raise ValueError("Category name is required")
+        await self._validate_parent(company_id=company_id, parent_id=parent_id)
+        duplicate = await self.category_repo.find_sibling_by_name(company_id, parent_id, name)
+        if duplicate is not None:
+            raise ValueError(f"A category named '{name}' already exists at this level")
+        category = FixedAssetCategory(id=uuid.uuid4(), company_id=company_id, name=name, parent_id=parent_id)
+        return await self.category_repo.add(category)
+
+    async def update_category(
+        self, *, company_id: UUID, category_id: UUID, name: str, parent_id: UUID | None
+    ) -> FixedAssetCategory:
+        category = await self.category_repo.get_by_id(company_id, category_id)
+        if category is None:
+            raise LookupError("Category not found")
+        name = name.strip()
+        if not name:
+            raise ValueError("Category name is required")
+        await self._validate_parent(company_id=company_id, parent_id=parent_id, editing_id=category_id)
+        duplicate = await self.category_repo.find_sibling_by_name(
+            company_id, parent_id, name, exclude_id=category_id
+        )
+        if duplicate is not None:
+            raise ValueError(f"A category named '{name}' already exists at this level")
+        category.name = name
+        category.parent_id = parent_id
+        return category
+
+    async def delete_category(self, *, company_id: UUID, category_id: UUID) -> None:
+        category = await self.category_repo.get_by_id(company_id, category_id)
+        if category is None:
+            raise LookupError("Category not found")
+        child_count = await self.category_repo.count_children(company_id, category_id)
+        if child_count > 0:
+            raise ValueError("Cannot delete a category that has child categories")
+        asset_count = await self.asset_repo.count_by_category(company_id, category_id)
+        if asset_count > 0:
+            raise ValueError("Cannot delete a category that is assigned to one or more fixed assets")
+        await self.category_repo.delete(category)

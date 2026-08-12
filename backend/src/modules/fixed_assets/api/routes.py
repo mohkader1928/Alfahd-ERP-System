@@ -1,25 +1,39 @@
 """FastAPI routes for Fixed Assets (P0-5, 3-Day Brief)."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.modules.fixed_assets.api.deps import get_fixed_asset_service, require_permission
+from src.modules.fixed_assets.api.deps import (
+    get_fixed_asset_category_repo,
+    get_fixed_asset_category_service,
+    get_fixed_asset_service,
+    require_permission,
+)
 from src.modules.fixed_assets.api.schemas import (
     AssetCardResponse,
     DepreciationEntryOut,
+    DepreciationScheduleResponse,
     DisposeAssetRequest,
+    FixedAssetCategoryCreateRequest,
+    FixedAssetCategoryOut,
+    FixedAssetCategoryUpdateRequest,
     FixedAssetCreateRequest,
     FixedAssetOut,
     ReconciliationResponse,
     RunDepreciationRequest,
     RunDepreciationResponse,
 )
-from src.modules.fixed_assets.application.services import FixedAssetService
+from src.modules.fixed_assets.application.services import (
+    FixedAssetCategoryService,
+    FixedAssetService,
+)
 from src.modules.fixed_assets.domain.entities import AssetAlreadyDisposedError
+from src.modules.fixed_assets.infrastructure.repositories import FixedAssetCategoryRepository
 from src.modules.identity.api.deps import get_company_repo
 from src.modules.identity.infrastructure.repositories import CompanyRepository
 from src.shared.infrastructure.db.session import get_db
@@ -35,12 +49,175 @@ router = APIRouter()
 ExportFormatParam = Literal["json", "pdf", "xlsx"]
 
 
+def _register_table(*, company_name: str, assets: list[dict], lang: str) -> ReportTable:
+    rows = [
+        [
+            a["asset_code"],
+            a["name"],
+            format_date_str(a["acquisition_date"]),
+            format_amount(a["cost"]),
+            format_amount(a["accumulated_depreciation"]),
+            format_amount(a["net_book_value"]),
+            a["status"],
+        ]
+        for a in assets
+    ]
+    totals_cost = sum((a["cost"] for a in assets), start=Decimal("0"))
+    totals_accum = sum((a["accumulated_depreciation"] for a in assets), start=Decimal("0"))
+    totals_nbv = sum((a["net_book_value"] for a in assets), start=Decimal("0"))
+    return ReportTable(
+        title=title(lang, "fixed_assets_register"),
+        company_name=company_name,
+        columns=[
+            ReportColumn(label(lang, "asset_code")),
+            ReportColumn(label(lang, "asset_name")),
+            ReportColumn(label(lang, "date")),
+            ReportColumn(label(lang, "cost"), "end"),
+            ReportColumn(label(lang, "accumulated_depreciation"), "end"),
+            ReportColumn(label(lang, "net_book_value"), "end"),
+            ReportColumn(label(lang, "status")),
+        ],
+        rows=rows,
+        totals=[
+            "",
+            "",
+            label(lang, "total"),
+            format_amount(totals_cost),
+            format_amount(totals_accum),
+            format_amount(totals_nbv),
+            "",
+        ],
+        rtl=lang == "ar",
+    )
+
+
 @router.get("", response_model=list[FixedAssetOut])
 async def list_fixed_assets(
+    category_id: UUID | None = None,
+    status_filter: Literal["active", "disposed"] | None = None,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("fixed_assets.view")),
     service: FixedAssetService = Depends(get_fixed_asset_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
 ):
-    return await service.list_assets(ctx.company_id)
+    """Doubles as the Fixed Asset Register report: `format=pdf|xlsx` (with
+    an optional `status_filter`/`category_id`) exports the same list the
+    plain JSON register screen shows, matching the pattern every other
+    module's list-vs-export endpoint already uses."""
+    assets = await service.list_assets(ctx.company_id, category_id=category_id, status=status_filter)
+    if format == "json":
+        return assets
+    table = _register_table(
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang), assets=assets, lang=lang
+    )
+    return build_export_response(format, "fixed-assets-register", table)
+
+
+@router.get("/depreciation-schedule", response_model=DepreciationScheduleResponse)
+async def get_depreciation_schedule(
+    date_from: date,
+    date_to: date,
+    category_id: UUID | None = None,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("fixed_assets.view")),
+    service: FixedAssetService = Depends(get_fixed_asset_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    result = await service.get_depreciation_schedule(
+        company_id=ctx.company_id, date_from=date_from, date_to=date_to, category_id=category_id
+    )
+    if format == "json":
+        return result
+    rows = [
+        [
+            format_date_str(line["period_month"]),
+            line["asset_code"],
+            line["asset_name"],
+            format_amount(line["amount"]),
+        ]
+        for line in result["lines"]
+    ]
+    table = ReportTable(
+        title=title(lang, "fixed_assets_depreciation_schedule"),
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f'{result["date_from"]} — {result["date_to"]}',
+        columns=[
+            ReportColumn(label(lang, "period")),
+            ReportColumn(label(lang, "asset_code")),
+            ReportColumn(label(lang, "asset_name")),
+            ReportColumn(label(lang, "amount"), "end"),
+        ],
+        rows=rows,
+        totals=["", "", label(lang, "total"), format_amount(result["total_amount"])],
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, "fixed-assets-depreciation-schedule", table)
+
+
+@router.get("/categories", response_model=list[FixedAssetCategoryOut])
+async def list_fixed_asset_categories(
+    ctx: AuthContext = Depends(require_permission("fixed_assets.view")),
+    category_repo: FixedAssetCategoryRepository = Depends(get_fixed_asset_category_repo),
+):
+    return await category_repo.list_by_company(ctx.company_id)
+
+
+@router.post("/categories", response_model=FixedAssetCategoryOut, status_code=status.HTTP_201_CREATED)
+async def create_fixed_asset_category(
+    payload: FixedAssetCategoryCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("fixed_assets.category.manage")),
+    category_service: FixedAssetCategoryService = Depends(get_fixed_asset_category_service),
+):
+    try:
+        category = await category_service.create_category(
+            company_id=ctx.company_id, name=payload.name, parent_id=payload.parent_id
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return category
+
+
+@router.patch("/categories/{category_id}", response_model=FixedAssetCategoryOut)
+async def update_fixed_asset_category(
+    category_id: UUID,
+    payload: FixedAssetCategoryUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("fixed_assets.category.manage")),
+    category_service: FixedAssetCategoryService = Depends(get_fixed_asset_category_service),
+):
+    try:
+        category = await category_service.update_category(
+            company_id=ctx.company_id, category_id=category_id, name=payload.name, parent_id=payload.parent_id
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return category
+
+
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_fixed_asset_category(
+    category_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("fixed_assets.category.manage")),
+    category_service: FixedAssetCategoryService = Depends(get_fixed_asset_category_service),
+):
+    try:
+        await category_service.delete_category(company_id=ctx.company_id, category_id=category_id)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
 
 
 def _reconciliation_table(*, company_name: str, result: dict, lang: str) -> ReportTable:
@@ -209,6 +386,7 @@ async def create_fixed_asset(
             branch_id=ctx.branch_id,
             name=payload.name,
             name_ar=payload.name_ar,
+            category_id=payload.category_id,
             fixed_asset_account_id=payload.fixed_asset_account_id,
             accumulated_depreciation_account_id=payload.accumulated_depreciation_account_id,
             depreciation_expense_account_id=payload.depreciation_expense_account_id,
@@ -244,6 +422,7 @@ async def run_depreciation(
             branch_id=ctx.branch_id,
             period_month=payload.period_month,
             created_by=ctx.user_id,
+            category_id=payload.category_id,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e

@@ -186,6 +186,7 @@ class UserManagementService:
                     "fixed_assets.create",
                     "fixed_assets.depreciation.run",
                     "fixed_assets.dispose",
+                    "fixed_assets.category.manage",
                     "reporting.vat.view",
                     "reporting.dashboard.view",
                     "reporting.export",

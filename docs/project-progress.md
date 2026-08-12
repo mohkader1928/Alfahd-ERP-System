@@ -8,7 +8,78 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-11 — **Sales Order partial invoicing / backorder
+**Last verified**: 2026-08-12 — **Fixed Assets independent top-level
+section** (own sidebar group, matching Accounting/Purchasing). Owner
+request: split Fixed Assets out of Accounting's tab list into its own
+section with asset classification, category-scoped depreciation runs, and
+the rest of the standard FA reports.
+
+**Audit first** (background Explore agent): confirmed Add Asset, Dispose
+Asset, and the GL-reconciliation report already existed and were correct
+— only relocation needed. Genuine gaps: no classification concept at all,
+`run_depreciation` always ran for every active asset with no group filter,
+no formatted Register export, no company-wide Depreciation Schedule
+report.
+
+**Schema** (migration `e3f4a5b6c7d8`): new `fixed_asset_category` table —
+a self-referencing tree (`id`, `company_id`, `name`, `parent_id`),
+deliberately mirroring `product_category`'s exact shape rather than
+inventing a second pattern; `fixed_asset.category_id` nullable FK, so
+every pre-existing asset stays valid uncategorized.
+
+**Backend**: `FixedAssetCategoryService` mirrors `ProductCategoryService`
+exactly (cycle/duplicate/dependency validation — a category can't be
+deleted while it has children or assets assigned). `FixedAssetRepository.
+list_by_company` gained `category_id`/`status` filters, threaded through
+`run_depreciation` (now accepts an optional `category_id` — omitted runs
+"all assets" exactly as before, byte-for-byte backward compatible with
+every existing test) and through `list_assets` (doubles as the Register
+report: `GET /fixed-assets?format=pdf|xlsx` with the same filters). New
+`get_depreciation_schedule(date_from, date_to, category_id=None)` lists
+every depreciation entry actually posted in a period range across all (or
+one category's) assets — the "standard depreciation schedule" report,
+reusing the exact `ReportTable`/PDF/Excel framework every other report in
+this codebase already uses. New permission `fixed_assets.category.manage`
+(view reuses the existing `fixed_assets.view`, matching how depreciation-
+entries already reuses it rather than growing a permission per screen).
+5 new routes: `GET/POST /fixed-assets/categories`,
+`PATCH/DELETE /fixed-assets/categories/{id}`,
+`GET /fixed-assets/depreciation-schedule`.
+
+**Frontend**: new independent `nav.fixed_assets` sidebar group (dedicated
+routes, mirroring Purchasing's pattern rather than Accounting's
+`?tab=` — 5 screens: Register, Categories, Depreciation Schedule, Asset
+Card, Reconciliation) replacing the 3 entries removed from `nav.
+accounting`. The existing 3 components relocated from `accounting/
+page.tsx`'s tab switch into `app/(dashboard)/fixed-assets/*` dedicated
+pages (the Asset Card page's `syncedAssetId` deep-link-resync fix carried
+over untouched). Register screen gained a category picker on the create
+form, status/category filters + PDF/Excel export buttons above the list,
+and a scope selector (All Assets / Specific Category) on the Run
+Depreciation dialog. New Categories screen mirrors `master-data/
+categories` tree UI exactly, reusing the same `CategorySelect` component
+(structurally compatible — no new component needed). New Depreciation
+Schedule report screen follows the same `ReportView` filter/apply/export
+pattern as Reconciliation.
+
+13 new backend tests (`test_fixed_asset_categories.py`): category CRUD,
+duplicate-name and circular-parent rejection, delete blocked by children/
+assigned-assets, category-scoped depreciation run only touching that
+group's assets (the Owner's actual ask — verified two categories'
+depreciation entries stay fully independent), Register status filter,
+Depreciation Schedule totals + category scope, cross-company isolation.
+Full existing 12-test `test_fixed_assets.py` suite (including the GL-
+reconciliation tests) re-run unmodified and still green — the relocation
+and new filters didn't touch existing behavior. ruff/tsc/eslint/`next
+build` all clean; `next build` compiled all 5 new routes successfully.
+Dev-server logs confirmed `GET /fixed-assets 200` and the other new
+routes serving correctly; a full interactive click-through could not be
+completed this session because the Browser pane tool itself became
+unresponsive (navigate/screenshot/get_page_text all timed out against an
+otherwise-healthy dev server — confirmed via server-side logs, not an
+application bug) — flagged here rather than silently claimed as done.
+
+**Immediately prior** — **Sales Order partial invoicing / backorder
 support** (SAP/Oracle/Odoo-standard). Owner-reported blocker: SO-000035
 (1000 units ordered, 0 in stock, a matching PO for the shortfall already
 confirmed but not yet received) could not be invoiced — insufficient

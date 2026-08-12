@@ -27,6 +27,22 @@ from sqlalchemy.orm import Mapped, mapped_column
 from src.shared.infrastructure.db.base import Base
 
 
+class FixedAssetCategory(Base):
+    """Mirrors ProductCategory's minimal self-referencing tree exactly —
+    same shape, same reasoning (identity/infrastructure/master_data_models.py)."""
+
+    __tablename__ = "fixed_asset_category"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fixed_asset_category.id"), nullable=True
+    )
+
+
 class FixedAsset(Base):
     __tablename__ = "fixed_asset"
 
@@ -38,6 +54,9 @@ class FixedAsset(Base):
     asset_code: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     name_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("fixed_asset_category.id"), nullable=True
+    )
     fixed_asset_account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("account.id"), nullable=False
     )

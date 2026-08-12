@@ -125,6 +125,7 @@ PERMISSION_CATALOG = [
     ("fixed_assets.create", "action"),
     ("fixed_assets.depreciation.run", "action"),
     ("fixed_assets.dispose", "action"),
+    ("fixed_assets.category.manage", "action"),
 ]
 
 

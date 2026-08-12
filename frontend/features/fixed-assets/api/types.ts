@@ -1,9 +1,22 @@
+export interface FixedAssetCategory {
+  id: string;
+  company_id: string;
+  name: string;
+  parent_id: string | null;
+}
+
+export interface FixedAssetCategoryInput {
+  name: string;
+  parent_id: string | null;
+}
+
 export interface FixedAsset {
   id: string;
   company_id: string;
   asset_code: string;
   name: string;
   name_ar: string | null;
+  category_id: string | null;
   fixed_asset_account_id: string;
   accumulated_depreciation_account_id: string;
   depreciation_expense_account_id: string;
@@ -22,6 +35,7 @@ export interface FixedAsset {
 export interface FixedAssetCreateInput {
   name: string;
   name_ar?: string | null;
+  category_id?: string | null;
   fixed_asset_account_id: string;
   accumulated_depreciation_account_id: string;
   depreciation_expense_account_id: string;
@@ -106,4 +120,19 @@ export interface Reconciliation {
   total_register_accumulated_depreciation: string;
   total_register_net_book_value: string;
   fully_matched: boolean;
+}
+
+export interface DepreciationScheduleLine {
+  period_month: string;
+  asset_id: string;
+  asset_code: string;
+  asset_name: string;
+  amount: string;
+}
+
+export interface DepreciationSchedule {
+  date_from: string;
+  date_to: string;
+  lines: DepreciationScheduleLine[];
+  total_amount: string;
 }
