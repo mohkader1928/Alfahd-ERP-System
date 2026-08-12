@@ -34,6 +34,7 @@ class Partner(Base):
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    partner_code: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     name_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_company: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
@@ -65,6 +66,7 @@ class Partner(Base):
     __table_args__ = (
         Index("ix_partner_company", "company_id"),
         Index("ix_partner_parent", "parent_partner_id"),
+        Index("ux_partner_code", "company_id", "partner_code", unique=True),
         Index(
             "ux_partner_vat",
             "company_id",

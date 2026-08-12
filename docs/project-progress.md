@@ -8,7 +8,68 @@ a specific file, endpoint, table, or test cited inline; a percentage with
 no evidence next to it is a bug in this document, not a fact about the
 project.
 
-**Last verified**: 2026-08-12 — **Fixed Assets independent top-level
+**Last verified**: 2026-08-12 — **System-wide auto-generated master-data
+codes** (Product SKU, Partner code). Owner directive: every master-data
+entity's business identifier must be system-assigned and guaranteed
+unique — never left to the user to type — and pre-existing entries must
+be brought into compliance, not left behind.
+
+**Audit first**: `FixedAsset.asset_code` already worked this way
+(`next_number()` counter, never client-supplied). `Product.sku` and
+`UnitOfMeasure.code` were user-typed with an app-level pre-check (a real
+TOCTOU race, no `IntegrityError` safety net) but already DB-unique-
+constrained, so no existing duplicates could exist. `Partner` (the one
+table behind Customer/Vendor/Employee/Contact) had **no business code
+field at all**. `ProductCategory`/`FixedAssetCategory` have no code field
+either — confirmed out of scope, identified only by name+parent.
+
+**Product**: `ProductRepository.next_number()` (mirrors `FixedAssetRepository.
+next_number` — "PROD-{count+1:06d}"), `sku` removed from
+`ProductCreateRequest` entirely (an extra `sku` in the request body is
+now silently ignored — verified live: `POST /identity/products` with no
+`sku` field returned `"sku":"PROD-000029"` in an existing demo company
+with 28 prior products), `IntegrityError` → clean `ValueError` added as a
+concurrent-duplicate safety net. SKU stays editable on the update path
+(a legitimate correction workflow, not "who assigns the first one").
+
+**Partner** (bigger, schema-additive change since no code field
+pre-existed): new `partner_code` column, one shared sequence per company
+regardless of role ("PTR-{n:06d}") since a single Partner row can hold
+Customer+Vendor+Employee simultaneously. Migration `f4a5b6c7d8e9`
+backfills every pre-existing partner a sequential code in `created_at`
+order — the first attempt failed with a NOT NULL violation because
+`partner` has `FORCE ROW LEVEL SECURITY` and the bulk UPDATE was silently
+filtered to zero rows by the RLS policy; fixed by bracketing the backfill
+with `NO FORCE`/`FORCE ROW LEVEL SECURITY` (the same pattern
+`a4b5c6d7e8f9` already used for `account`). Verified live post-migration:
+every pre-existing partner in the demo company (13 customers shown, IDs
+PTR-000001 through PTR-000027) already carries a real code.
+
+**UOM**: kept user-typed by deliberate exception — `code` is a real-world
+unit abbreviation (KG, PC, BOX), not a sequential ID; auto-numbering it
+would destroy its purpose. Only the `IntegrityError` safety net was added
+there, matching Product/Partner.
+
+**Root cause found and fixed mid-task, unrelated to the code change
+itself**: running `next build` (production build) while `next dev` was
+still live against the same `.next` build cache corrupted the dev
+server's compiled state, and it degraded to multi-minute response times
+— indistinguishable from "the login page doesn't work" from the Owner's
+side. Fixed by stopping the dev server, deleting the corrupted `.next`
+cache, and restarting clean (verified: login page 0.16s warm, API login
+returns a valid token). Going forward, production builds are run only
+when no live dev server shares the same project — never in parallel.
+
+6 new tests (`test_master_data_auto_codes.py`): SKU/partner_code sequential
+and per-company-isolated, client-supplied `sku`/`partner_code` values
+proven ignored. Full backend suite: 383 passed, 1 pre-existing unrelated
+flaky failure (`test_stock_quant_concurrency.py` — inventory module,
+confirmed via `git diff` that no file in that area was touched this
+session, and it fails the same way in isolation on `main`). ruff/tsc/
+eslint clean. Live-verified via real HTTP requests and the demo company's
+existing data (not just automated tests).
+
+**Immediately prior** — **Fixed Assets independent top-level
 section** (own sidebar group, matching Accounting/Purchasing). Owner
 request: split Fixed Assets out of Accounting's tab list into its own
 section with asset classification, category-scoped depreciation runs, and

@@ -29,7 +29,6 @@ export default function NewProductPage() {
     queryFn: () => identityApi.listUom(companyId, { active: true }),
   });
 
-  const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [nameAr, setNameAr] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
@@ -45,7 +44,6 @@ export default function NewProductPage() {
   const createMutation = useMutation({
     mutationFn: () =>
       identityApi.createProduct(companyId, branchId, {
-        sku,
         name,
         name_ar: nameAr || null,
         category_id: categoryId,
@@ -78,14 +76,10 @@ export default function NewProductPage() {
       }}
       onCancel={() => router.push("/master-data/products")}
       isSaving={createMutation.isPending}
-      saveDisabled={!sku || !name}
+      saveDisabled={!name}
       error={error}
     >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label>{t("master_data.products.sku")}</Label>
-          <Input value={sku} onChange={(e) => setSku(e.target.value)} />
-        </div>
         <div className="space-y-1">
           <Label>{t("master_data.products.name")}</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} />

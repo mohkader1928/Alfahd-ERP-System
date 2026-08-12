@@ -75,6 +75,7 @@ export interface Address {
 export interface Partner {
   id: string;
   company_id: string;
+  partner_code: string;
   name: string;
   name_ar: string | null;
   is_company: boolean;
@@ -170,6 +171,10 @@ export interface ProductWriteInput {
   default_tax_rate_id?: string | null;
   reorder_point?: string | null;
 }
+
+/** Create never accepts `sku` — the backend always system-assigns it
+ * (Owner directive: no master-data business code is ever user-typed). */
+export type ProductCreateInput = Omit<ProductWriteInput, "sku">;
 
 export interface ProductCategory {
   id: string;

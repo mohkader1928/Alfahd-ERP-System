@@ -14,6 +14,7 @@ import type {
   Permission,
   Product,
   ProductCategory,
+  ProductCreateInput,
   ProductWriteInput,
   Role,
   RoleDetail,
@@ -129,7 +130,7 @@ export const identityApi = {
 
   getProduct: (companyId: string, id: string) => apiClient.get<Product>(`${BASE}/products/${id}`, { companyId }),
 
-  createProduct: (companyId: string, branchId: string | null, payload: ProductWriteInput) =>
+  createProduct: (companyId: string, branchId: string | null, payload: ProductCreateInput) =>
     apiClient.post<Product>(`${BASE}/products`, payload, { companyId, branchId }),
 
   updateProduct: (companyId: string, id: string, payload: ProductWriteInput) =>

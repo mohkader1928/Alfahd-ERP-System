@@ -133,7 +133,7 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
     <RecordCard
       breadcrumbs={[{ label: t("nav.master_data") }, { label: t("master_data.address_book.title"), href: "/master-data/address-book" }, { label: partner.name }]}
       name={partner.name}
-      code={partner.vat_number ?? undefined}
+      code={partner.partner_code}
       avatar={<EntityImage src={partner.image_path} name={partner.name} size="md" />}
       statusBadge={
         <div className="flex gap-1">

@@ -1196,7 +1196,6 @@ async def create_product(
         product = await service.create_product(
             tenant_id=ctx.tenant_id,
             company_id=ctx.company_id,
-            sku=payload.sku,
             name=payload.name,
             name_ar=payload.name_ar,
             category_id=payload.category_id,

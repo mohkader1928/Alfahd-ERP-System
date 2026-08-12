@@ -106,6 +106,13 @@ export function PartnerListView({ kind }: { kind: PartnerListKind }) {
 
   const columns: ERPColumn<Partner>[] = [
     {
+      key: "partner_code",
+      header: t("master_data.partners.code"),
+      sortable: true,
+      sortValue: (r) => r.partner_code,
+      render: (r) => <span className="font-mono">{r.partner_code}</span>,
+    },
+    {
       key: "name",
       header: t("master_data.partners.name"),
       sortable: true,
@@ -153,7 +160,7 @@ export function PartnerListView({ kind }: { kind: PartnerListKind }) {
       errorMessage={error instanceof ApiError ? error.detail : undefined}
       onRetry={() => refetch()}
       onRefresh={invalidate}
-      searchText={(r) => `${r.name} ${r.name_ar ?? ""} ${r.vat_number ?? ""} ${r.cr_number ?? ""} ${r.email ?? ""} ${r.phone ?? ""}`}
+      searchText={(r) => `${r.partner_code} ${r.name} ${r.name_ar ?? ""} ${r.vat_number ?? ""} ${r.cr_number ?? ""} ${r.email ?? ""} ${r.phone ?? ""}`}
       searchPlaceholder={t("list.search_placeholder")}
       emptyDescription={t(emptyKey)}
       filters={

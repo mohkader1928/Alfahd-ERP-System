@@ -9,6 +9,8 @@ import uuid
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
+
 from src.modules.identity.domain.entities import InactiveUserError
 from src.modules.identity.infrastructure.master_data_models import (
     Partner,
@@ -404,10 +406,14 @@ class PartnerService:
         address: dict | None = None,
     ) -> Partner:
         await self._validate_parent(company_id=company_id, parent_partner_id=parent_partner_id, self_id=None)
+        # Owner directive: partner_code is always system-assigned, never
+        # user-typed — same discipline as FixedAsset.asset_code/Product.sku.
+        partner_code = await self.partner_repo.next_number(company_id)
         partner = Partner(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
             company_id=company_id,
+            partner_code=partner_code,
             name=name,
             name_ar=name_ar,
             is_company=is_company,
@@ -425,7 +431,10 @@ class PartnerService:
             cr_number=cr_number,
             address=address,
         )
-        return await self.partner_repo.add(partner)
+        try:
+            return await self.partner_repo.add(partner)
+        except IntegrityError as e:
+            raise ValueError("A partner was created concurrently with the same code — please retry") from e
 
     async def update_partner(
         self,
@@ -586,7 +595,6 @@ class ProductService:
         *,
         tenant_id: UUID,
         company_id: UUID,
-        sku: str,
         name: str,
         name_ar: str | None = None,
         category_id: UUID | None = None,
@@ -599,10 +607,10 @@ class ProductService:
         default_tax_rate_id: UUID | None = None,
         reorder_point: Decimal | None = None,
     ) -> Product:
-        existing = await self.product_repo.get_by_sku(company_id, sku)
-        if existing is not None:
-            raise ValueError(f"Product SKU already exists: {sku}")
+        # Owner directive: the SKU is always system-assigned, never
+        # user-typed — same discipline FixedAsset.asset_code already has.
         await self._validate_category_and_uom(company_id=company_id, category_id=category_id, uom_id=uom_id)
+        sku = await self.product_repo.next_number(company_id)
         product = Product(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
@@ -620,7 +628,10 @@ class ProductService:
             default_tax_rate_id=default_tax_rate_id,
             reorder_point=reorder_point,
         )
-        return await self.product_repo.add(product)
+        try:
+            return await self.product_repo.add(product)
+        except IntegrityError as e:
+            raise ValueError("A product was created concurrently with the same SKU — please retry") from e
 
     async def update_product(
         self,
@@ -765,7 +776,10 @@ class UnitOfMeasureService:
         if existing is not None:
             raise ValueError(f"Unit of measure code already exists: {code}")
         uom = UnitOfMeasure(id=uuid.uuid4(), company_id=company_id, name=name, name_ar=name_ar, code=code)
-        return await self.uom_repo.add(uom)
+        try:
+            return await self.uom_repo.add(uom)
+        except IntegrityError as e:
+            raise ValueError(f"Unit of measure code already exists: {code}") from e
 
     async def update_uom(
         self,

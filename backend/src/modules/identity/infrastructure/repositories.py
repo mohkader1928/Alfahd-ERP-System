@@ -346,6 +346,16 @@ class PartnerRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def next_number(self, company_id: UUID) -> str:
+        """System-assigned partner code — one shared sequence regardless of
+        customer/vendor/employee role, since a single Partner row can hold
+        several roles at once (mirrors FixedAssetRepository.next_number).
+        Counts ALL rows (including archived) so a deleted partner's code is
+        never reissued."""
+        result = await self.session.execute(select(func.count()).where(Partner.company_id == company_id))
+        count = result.scalar_one()
+        return f"PTR-{count + 1:06d}"
+
     async def list_by_company(
         self,
         company_id: UUID,
@@ -454,6 +464,14 @@ class ProductRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def next_number(self, company_id: UUID) -> str:
+        """System-assigned SKU — mirrors FixedAssetRepository.next_number.
+        Counts ALL rows (including soft-deleted) so a deleted product's SKU
+        is never reissued to a new one."""
+        result = await self.session.execute(select(func.count()).where(Product.company_id == company_id))
+        count = result.scalar_one()
+        return f"PROD-{count + 1:06d}"
 
     async def list_by_company(
         self, company_id: UUID, *, category_id: UUID | None = None, search: str | None = None

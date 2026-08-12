@@ -265,6 +265,7 @@ class PartnerUpdateRequest(BaseModel):
 class PartnerOut(BaseModel):
     id: UUID
     company_id: UUID
+    partner_code: str
     name: str
     name_ar: str | None
     is_company: bool
@@ -366,7 +367,6 @@ class UnitOfMeasureOut(BaseModel):
 
 
 class ProductCreateRequest(BaseModel):
-    sku: str
     name: str
     name_ar: str | None = None
     category_id: UUID | None = None
