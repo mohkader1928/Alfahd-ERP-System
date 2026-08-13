@@ -594,6 +594,19 @@ async def balance_sheet(
     return build_export_response(format, "balance-sheet", table)
 
 
+@router.get("/fiscal-periods", response_model=list[FiscalPeriodOut])
+async def list_fiscal_periods(
+    ctx: AuthContext = Depends(require_permission("accounting.fiscal_period.manage")),
+    period_repo: FiscalPeriodRepository = Depends(get_fiscal_period_repo),
+):
+    """P0-2 (Phase-One period-closing GUI): exposes the existing
+    FiscalPeriod mechanism (FR-ACC-011) for a real list screen — until now
+    only `create` and `:close` existed with no way to see what periods a
+    company has. Reuses the existing `accounting.fiscal_period.manage`
+    permission rather than introducing a separate view-only tier."""
+    return await period_repo.list_by_company(ctx.company_id)
+
+
 @router.post("/fiscal-periods", response_model=FiscalPeriodOut, status_code=status.HTTP_201_CREATED)
 async def create_fiscal_period(
     payload: FiscalPeriodCreateRequest,

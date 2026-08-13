@@ -18,10 +18,11 @@ import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
 import { Can } from "@/components/erp/permissions/can";
+import { ConfirmDialog } from "@/components/erp/states/confirm-dialog";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
-import type { Account, JournalEntry, JournalEntryLineIn } from "@/features/accounting/api/types";
+import type { Account, FiscalPeriod, JournalEntry, JournalEntryLineIn } from "@/features/accounting/api/types";
 import { identityApi } from "@/features/identity/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
 import { reportingApi } from "@/features/reporting/api/client";
@@ -1821,6 +1822,174 @@ function ApAgingTab() {
   );
 }
 
+// P0-2 (Phase-One period-closing GUI): the backend's FiscalPeriod
+// mechanism (create + :close, FR-ACC-011) already exists and is already
+// enforced centrally in JournalEntryService.post_entry for every module
+// that posts a journal entry (Sales, Purchasing, Fixed Assets, Payments,
+// manual JEs alike) — this tab is the missing surface for a user to
+// actually reach it. Reuses the single existing
+// accounting.fiscal_period.manage permission for both viewing and
+// managing periods (no separate view-only tier exists in the backend).
+// There is deliberately no "reopen" action: the backend has no reopen
+// endpoint at all, so once closed a period stays closed.
+function FiscalPeriodsTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const queryClient = useQueryClient();
+
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [closing, setClosing] = useState<FiscalPeriod | null>(null);
+  const [closeError, setCloseError] = useState<string | null>(null);
+
+  const periodsQuery = useQuery({
+    queryKey: ["fiscal-periods", companyId],
+    queryFn: () => accountingApi.listFiscalPeriods(companyId),
+  });
+  const periods = periodsQuery.data ?? [];
+
+  const createMutation = useMutation({
+    mutationFn: () => accountingApi.createFiscalPeriod(companyId, { period_start: periodStart, period_end: periodEnd }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fiscal-periods", companyId] });
+      toastSuccess(t("toast.success_title"), `${periodStart} — ${periodEnd}`);
+      setPeriodStart("");
+      setPeriodEnd("");
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  const closeMutation = useMutation({
+    mutationFn: () => accountingApi.closeFiscalPeriod(companyId, closing!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fiscal-periods", companyId] });
+      toastSuccess(t("toast.success_title"), t("accounting.fiscal_periods.close_action"));
+      setClosing(null);
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setCloseError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  const columns: ERPColumn<FiscalPeriod>[] = [
+    {
+      key: "period_start",
+      header: t("accounting.fiscal_periods.start_date"),
+      sortable: true,
+      sortValue: (r) => r.period_start,
+      render: (r) => formatDate(r.period_start, locale),
+    },
+    {
+      key: "period_end",
+      header: t("accounting.fiscal_periods.end_date"),
+      sortable: true,
+      sortValue: (r) => r.period_end,
+      render: (r) => formatDate(r.period_end, locale),
+    },
+    {
+      key: "is_closed",
+      header: t("accounting.fiscal_periods.status"),
+      render: (r) => (
+        <Badge variant={r.is_closed ? "outline" : "default"}>
+          {r.is_closed ? t("accounting.fiscal_periods.closed") : t("accounting.fiscal_periods.open")}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (r) =>
+        !r.is_closed && (
+          <Can permission="accounting.fiscal_period.manage">
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive"
+                onClick={() => {
+                  setClosing(r);
+                  setCloseError(null);
+                }}
+              >
+                {t("accounting.fiscal_periods.close_action")}
+              </Button>
+            </div>
+          </Can>
+        ),
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Can permission="accounting.fiscal_period.manage">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("accounting.fiscal_periods.new")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.fiscal_periods.start_date")}</Label>
+                <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className="w-40" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.fiscal_periods.end_date")}</Label>
+                <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="w-40" />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  createMutation.mutate();
+                }}
+                disabled={!periodStart || !periodEnd || createMutation.isPending}
+              >
+                <Plus className="h-4 w-4" />
+                {t("accounting.fiscal_periods.save")}
+              </Button>
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </CardContent>
+        </Card>
+      </Can>
+
+      <ERPListView
+        title={t("accounting.tabs.fiscal_periods")}
+        columns={columns}
+        rows={periods}
+        rowKey={(r) => r.id}
+        isLoading={periodsQuery.isLoading}
+        isError={periodsQuery.isError}
+        onRetry={() => periodsQuery.refetch()}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["fiscal-periods", companyId] })}
+        emptyDescription={t("accounting.fiscal_periods.empty_description")}
+      />
+
+      <ConfirmDialog
+        open={!!closing}
+        onOpenChange={(open) => !open && setClosing(null)}
+        title={t("accounting.fiscal_periods.close_confirm_title")}
+        description={
+          closeError
+            ? closeError
+            : `${closing ? `${formatDate(closing.period_start, locale)} – ${formatDate(closing.period_end, locale)}` : ""} ${t("accounting.fiscal_periods.close_confirm_body")}`
+        }
+        variant="destructive"
+        confirmLabel={t("accounting.fiscal_periods.close_action")}
+        onConfirm={() => closeMutation.mutate()}
+        isPending={closeMutation.isPending}
+      />
+    </div>
+  );
+}
+
 export default function AccountingPage() {
   const searchParams = useSearchParams();
   // Base UI's Tabs.Panel fails to hide inactive panels once a second panel
@@ -1865,6 +2034,7 @@ export default function AccountingPage() {
       {tab === "vendor-subledger" && <VendorSubledgerTab initialPartnerId={deepLinkPartnerId} />}
       {tab === "ar-aging" && <ArAgingTab />}
       {tab === "ap-aging" && <ApAgingTab />}
+      {tab === "fiscal-periods" && <FiscalPeriodsTab />}
     </div>
   );
 }

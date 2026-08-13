@@ -151,6 +151,14 @@ class FiscalPeriodRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_by_company(self, company_id: UUID) -> list[FiscalPeriod]:
+        result = await self.session.execute(
+            select(FiscalPeriod)
+            .where(FiscalPeriod.company_id == company_id)
+            .order_by(FiscalPeriod.period_start.desc())
+        )
+        return list(result.scalars().all())
+
 
 class JournalEntryRepository:
     def __init__(self, session: AsyncSession):

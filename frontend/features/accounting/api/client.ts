@@ -3,6 +3,7 @@ import type {
   Account,
   AccountUpdateInput,
   BalanceSheetResponse,
+  FiscalPeriod,
   GeneralLedgerResponse,
   IncomeStatementResponse,
   JournalEntry,
@@ -18,6 +19,14 @@ export const accountingApi = {
   listAccounts: (companyId: string) => apiClient.get<Account[]>(`${BASE}/chart-of-accounts`, { companyId }),
 
   listTaxRates: (companyId: string) => apiClient.get<TaxRate[]>(`${BASE}/tax-rates`, { companyId }),
+
+  listFiscalPeriods: (companyId: string) => apiClient.get<FiscalPeriod[]>(`${BASE}/fiscal-periods`, { companyId }),
+
+  createFiscalPeriod: (companyId: string, payload: { period_start: string; period_end: string }) =>
+    apiClient.post<FiscalPeriod>(`${BASE}/fiscal-periods`, payload, { companyId }),
+
+  closeFiscalPeriod: (companyId: string, id: string) =>
+    apiClient.post<FiscalPeriod>(`${BASE}/fiscal-periods/${id}:close`, undefined, { companyId }),
 
   createAccount: (
     companyId: string,

@@ -1,3 +1,11 @@
+export interface FiscalPeriod {
+  id: string;
+  company_id: string;
+  period_start: string;
+  period_end: string;
+  is_closed: boolean;
+}
+
 export interface TaxRate {
   id: string;
   company_id: string;

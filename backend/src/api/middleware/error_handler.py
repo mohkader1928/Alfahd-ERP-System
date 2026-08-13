@@ -7,6 +7,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from src.modules.accounting.domain.entities import PeriodClosedError
+
 logger = logging.getLogger("erp.api")
 
 
@@ -41,6 +43,20 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return _problem(exc.status_code, exc.__class__.__name__, str(exc.detail), str(request.url.path))
+
+    @app.exception_handler(PeriodClosedError)
+    async def period_closed_error_handler(request: Request, exc: PeriodClosedError):
+        # P0-2 (Phase-One period-closing): the accounting module's own
+        # `:post` route already catches this locally and maps it to 409 —
+        # but every other module that posts a journal entry through the
+        # same central JournalEntryService.post_entry (Sales invoices/
+        # credit notes, Vendor Bills/debit notes, Fixed Asset depreciation/
+        # disposal, Payments) does not, so this exact same rejection was
+        # previously reaching the generic 500 handler below instead of
+        # surfacing as the clean, specific rejection it actually is. One
+        # central handler covers every current and future caller uniformly
+        # rather than duplicating the same try/except in each route.
+        return _problem(status.HTTP_409_CONFLICT, "Period Closed", str(exc), str(request.url.path))
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
