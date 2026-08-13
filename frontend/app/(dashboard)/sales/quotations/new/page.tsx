@@ -13,17 +13,10 @@ import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { accountingApi } from "@/features/accounting/api/client";
 import { identityApi } from "@/features/identity/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
-
-// The nucleus doesn't expose a tax-rate list endpoint yet (Phase 1 §7's
-// default Saudi VAT rates are seeded per company but only readable today
-// via the accounting service layer, not a dedicated API) — the backend
-// itself doesn't validate this FK (see Phase 7 §4 note on quotation_line),
-// so a fixed Standard-15% placeholder is used here rather than blocking
-// quotation creation on a lookup that doesn't exist yet.
-const STANDARD_VAT_TAX_RATE_ID = "00000000-0000-0000-0000-000000000001";
 
 interface Line {
   product_id: string;
@@ -47,6 +40,7 @@ export default function NewQuotationPage() {
 
   const [partnerId, setPartnerId] = useState("");
   const [quoteDate, setQuoteDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [taxRateId, setTaxRateId] = useState("");
   const [lines, setLines] = useState<Line[]>([{ product_id: "", qty: "1", unit_price: "0" }]);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,13 +52,21 @@ export default function NewQuotationPage() {
     queryKey: ["products", companyId],
     queryFn: () => identityApi.listProducts(companyId, branchId),
   });
+  const taxRatesQuery = useQuery({
+    queryKey: ["tax-rates", companyId],
+    queryFn: () => accountingApi.listTaxRates(companyId),
+  });
+  // Defaults to the company's own configured Standard rate once loaded,
+  // without a separate effect — the user can still override it below.
+  const effectiveTaxRateId =
+    taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
 
   const createMutation = useMutation({
     mutationFn: () =>
       salesApi.createQuotation(companyId, branchId, {
         partner_id: partnerId,
         quote_date: quoteDate,
-        lines: lines.map((l) => ({ ...l, tax_rate_id: STANDARD_VAT_TAX_RATE_ID })),
+        lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: (quotation) => {
       queryClient.invalidateQueries({ queryKey: ["quotations", companyId] });
@@ -135,6 +137,26 @@ export default function NewQuotationPage() {
             <Input type="date" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} />
           </div>
           <div className="space-y-2">
+            <Label>{t("common.tax_rate")}</Label>
+            <Select value={effectiveTaxRateId} onValueChange={(v) => setTaxRateId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("common.select_tax_rate")}>
+                  {(value: string) => {
+                    const rate = taxRatesQuery.data?.find((r) => r.id === value);
+                    return rate ? `${rate.name} (${rate.rate_percent}%)` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {taxRatesQuery.data?.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name} ({r.rate_percent}%)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             {lines.map((line, index) => (
               <div key={index} className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
@@ -193,7 +215,7 @@ export default function NewQuotationPage() {
               setError(null);
               createMutation.mutate();
             }}
-            disabled={!partnerId || createMutation.isPending}
+            disabled={!partnerId || !effectiveTaxRateId || createMutation.isPending}
           >
             {createMutation.isPending ? t("common.loading") : t("sales.quotations.save")}
           </Button>

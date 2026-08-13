@@ -8,6 +8,7 @@ import type {
   JournalEntry,
   JournalEntryDetail,
   JournalEntryLineIn,
+  TaxRate,
   TrialBalanceRow,
 } from "./types";
 
@@ -15,6 +16,8 @@ const BASE = "/api/v1/accounting";
 
 export const accountingApi = {
   listAccounts: (companyId: string) => apiClient.get<Account[]>(`${BASE}/chart-of-accounts`, { companyId }),
+
+  listTaxRates: (companyId: string) => apiClient.get<TaxRate[]>(`${BASE}/tax-rates`, { companyId }),
 
   createAccount: (
     companyId: string,

@@ -21,6 +21,17 @@ class AccountOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaxRateOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    name: str
+    kind: str
+    rate_percent: Decimal
+    is_withholding: bool
+
+    model_config = {"from_attributes": True}
+
+
 class AccountCreateRequest(BaseModel):
     code: str
     name: str

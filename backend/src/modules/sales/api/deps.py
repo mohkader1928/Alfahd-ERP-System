@@ -9,6 +9,7 @@ from src.modules.accounting.infrastructure.repositories import (
     FiscalPeriodRepository,
     JournalEntryRepository,
     JournalRepository,
+    TaxRepository,
 )
 from src.modules.identity.api.deps import require_permission  # noqa: F401 (re-exported for routes)
 from src.modules.identity.infrastructure.repositories import (
@@ -91,6 +92,7 @@ async def get_sales_invoice_service(
     partner_repo = PartnerRepository(db)
     product_repo = ProductRepository(db)
     account_repo = AccountRepository(db)
+    tax_repo = TaxRepository(db)
     journal_entry_service = JournalEntryService(
         JournalEntryRepository(db), JournalRepository(db), AccountRepository(db), FiscalPeriodRepository(db)
     )
@@ -114,6 +116,7 @@ async def get_sales_invoice_service(
         partner_repo=partner_repo,
         product_repo=product_repo,
         account_repo=account_repo,
+        tax_repo=tax_repo,
         journal_entry_service=journal_entry_service,
         zatca_processor=zatca_processor,
         seller_name=company.legal_name,

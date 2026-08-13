@@ -13,13 +13,11 @@ import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { accountingApi } from "@/features/accounting/api/client";
 import { identityApi } from "@/features/identity/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
-
-// Same nucleus gap as sales/quotations/new — no tax-rate list endpoint yet.
-const STANDARD_VAT_TAX_RATE_ID = "00000000-0000-0000-0000-000000000001";
 
 interface Line {
   product_id: string;
@@ -42,6 +40,7 @@ export default function NewPurchaseReturnPage() {
 
   const [partnerId, setPartnerId] = useState("");
   const [originalBillId, setOriginalBillId] = useState("");
+  const [taxRateId, setTaxRateId] = useState("");
   const [reason, setReason] = useState("");
   const [restock, setRestock] = useState(true);
   const [lines, setLines] = useState<Line[]>([{ product_id: "", qty: "1", unit_price: "0" }]);
@@ -65,6 +64,12 @@ export default function NewPurchaseReturnPage() {
     (bill) =>
       bill.bill_type === "standard" && bill.status === "posted" && (!partnerId || bill.partner_id === partnerId)
   );
+  const taxRatesQuery = useQuery({
+    queryKey: ["tax-rates", companyId],
+    queryFn: () => accountingApi.listTaxRates(companyId),
+  });
+  const effectiveTaxRateId =
+    taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -73,7 +78,7 @@ export default function NewPurchaseReturnPage() {
         original_bill_id: originalBillId || undefined,
         reason,
         restock,
-        lines: lines.map((l) => ({ ...l, tax_rate_id: STANDARD_VAT_TAX_RATE_ID })),
+        lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: (bill) => {
       queryClient.invalidateQueries({ queryKey: ["purchase-returns", companyId] });
@@ -96,7 +101,11 @@ export default function NewPurchaseReturnPage() {
   }
 
   const canSubmit =
-    !!partnerId && !!reason && lines.every((l) => l.product_id && Number(l.qty) > 0) && !createMutation.isPending;
+    !!partnerId &&
+    !!effectiveTaxRateId &&
+    !!reason &&
+    lines.every((l) => l.product_id && Number(l.qty) > 0) &&
+    !createMutation.isPending;
 
   return (
     <div className="max-w-xl space-y-4">
@@ -164,6 +173,27 @@ export default function NewPurchaseReturnPage() {
                 {referenceableBills.map((bill) => (
                   <SelectItem key={bill.id} value={bill.id}>
                     {bill.number} — {formatCurrency(bill.total_amount)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t("common.tax_rate")}</Label>
+            <Select value={effectiveTaxRateId} onValueChange={(v) => setTaxRateId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("common.select_tax_rate")}>
+                  {(value: string) => {
+                    const rate = taxRatesQuery.data?.find((r) => r.id === value);
+                    return rate ? `${rate.name} (${rate.rate_percent}%)` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {taxRatesQuery.data?.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name} ({r.rate_percent}%)
                   </SelectItem>
                 ))}
               </SelectContent>

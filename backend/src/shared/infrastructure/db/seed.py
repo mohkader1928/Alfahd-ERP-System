@@ -66,6 +66,7 @@ PERMISSION_CATALOG = [
     ("accounting.journal_entry.reverse", "action"),
     ("accounting.reports.trial_balance.view", "screen"),
     ("accounting.fiscal_period.manage", "action"),
+    ("accounting.tax_rate.view", "screen"),
     # Phase 17E — Accounting Standardization (Milestone 1a)
     ("accounting.reports.general_ledger.view", "screen"),
     ("accounting.reports.income_statement.view", "screen"),

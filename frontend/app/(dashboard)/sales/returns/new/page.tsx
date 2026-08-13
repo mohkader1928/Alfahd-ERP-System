@@ -13,15 +13,11 @@ import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { accountingApi } from "@/features/accounting/api/client";
 import { identityApi } from "@/features/identity/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
-
-// The nucleus doesn't expose a tax-rate list endpoint yet — same
-// placeholder every other freeform line editor in this codebase uses
-// (see sales/quotations/new).
-const STANDARD_VAT_TAX_RATE_ID = "00000000-0000-0000-0000-000000000001";
 
 interface Line {
   product_id: string;
@@ -44,6 +40,7 @@ export default function NewSalesReturnPage() {
 
   const [partnerId, setPartnerId] = useState("");
   const [originalInvoiceId, setOriginalInvoiceId] = useState("");
+  const [taxRateId, setTaxRateId] = useState("");
   const [reason, setReason] = useState("");
   const [restock, setRestock] = useState(true);
   const [lines, setLines] = useState<Line[]>([{ product_id: "", qty: "1", unit_price: "0" }]);
@@ -68,6 +65,12 @@ export default function NewSalesReturnPage() {
       (inv.invoice_type === "tax" || inv.invoice_type === "simplified") &&
       (!partnerId || inv.partner_id === partnerId)
   );
+  const taxRatesQuery = useQuery({
+    queryKey: ["tax-rates", companyId],
+    queryFn: () => accountingApi.listTaxRates(companyId),
+  });
+  const effectiveTaxRateId =
+    taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -76,7 +79,7 @@ export default function NewSalesReturnPage() {
         original_invoice_id: originalInvoiceId || undefined,
         reason,
         restock,
-        lines: lines.map((l) => ({ ...l, tax_rate_id: STANDARD_VAT_TAX_RATE_ID })),
+        lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["sales-returns", companyId] });
@@ -99,7 +102,11 @@ export default function NewSalesReturnPage() {
   }
 
   const canSubmit =
-    !!partnerId && !!reason && lines.every((l) => l.product_id && Number(l.qty) > 0) && !createMutation.isPending;
+    !!partnerId &&
+    !!effectiveTaxRateId &&
+    !!reason &&
+    lines.every((l) => l.product_id && Number(l.qty) > 0) &&
+    !createMutation.isPending;
 
   return (
     <div className="max-w-xl space-y-4">
@@ -167,6 +174,27 @@ export default function NewSalesReturnPage() {
                 {referenceableInvoices.map((invoice) => (
                   <SelectItem key={invoice.id} value={invoice.id}>
                     {invoice.number} — {formatCurrency(invoice.total_amount)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t("common.tax_rate")}</Label>
+            <Select value={effectiveTaxRateId} onValueChange={(v) => setTaxRateId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("common.select_tax_rate")}>
+                  {(value: string) => {
+                    const rate = taxRatesQuery.data?.find((r) => r.id === value);
+                    return rate ? `${rate.name} (${rate.rate_percent}%)` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {taxRatesQuery.data?.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name} ({r.rate_percent}%)
                   </SelectItem>
                 ))}
               </SelectContent>

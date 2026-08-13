@@ -12,7 +12,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 
 from src.modules.accounting.application.services import JournalEntryService
-from src.modules.accounting.infrastructure.repositories import AccountRepository
+from src.modules.accounting.infrastructure.repositories import AccountRepository, TaxRepository
 from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
     PartnerRepository,
@@ -505,6 +505,7 @@ class VendorBillService:
         receipt_repo: GoodsReceiptRepository,
         product_repo: ProductRepository,
         account_repo: AccountRepository,
+        tax_repo: TaxRepository,
         journal_entry_service: JournalEntryService,
         inventory_service: InventoryValuationService | None = None,
         warehouse_repo: WarehouseRepository | None = None,
@@ -517,6 +518,7 @@ class VendorBillService:
         self.receipt_repo = receipt_repo
         self.product_repo = product_repo
         self.account_repo = account_repo
+        self.tax_repo = tax_repo
         self.journal_entry_service = journal_entry_service
         # Only issue_debit_note_for_lines needs this (a freeform Purchase
         # Return states its vendor directly, with no bill/PO to infer it
@@ -530,6 +532,21 @@ class VendorBillService:
         self.warehouse_repo = warehouse_repo
         self.location_repo = location_repo
         self.valuation_method = valuation_method
+
+    async def _resolve_tax_rate_percent(self, tax_rate_id: UUID, company_id: UUID) -> Decimal:
+        """P0-1 (Phase-One VAT hardening) — mirrors Sales'
+        `SalesInvoiceService._resolve_tax_rate_percent`: the real,
+        configured rate for `tax_rate_id`, falling back to this company's
+        own configured *standard* rate (never a bare hardcoded percentage)
+        when the id doesn't resolve to a real row for this company."""
+        rate = await self.tax_repo.get_rate_by_id(tax_rate_id)
+        if rate is not None and rate.company_id == company_id:
+            return rate.rate_percent
+        rates = await self.tax_repo.list_by_company(company_id)
+        standard = next((r for r in rates if r.kind == "standard"), None)
+        if standard is None:
+            raise ValueError("No tax rate configuration exists for this company")
+        return standard.rate_percent
 
     async def register_bill(
         self,
@@ -558,7 +575,7 @@ class VendorBillService:
             bill_qty = Decimal(str(line["qty"]))
             bill_unit_price = Decimal(str(line["unit_price"]))
             line_total = (bill_qty * bill_unit_price).quantize(Decimal("0.01"))
-            tax_rate_percent = Decimal("15.00")
+            tax_rate_percent = await self._resolve_tax_rate_percent(po_line.tax_rate_id, company_id)
             line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
             subtotal += line_total
             tax_total += line_tax
@@ -661,7 +678,7 @@ class VendorBillService:
             bill_qty = Decimal(str(line["qty"]))
             bill_unit_price = Decimal(str(line["unit_price"]))
             line_total = (bill_qty * bill_unit_price).quantize(Decimal("0.01"))
-            tax_rate_percent = Decimal("15.00")
+            tax_rate_percent = await self._resolve_tax_rate_percent(po_line.tax_rate_id, company_id)
             line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
             subtotal += line_total
             tax_total += line_tax
@@ -904,7 +921,7 @@ class VendorBillService:
 
         for line in lines:
             line_total = (line["qty"] * line["unit_price"]).quantize(Decimal("0.01"))
-            tax_rate_percent = Decimal("15.00")  # nucleus default; per-line rate lookup is a follow-up
+            tax_rate_percent = await self._resolve_tax_rate_percent(line["tax_rate_id"], company_id)
             line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
             subtotal += line_total
             tax_total += line_tax

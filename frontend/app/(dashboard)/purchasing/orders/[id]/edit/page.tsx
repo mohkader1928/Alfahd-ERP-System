@@ -14,11 +14,10 @@ import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { accountingApi } from "@/features/accounting/api/client";
 import { identityApi } from "@/features/identity/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
-
-const STANDARD_VAT_TAX_RATE_ID = "00000000-0000-0000-0000-000000000001";
 
 interface Line {
   product_id: string;
@@ -40,6 +39,7 @@ export default function EditPurchaseOrderPage({ params }: { params: Promise<{ id
 
   const [partnerId, setPartnerId] = useState("");
   const [orderDate, setOrderDate] = useState("");
+  const [taxRateId, setTaxRateId] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Not a useEffect: React's own guidance for "adjust state when data
@@ -59,6 +59,12 @@ export default function EditPurchaseOrderPage({ params }: { params: Promise<{ id
     queryKey: ["products", companyId],
     queryFn: () => identityApi.listProducts(companyId, branchId),
   });
+  const taxRatesQuery = useQuery({
+    queryKey: ["tax-rates", companyId],
+    queryFn: () => accountingApi.listTaxRates(companyId),
+  });
+  const effectiveTaxRateId =
+    taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
 
   if (data && loadedForId !== id) {
     setPartnerId(data.order.partner_id);
@@ -77,7 +83,7 @@ export default function EditPurchaseOrderPage({ params }: { params: Promise<{ id
       purchasingApi.updateOrder(companyId, branchId, id, {
         partner_id: partnerId,
         order_date: orderDate,
-        lines: lines.map((l) => ({ ...l, tax_rate_id: STANDARD_VAT_TAX_RATE_ID })),
+        lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase-order", companyId, id] });
@@ -160,6 +166,26 @@ export default function EditPurchaseOrderPage({ params }: { params: Promise<{ id
             <Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
           </div>
           <div className="space-y-2">
+            <Label>{t("common.tax_rate")}</Label>
+            <Select value={effectiveTaxRateId} onValueChange={(v) => setTaxRateId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("common.select_tax_rate")}>
+                  {(value: string) => {
+                    const rate = taxRatesQuery.data?.find((r) => r.id === value);
+                    return rate ? `${rate.name} (${rate.rate_percent}%)` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {taxRatesQuery.data?.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name} ({r.rate_percent}%)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             {lines.map((line, index) => (
               <div key={index} className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
@@ -214,7 +240,7 @@ export default function EditPurchaseOrderPage({ params }: { params: Promise<{ id
               setError(null);
               updateMutation.mutate();
             }}
-            disabled={!partnerId || updateMutation.isPending}
+            disabled={!partnerId || !effectiveTaxRateId || updateMutation.isPending}
           >
             {updateMutation.isPending ? t("common.loading") : t("common.save")}
           </Button>

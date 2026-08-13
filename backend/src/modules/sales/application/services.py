@@ -15,7 +15,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 
 from src.modules.accounting.application.services import JournalEntryService
-from src.modules.accounting.infrastructure.repositories import AccountRepository
+from src.modules.accounting.infrastructure.repositories import AccountRepository, TaxRepository
 from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
     PartnerRepository,
@@ -276,6 +276,7 @@ class SalesInvoiceService:
         partner_repo: PartnerRepository,
         product_repo: ProductRepository,
         account_repo: AccountRepository,
+        tax_repo: TaxRepository,
         journal_entry_service: JournalEntryService,
         zatca_processor: ZatcaInvoiceProcessor,
         seller_name: str,
@@ -295,6 +296,7 @@ class SalesInvoiceService:
         self.partner_repo = partner_repo
         self.product_repo = product_repo
         self.account_repo = account_repo
+        self.tax_repo = tax_repo
         self.journal_entry_service = journal_entry_service
         self.zatca_processor = zatca_processor
         self.seller_name = seller_name
@@ -328,6 +330,27 @@ class SalesInvoiceService:
         if latest is None:
             return 1, GENESIS_HASH
         return latest.icv + 1, latest.invoice_hash
+
+    async def _resolve_tax_rate_percent(self, tax_rate_id: UUID, company_id: UUID) -> Decimal:
+        """P0-1 (Phase-One VAT hardening): the real, configured rate for
+        `tax_rate_id`, not an assumed constant. Falls back to this
+        company's own configured *standard* rate — rather than a bare
+        hardcoded `Decimal("15.00")` — when `tax_rate_id` doesn't resolve to
+        a real row for this company (RLS already prevents a genuine
+        cross-company leak here; the explicit company_id check is
+        defense-in-depth matching this module's existing style). This keeps
+        every pre-existing caller that predates real per-rate lookups
+        working unchanged (still the company's real seeded Standard VAT
+        rate, not a magic number) while a genuinely selected rate —
+        including zero-rated/exempt — is always honored exactly."""
+        rate = await self.tax_repo.get_rate_by_id(tax_rate_id)
+        if rate is not None and rate.company_id == company_id:
+            return rate.rate_percent
+        rates = await self.tax_repo.list_by_company(company_id)
+        standard = next((r for r in rates if r.kind == "standard"), None)
+        if standard is None:
+            raise ValueError("No tax rate configuration exists for this company")
+        return standard.rate_percent
 
     async def issue_invoice_from_order(
         self,
@@ -416,7 +439,7 @@ class SalesInvoiceService:
             # unquantized value returned straight from the in-memory ORM
             # object (no round-trip SELECT) would leak that mismatch to the API.
             line_total = (qty * line.unit_price).quantize(Decimal("0.01"))
-            tax_rate_percent = Decimal("15.00")  # nucleus default; per-line rate lookup is a follow-up
+            tax_rate_percent = await self._resolve_tax_rate_percent(line.tax_rate_id, company_id)
             line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
             subtotal += line_total
             tax_total += line_tax
@@ -716,7 +739,7 @@ class SalesInvoiceService:
         for line in lines:
             product = await self.product_repo.get_by_id(line["product_id"])
             line_total = (line["qty"] * line["unit_price"]).quantize(Decimal("0.01"))
-            tax_rate_percent = Decimal("15.00")  # nucleus default; per-line rate lookup is a follow-up
+            tax_rate_percent = await self._resolve_tax_rate_percent(line["tax_rate_id"], company_id)
             line_tax = (line_total * tax_rate_percent / Decimal("100")).quantize(Decimal("0.01"))
             subtotal += line_total
             tax_total += line_tax

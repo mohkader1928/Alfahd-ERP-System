@@ -9,6 +9,7 @@ from src.modules.accounting.infrastructure.repositories import (
     FiscalPeriodRepository,
     JournalEntryRepository,
     JournalRepository,
+    TaxRepository,
 )
 from src.modules.identity.api.deps import require_permission  # noqa: F401 (re-exported for routes)
 from src.modules.identity.infrastructure.repositories import (
@@ -92,6 +93,7 @@ async def get_goods_receipt_service(
         receipt_repo=receipt_repo,
         product_repo=product_repo,
         account_repo=account_repo,
+        tax_repo=TaxRepository(db),
         journal_entry_service=JournalEntryService(
             JournalEntryRepository(db), JournalRepository(db), AccountRepository(db), FiscalPeriodRepository(db)
         ),
@@ -142,6 +144,7 @@ async def get_vendor_bill_service(
         receipt_repo=receipt_repo,
         product_repo=product_repo,
         account_repo=account_repo,
+        tax_repo=TaxRepository(db),
         journal_entry_service=journal_entry_service,
         inventory_service=inventory_service,
         warehouse_repo=WarehouseRepository(db),

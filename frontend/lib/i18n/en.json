@@ -570,6 +570,8 @@
   "common.error": "Something went wrong",
   "common.empty": "No records found",
   "common.search_select_placeholder": "Type to search...",
+  "common.tax_rate": "Tax Rate",
+  "common.select_tax_rate": "Select tax rate",
   "common.coming_soon": "This screen isn't built yet in the nucleus.",
   "common.retry": "Retry",
   "common.confirm": "Confirm",

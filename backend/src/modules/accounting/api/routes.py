@@ -13,6 +13,7 @@ from src.modules.accounting.api.deps import (
     get_fiscal_period_repo,
     get_journal_entry_repo,
     get_journal_repo,
+    get_tax_repo,
     require_permission,
 )
 from src.modules.accounting.api.schemas import (
@@ -27,6 +28,7 @@ from src.modules.accounting.api.schemas import (
     JournalEntryCreateRequest,
     JournalEntryDetailResponse,
     JournalEntryOut,
+    TaxRateOut,
     TrialBalanceRow,
 )
 from src.modules.accounting.application.services import (
@@ -47,6 +49,7 @@ from src.modules.accounting.infrastructure.repositories import (
     FiscalPeriodRepository,
     JournalEntryRepository,
     JournalRepository,
+    TaxRepository,
 )
 from src.modules.identity.api.deps import get_company_repo
 from src.modules.identity.infrastructure.repositories import AuditLogRepository, CompanyRepository
@@ -70,6 +73,18 @@ async def list_chart_of_accounts(
     account_repo: AccountRepository = Depends(get_account_repo),
 ):
     return await account_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/tax-rates", response_model=list[TaxRateOut])
+async def list_tax_rates(
+    ctx: AuthContext = Depends(require_permission("accounting.tax_rate.view")),
+    tax_repo: TaxRepository = Depends(get_tax_repo),
+):
+    """P0-1 (Phase-One VAT hardening): the company's real, seeded TaxRate
+    configuration (`ChartOfAccountsService.seed_default_tax_rates`) — the
+    exact mechanism a picker must bind to instead of a hardcoded rate.
+    Read-only for now; TaxRate CRUD is a separate, later concern."""
+    return await tax_repo.list_by_company(ctx.company_id)
 
 
 @router.post("/chart-of-accounts", response_model=AccountOut, status_code=status.HTTP_201_CREATED)

@@ -1,3 +1,12 @@
+export interface TaxRate {
+  id: string;
+  company_id: string;
+  name: string;
+  kind: "standard" | "zero_rated" | "exempt" | "out_of_scope";
+  rate_percent: string;
+  is_withholding: boolean;
+}
+
 export interface Account {
   id: string;
   company_id: string;
