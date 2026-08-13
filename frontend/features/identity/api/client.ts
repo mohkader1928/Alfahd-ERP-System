@@ -20,7 +20,9 @@ import type {
   RoleDetail,
   TokenResponse,
   TwoFactorRequiredResponse,
+  TwoFactorSetupResponse,
   UnitOfMeasure,
+  User,
   UserDetail,
   UserListRow,
 } from "./types";
@@ -42,6 +44,14 @@ export const identityApi = {
 
   verify2fa: (payload: LoginRequest & { totp_code: string }) =>
     apiClient.post<TokenResponse>(`${BASE}/auth/login/verify-2fa`, payload, { skipAuth: true }),
+
+  getMyProfile: (companyId: string) => apiClient.get<User>(`${BASE}/me`, { companyId }),
+
+  start2faEnrollment: (companyId: string) =>
+    apiClient.post<TwoFactorSetupResponse>(`${BASE}/me/2fa/setup`, undefined, { companyId }),
+
+  verify2faEnrollment: (companyId: string, totpCode: string) =>
+    apiClient.post<User>(`${BASE}/me/2fa/verify`, { totp_code: totpCode }, { companyId }),
 
   getCompany: (companyId: string) => apiClient.get<Company>(`${BASE}/companies/${companyId}`, { companyId }),
 

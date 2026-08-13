@@ -40,7 +40,7 @@ from src.modules.identity.infrastructure.repositories import (
 )
 from src.shared.security.jwt import create_access_token, create_refresh_token
 from src.shared.security.password import hash_password, validate_password_policy, verify_password
-from src.shared.security.totp import verify_totp_code
+from src.shared.security.totp import generate_totp_secret, get_provisioning_uri, verify_totp_code
 
 
 class AuthenticationError(Exception):
@@ -131,6 +131,43 @@ class UserManagementService:
         )
         await self.user_repo.add(user)
         await self.user_repo.grant_company_access(user.id, company_id, branch_id)
+        return user
+
+    async def start_2fa_enrollment(self, *, user_id: UUID, email: str) -> tuple[str, str]:
+        """P0-3 (Phase-One audit closure) — FR-CORE-011's verification half
+        (`authenticate_step2_totp`) already existed and was already
+        correctly tested; only this half (getting a real, verified secret
+        onto the user's row in the first place) was missing. Generates a
+        fresh pending secret and returns its provisioning URI (the
+        frontend renders this into a real QR via the already-installed,
+        previously-unused `react-qr-code`) — 2FA is NOT enabled by this
+        call alone; only `verify_2fa_enrollment` flips that flag, and only
+        after proving the user actually captured the secret in a real
+        authenticator app. Blocks re-enrollment while already enabled:
+        silently rotating the secret out from under an active device would
+        strand the user's existing authenticator mid-session for no
+        benefit this task requires (there is no disable-2FA flow yet to
+        recover from that)."""
+        user = await self.user_repo.get_by_id(user_id)
+        if user is None:
+            raise ValueError("User not found")
+        if user.is_2fa_enabled:
+            raise ValueError("2FA is already enabled for this account")
+        secret = generate_totp_secret()
+        user.totp_secret = secret
+        return secret, get_provisioning_uri(secret, email)
+
+    async def verify_2fa_enrollment(self, *, user_id: UUID, totp_code: str) -> AppUser:
+        user = await self.user_repo.get_by_id(user_id)
+        if user is None:
+            raise ValueError("User not found")
+        if user.is_2fa_enabled:
+            raise ValueError("2FA is already enabled for this account")
+        if not user.totp_secret:
+            raise ValueError("No 2FA enrollment in progress — start enrollment first")
+        if not verify_totp_code(user.totp_secret, totp_code):
+            raise ValueError("Invalid verification code")
+        user.is_2fa_enabled = True
         return user
 
     async def create_role(

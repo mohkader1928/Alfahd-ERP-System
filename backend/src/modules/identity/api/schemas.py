@@ -50,6 +50,21 @@ class TwoFactorRequiredResponse(BaseModel):
     requires_2fa: bool = True
 
 
+class TwoFactorSetupResponse(BaseModel):
+    """The one deliberate exception to 'never return totp_secret' — this
+    is the single response that must show it, exactly once, so the user
+    can enter it manually if they can't scan the QR. Never returned from
+    any other endpoint (UserOut/UserListRow/UserDetailOut only ever
+    expose the `is_2fa_enabled` boolean)."""
+
+    secret: str
+    provisioning_uri: str
+
+
+class TwoFactorEnrollVerifyRequest(BaseModel):
+    totp_code: str
+
+
 class MyPermissionsOut(BaseModel):
     """FR-CORE-015: lets the frontend gate UI affordances (show/hide Create,
     Edit, Export...) on the caller's own granted permissions for the active

@@ -35,6 +35,19 @@ export interface TwoFactorRequiredResponse {
   requires_2fa: true;
 }
 
+export interface TwoFactorSetupResponse {
+  secret: string;
+  provisioning_uri: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  full_name: string;
+  is_active: boolean;
+  is_2fa_enabled: boolean;
+}
+
 export interface Company {
   id: string;
   legal_name: string;

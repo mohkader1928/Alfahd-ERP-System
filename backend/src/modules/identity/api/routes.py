@@ -53,8 +53,10 @@ from src.modules.identity.api.schemas import (
     RolePermissionsUpdateRequest,
     RoleRenameRequest,
     TokenResponse,
+    TwoFactorEnrollVerifyRequest,
     TwoFactorLoginRequest,
     TwoFactorRequiredResponse,
+    TwoFactorSetupResponse,
     UnitOfMeasureCreateRequest,
     UnitOfMeasureOut,
     UnitOfMeasureUpdateRequest,
@@ -234,6 +236,20 @@ async def verify_2fa(
     return TokenResponse(**tokens)
 
 
+@router.get("/me", response_model=UserOut)
+async def get_my_profile(
+    ctx: AuthContext = Depends(get_auth_context),
+    user_repo: UserRepository = Depends(get_user_repo),
+):
+    """Self-scoped read, same rationale as `/me/permissions` below — the
+    account settings page needs this to show the caller's own email and
+    current `is_2fa_enabled` state; never exposes `totp_secret`."""
+    user = await user_repo.get_by_id(ctx.user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    return user
+
+
 @router.get("/me/permissions", response_model=MyPermissionsOut)
 async def get_my_permissions(
     ctx: AuthContext = Depends(get_auth_context),
@@ -245,6 +261,51 @@ async def get_my_permissions(
     action being gated other than reading one's own grants."""
     codes = await role_repo.get_user_permission_codes(ctx.user_id, ctx.company_id)
     return MyPermissionsOut(permission_codes=sorted(codes))
+
+
+@router.post("/me/2fa/setup", response_model=TwoFactorSetupResponse)
+async def start_my_2fa_enrollment(
+    ctx: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+    user_repo: UserRepository = Depends(get_user_repo),
+    role_repo: RoleRepository = Depends(get_role_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """P0-3 (Phase-One audit closure) — self-scoped only, same rationale
+    as `/me/permissions`: this always operates on the caller's own
+    account (`ctx.user_id`), never a path-param user id, so there is no
+    way — not even for an Admin — to start or complete 2FA enrollment for
+    someone else. Does not enable 2FA; only `/me/2fa/verify` does that."""
+    user_service = UserManagementService(user_repo, role_repo, company_repo)
+    try:
+        user = await user_repo.get_by_id(ctx.user_id)
+        if user is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        secret, provisioning_uri = await user_service.start_2fa_enrollment(user_id=ctx.user_id, email=user.email)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    await db.commit()
+    return TwoFactorSetupResponse(secret=secret, provisioning_uri=provisioning_uri)
+
+
+@router.post("/me/2fa/verify", response_model=UserOut)
+async def verify_my_2fa_enrollment(
+    payload: TwoFactorEnrollVerifyRequest,
+    ctx: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+    user_repo: UserRepository = Depends(get_user_repo),
+    role_repo: RoleRepository = Depends(get_role_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """Completes enrollment only on a genuinely valid TOTP code — opening
+    the setup screen or a wrong code never flips `is_2fa_enabled`."""
+    user_service = UserManagementService(user_repo, role_repo, company_repo)
+    try:
+        user = await user_service.verify_2fa_enrollment(user_id=ctx.user_id, totp_code=payload.totp_code)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    await db.commit()
+    return user
 
 
 @router.post("/companies", response_model=CompanyOut, status_code=status.HTTP_201_CREATED)

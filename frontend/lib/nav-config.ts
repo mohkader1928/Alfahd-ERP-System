@@ -30,6 +30,7 @@ import {
   TrendingUp,
   Truck,
   Undo2,
+  UserCog,
   Users,
   Warehouse,
 } from "lucide-react";
@@ -234,6 +235,7 @@ export const NAV_CONFIG: NavEntry[] = [
     children: [
       { type: "link", href: "/settings/company", labelKey: "settings.section.company", icon: Building2 },
       { type: "link", href: "/settings/security", labelKey: "settings.section.security", icon: ShieldCheck },
+      { type: "link", href: "/settings/account", labelKey: "settings.section.account", icon: UserCog },
     ],
   },
 ];
