@@ -153,6 +153,7 @@ class VendorBillLineOut(BaseModel):
     purchase_order_line_id: UUID | None
     qty: Decimal
     unit_price: Decimal
+    tax_rate_id: UUID
     tax_rate_percent: Decimal
     line_total: Decimal
     tax_amount: Decimal

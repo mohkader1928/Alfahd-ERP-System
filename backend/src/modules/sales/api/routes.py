@@ -386,7 +386,8 @@ async def get_invoice(
     submission = await zatca_submission_repo.get_by_invoice_id(invoice_id)
     if submission is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ZATCA submission not found for this invoice")
-    return InvoiceIssueResponse(invoice=invoice, zatca_submission=submission)
+    lines = await invoice_repo.get_lines(invoice_id)
+    return InvoiceIssueResponse(invoice=invoice, zatca_submission=submission, lines=lines)
 
 
 @router.get("/invoices/{invoice_id}/pdf")

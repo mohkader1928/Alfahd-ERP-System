@@ -69,6 +69,7 @@ export interface VendorBillLine {
   purchase_order_line_id: string | null;
   qty: string;
   unit_price: string;
+  tax_rate_id: string;
   tax_rate_percent: string;
   line_total: string;
   tax_amount: string;

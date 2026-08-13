@@ -140,9 +140,24 @@ class SalesInvoiceOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SalesInvoiceLineOut(BaseModel):
+    id: UUID
+    product_id: UUID
+    qty: Decimal
+    unit_price: Decimal
+    tax_rate_id: UUID
+
+    model_config = {"from_attributes": True}
+
+
 class InvoiceIssueResponse(BaseModel):
     invoice: SalesInvoiceOut
     zatca_submission: ZatcaSubmissionOut
+    # Only populated by GET /invoices/{id} (the Sales Return screen needs the
+    # original lines to prefill from) — every write-path route that returns
+    # this shape (issue/credit-note/return) leaves it empty, since none of
+    # them need to echo lines back.
+    lines: list[SalesInvoiceLineOut] = []
 
 
 class CreditNoteCreateRequest(BaseModel):

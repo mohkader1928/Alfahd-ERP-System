@@ -3,34 +3,36 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
-import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
-import { accountingApi } from "@/features/accounting/api/client";
 import { identityApi } from "@/features/identity/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 
-interface Line {
+interface ReturnLine {
   product_id: string;
-  qty: string;
-  unit_price: string;
+  tax_rate_id: string;
+  original_qty: string;
+  original_unit_price: string;
+  returned_qty: string;
+  price: string;
 }
 
-// Product Owner request: a Sales Return is not necessarily for one whole
-// invoice — it's a freeform set of lines (possibly spanning several
-// invoices, or none at all), with the original invoice reduced to an
-// OPTIONAL traceability field. Same line-editor pattern as
-// sales/quotations/new; the customer must be picked directly since there
-// may be no invoice to infer it from.
+// Owner request: a Sales Return starts from a real invoice, not a blank
+// line editor — pick the invoice, its lines (product, qty sold, price)
+// load automatically, the user enters a returned quantity per line
+// (defaulting to 0 = not returned) and may override the price (defaults
+// to the original invoice price). Only lines with returned qty > 0 are
+// submitted.
 export default function NewSalesReturnPage() {
   const { t } = useI18n();
   const router = useRouter();
@@ -39,11 +41,11 @@ export default function NewSalesReturnPage() {
   const branchId = useAuthStore((s) => s.activeBranchId)!;
 
   const [partnerId, setPartnerId] = useState("");
-  const [originalInvoiceId, setOriginalInvoiceId] = useState("");
-  const [taxRateId, setTaxRateId] = useState("");
+  const [invoiceId, setInvoiceId] = useState("");
   const [reason, setReason] = useState("");
   const [restock, setRestock] = useState(true);
-  const [lines, setLines] = useState<Line[]>([{ product_id: "", qty: "1", unit_price: "0" }]);
+  const [returnLines, setReturnLines] = useState<ReturnLine[]>([]);
+  const [loadedInvoiceId, setLoadedInvoiceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const partnersQuery = useQuery({
@@ -54,32 +56,65 @@ export default function NewSalesReturnPage() {
     queryKey: ["products", companyId],
     queryFn: () => identityApi.listProducts(companyId, branchId),
   });
-  // Only a tax/simplified invoice can be referenced (the service rejects
-  // anything else) — this field is optional, purely for traceability.
+  // Only a tax/simplified invoice can be returned against (the service
+  // rejects anything else).
   const invoicesQuery = useQuery({
     queryKey: ["sales-invoices", companyId, "returnable"],
     queryFn: () => salesApi.listInvoices(companyId, { pageSize: 200 }),
   });
-  const referenceableInvoices = (invoicesQuery.data?.items ?? []).filter(
+  const returnableInvoices = (invoicesQuery.data?.items ?? []).filter(
     (inv) =>
       (inv.invoice_type === "tax" || inv.invoice_type === "simplified") &&
       (!partnerId || inv.partner_id === partnerId)
   );
-  const taxRatesQuery = useQuery({
-    queryKey: ["tax-rates", companyId],
-    queryFn: () => accountingApi.listTaxRates(companyId),
+
+  const invoiceDetailQuery = useQuery({
+    queryKey: ["sales-invoice-detail", companyId, invoiceId],
+    queryFn: () => salesApi.getInvoice(companyId, invoiceId),
+    enabled: !!invoiceId,
   });
-  const effectiveTaxRateId =
-    taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
+
+  // Reset the editable line table whenever a freshly-fetched invoice
+  // arrives — a conditional setState during render (not an effect), the
+  // React-documented way to reset local state when an external data
+  // source changes: https://react.dev/learn/you-might-not-need-an-effect
+  if (invoiceDetailQuery.data && invoiceDetailQuery.data.invoice.id !== loadedInvoiceId) {
+    setLoadedInvoiceId(invoiceDetailQuery.data.invoice.id);
+    setReturnLines(
+      invoiceDetailQuery.data.lines.map((line) => ({
+        product_id: line.product_id,
+        tax_rate_id: line.tax_rate_id,
+        original_qty: line.qty,
+        original_unit_price: line.unit_price,
+        returned_qty: "0",
+        price: line.unit_price,
+      }))
+    );
+  }
+
+  function updateReturnedQty(index: number, value: string) {
+    setReturnLines((prev) => prev.map((l, i) => (i === index ? { ...l, returned_qty: value } : l)));
+  }
+
+  function updatePrice(index: number, value: string) {
+    setReturnLines((prev) => prev.map((l, i) => (i === index ? { ...l, price: value } : l)));
+  }
+
+  const linesToReturn = returnLines.filter((l) => Number(l.returned_qty) > 0);
 
   const createMutation = useMutation({
     mutationFn: () =>
       salesApi.issueCreditNoteForLines(companyId, branchId, {
-        partner_id: partnerId,
-        original_invoice_id: originalInvoiceId || undefined,
+        partner_id: invoiceDetailQuery.data!.invoice.partner_id,
+        original_invoice_id: invoiceId,
         reason,
         restock,
-        lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
+        lines: linesToReturn.map((l) => ({
+          product_id: l.product_id,
+          qty: l.returned_qty,
+          unit_price: l.price,
+          tax_rate_id: l.tax_rate_id,
+        })),
       }),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["sales-returns", companyId] });
@@ -89,27 +124,20 @@ export default function NewSalesReturnPage() {
     onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
   });
 
-  function updateLine(index: number, patch: Partial<Line>) {
-    setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
-  }
-
-  function addLine() {
-    setLines((prev) => [...prev, { product_id: "", qty: "1", unit_price: "0" }]);
-  }
-
-  function removeLine(index: number) {
-    setLines((prev) => prev.filter((_, i) => i !== index));
-  }
+  const productLabel = (productId: string) => {
+    const product = productsQuery.data?.find((p) => p.id === productId);
+    return product ? { code: product.sku, name: product.name, image: product.image_path } : { code: "", name: productId, image: null };
+  };
 
   const canSubmit =
-    !!partnerId &&
-    !!effectiveTaxRateId &&
+    !!invoiceId &&
     !!reason &&
-    lines.every((l) => l.product_id && Number(l.qty) > 0) &&
+    linesToReturn.length > 0 &&
+    linesToReturn.every((l) => Number(l.returned_qty) > 0 && l.price !== "") &&
     !createMutation.isPending;
 
   return (
-    <div className="max-w-xl space-y-4">
+    <div className="max-w-3xl space-y-4">
       <Button variant="ghost" size="sm" onClick={() => router.push("/sales/returns")}>
         <ArrowLeft className="h-4 w-4" />
         {t("common.back")}
@@ -125,7 +153,9 @@ export default function NewSalesReturnPage() {
               value={partnerId}
               onValueChange={(v) => {
                 setPartnerId(v ?? "");
-                setOriginalInvoiceId("");
+                setInvoiceId("");
+                setReturnLines([]);
+                setLoadedInvoiceId(null);
               }}
             >
               <SelectTrigger className="w-full">
@@ -157,21 +187,18 @@ export default function NewSalesReturnPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>
-              {t("sales.returns.select_invoice")}{" "}
-              <span className="text-xs text-muted-foreground">({t("common.optional")})</span>
-            </Label>
-            <Select value={originalInvoiceId} onValueChange={(v) => setOriginalInvoiceId(v ?? "")}>
+            <Label>{t("sales.returns.select_invoice")}</Label>
+            <Select value={invoiceId} onValueChange={(v) => setInvoiceId(v ?? "")}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t("sales.returns.select_invoice")}>
                   {(value: string) => {
-                    const invoice = referenceableInvoices.find((i) => i.id === value);
+                    const invoice = returnableInvoices.find((i) => i.id === value);
                     return invoice ? `${invoice.number} — ${formatCurrency(invoice.total_amount)}` : value;
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {referenceableInvoices.map((invoice) => (
+                {returnableInvoices.map((invoice) => (
                   <SelectItem key={invoice.id} value={invoice.id}>
                     {invoice.number} — {formatCurrency(invoice.total_amount)}
                   </SelectItem>
@@ -180,76 +207,60 @@ export default function NewSalesReturnPage() {
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <Label>{t("common.tax_rate")}</Label>
-            <Select value={effectiveTaxRateId} onValueChange={(v) => setTaxRateId(v ?? "")}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("common.select_tax_rate")}>
-                  {(value: string) => {
-                    const rate = taxRatesQuery.data?.find((r) => r.id === value);
-                    return rate ? `${rate.name} (${rate.rate_percent}%)` : value;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {taxRatesQuery.data?.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>
-                    {r.name} ({r.rate_percent}%)
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {invoiceId && invoiceDetailQuery.isLoading && (
+            <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+          )}
 
-          <div className="space-y-2">
-            {lines.map((line, index) => (
-              <div key={index} className="flex items-end gap-2">
-                <div className="flex-1 space-y-1">
-                  <Label className="text-xs">{t("sales.quotations.select_product")}</Label>
-                  <EntitySearchSelect
-                    items={(productsQuery.data ?? []).map((p) => ({
-                      id: p.id,
-                      label: p.name,
-                      code: p.sku,
-                      searchText: `${p.sku} ${p.name} ${p.name_ar ?? ""}`,
-                      imageSrc: p.image_path,
-                      imageShape: "square" as const,
-                    }))}
-                    value={line.product_id || null}
-                    onChange={(v) => {
-                      const product = productsQuery.data?.find((p) => p.id === v);
-                      updateLine(index, {
-                        product_id: v ?? "",
-                        unit_price: product ? String(product.sales_price) : line.unit_price,
-                      });
-                    }}
-                    placeholder={t("sales.quotations.select_product")}
-                  />
-                </div>
-                <div className="w-20 space-y-1">
-                  <Label className="text-xs">{t("sales.quotations.qty")}</Label>
-                  <Input value={line.qty} onChange={(e) => updateLine(index, { qty: e.target.value })} />
-                </div>
-                <div className="w-24 space-y-1">
-                  <Label className="text-xs">{t("sales.quotations.unit_price")}</Label>
-                  <Input value={line.unit_price} onChange={(e) => updateLine(index, { unit_price: e.target.value })} />
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeLine(index)}
-                  disabled={lines.length === 1}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button type="button" variant="outline" size="sm" onClick={addLine}>
-              <Plus className="h-4 w-4" />
-              {t("sales.quotations.add_line")}
-            </Button>
-          </div>
+          {returnLines.length > 0 && (
+            <div className="space-y-2">
+              <Label>{t("sales.returns.lines_title")}</Label>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("sales.quotations.select_product")}</TableHead>
+                    <TableHead className="text-end">{t("sales.returns.original_qty")}</TableHead>
+                    <TableHead className="text-end">{t("sales.returns.original_price")}</TableHead>
+                    <TableHead className="text-end w-28">{t("sales.returns.returned_qty")}</TableHead>
+                    <TableHead className="text-end w-28">{t("sales.returns.return_price")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {returnLines.map((line, index) => {
+                    const product = productLabel(line.product_id);
+                    return (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <span className="flex items-center gap-2">
+                            <EntityImage src={product.image} name={product.name} size="xs" />
+                            <span>
+                              <span className="text-xs text-muted-foreground">{product.code}</span>{" "}
+                              {product.name}
+                            </span>
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-end">{line.original_qty}</TableCell>
+                        <TableCell className="text-end">{formatCurrency(line.original_unit_price)}</TableCell>
+                        <TableCell>
+                          <Input
+                            className="text-end"
+                            value={line.returned_qty}
+                            onChange={(e) => updateReturnedQty(index, e.target.value)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            className="text-end"
+                            value={line.price}
+                            onChange={(e) => updatePrice(index, e.target.value)}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>{t("sales.returns.reason")}</Label>

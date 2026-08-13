@@ -93,7 +93,16 @@ export interface SalesInvoice {
   last_emailed_to: string | null;
 }
 
+export interface SalesInvoiceLine {
+  id: string;
+  product_id: string;
+  qty: string;
+  unit_price: string;
+  tax_rate_id: string;
+}
+
 export interface InvoiceIssueResponse {
   invoice: SalesInvoice;
   zatca_submission: ZatcaSubmission;
+  lines: SalesInvoiceLine[];
 }
