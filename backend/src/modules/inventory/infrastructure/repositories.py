@@ -1,10 +1,12 @@
 """Repository implementations for Inventory (Phase 8 §7)."""
 
+import uuid as _uuid
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import case, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -104,15 +106,30 @@ class StockQuantRepository:
         return await self._create(company_id, product_id, location_id)
 
     async def get_or_create_for_update(self, company_id: UUID, product_id: UUID, location_id: UUID) -> StockQuant:
+        """Phase-One audit P0 fix (docs/16b finding #2, reproduced live by
+        the audit's own regression run): the old check-then-insert
+        (get_for_update, then _create if None) has a real race — a row that
+        doesn't exist yet can't be locked, so two concurrent first-time
+        receipts for the same product+location both see None and both try
+        to INSERT, and the second hits ux_stock_quant_product_location's
+        UniqueViolationError. INSERT ... ON CONFLICT DO UPDATE is atomic and
+        takes the same row-level lock a SELECT ... FOR UPDATE would, on
+        whichever row survives (freshly inserted, or the pre-existing one it
+        collided with) — so the follow-up get_for_update always finds an
+        already-locked row instead of racing to create one.
+        """
+        stmt = (
+            pg_insert(StockQuant)
+            .values(id=_uuid.uuid4(), company_id=company_id, product_id=product_id, location_id=location_id)
+            .on_conflict_do_update(
+                index_elements=["product_id", "location_id"],
+                set_={"id": StockQuant.id},
+            )
+        )
+        await self.session.execute(stmt)
         quant = await self.get_for_update(product_id, location_id)
-        if quant is not None:
-            return quant
-        # A fresh row has no concurrent writer to race with yet — the INSERT
-        # itself is what makes it visible, so no separate lock is needed
-        # before this point; the row now exists for the rest of this
-        # transaction to mutate without any other transaction able to see it
-        # (uncommitted) or lock it out from under this one.
-        return await self._create(company_id, product_id, location_id)
+        assert quant is not None
+        return quant
 
     async def _create(self, company_id: UUID, product_id: UUID, location_id: UUID) -> StockQuant:
         import uuid as _uuid
