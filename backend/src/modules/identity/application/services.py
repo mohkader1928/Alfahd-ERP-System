@@ -38,7 +38,12 @@ from src.modules.identity.infrastructure.repositories import (
     UnitOfMeasureRepository,
     UserRepository,
 )
-from src.shared.security.jwt import create_access_token, create_refresh_token
+from src.shared.security.jwt import (
+    TokenError,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+)
 from src.shared.security.password import hash_password, validate_password_policy, verify_password
 from src.shared.security.totp import generate_totp_secret, get_provisioning_uri, verify_totp_code
 
@@ -377,6 +382,31 @@ class AuthenticationService:
         )
         refresh_token = create_refresh_token(user_id=user.id)
         return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+    async def refresh_tokens(self, *, refresh_token: str) -> dict[str, str]:
+        """Owner-reported bug: the access token (30 min) had no renewal path
+        at all — the refresh token was minted at login and then never used
+        for anything, so an idle session died hard and the only recovery
+        was a full manual logout/login. Mirrors issue_tokens()'s own shape:
+        validate the refresh token, re-fetch the user (so a deactivated
+        account can't renew), and mint a brand new pair (rotating the
+        refresh token too, not just the access token)."""
+        try:
+            payload = decode_token(refresh_token)
+        except TokenError as e:
+            raise AuthenticationError("Invalid or expired refresh token") from e
+        if payload.get("type") != "refresh":
+            raise AuthenticationError("Invalid or expired refresh token")
+
+        user = await self.user_repo.get_by_id(UUID(payload["sub"]))
+        if user is None:
+            raise AuthenticationError("Invalid or expired refresh token")
+        try:
+            _assert_can_login(user)
+        except InactiveUserError as e:
+            raise AuthenticationError(str(e)) from e
+
+        return await self.issue_tokens(user)
 
 
 def _assert_can_login(user: AppUser) -> None:

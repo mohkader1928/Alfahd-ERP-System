@@ -46,6 +46,7 @@ from src.modules.identity.api.schemas import (
     ProductCreateRequest,
     ProductOut,
     ProductUpdateRequest,
+    RefreshTokenRequest,
     RoleAssignRequest,
     RoleCreateRequest,
     RoleDetailOut,
@@ -233,6 +234,30 @@ async def verify_2fa(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
 
     tokens = await auth_service.issue_tokens(user)
+    return TokenResponse(**tokens)
+
+
+@router.post("/auth/refresh", response_model=TokenResponse)
+async def refresh_token(
+    payload: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+    user_repo: UserRepository = Depends(get_user_repo),
+):
+    """Owner-reported bug: the 30-minute access token had no renewal path
+    at all, so an idle session died hard with no recovery short of a full
+    manual logout/login. Deliberately unauthenticated (no AuthContext/
+    company context) — the whole point is to work when the access token
+    has already expired; the refresh token itself is the credential."""
+    auth_service = AuthenticationService(user_repo)
+    try:
+        # Same rationale as /auth/login: no company/tenant context exists
+        # yet at this point, so the by-id lookup needs the login_lookup
+        # RLS escape hatch (migration f7004fe055a4).
+        await set_login_lookup(db)
+        tokens = await auth_service.refresh_tokens(refresh_token=payload.refresh_token)
+    except AuthenticationError as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
+
     return TokenResponse(**tokens)
 
 

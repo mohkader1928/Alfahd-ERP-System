@@ -4,7 +4,10 @@
  * Details error format into a typed ApiError.
  */
 
+import { useAuthStore } from "@/stores/auth-store";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const REFRESH_PATH = "/api/v1/identity/auth/refresh";
 
 export class ApiError extends Error {
   status: number;
@@ -31,7 +34,38 @@ function getStoredAccessToken(): string | null {
   return window.localStorage.getItem("erp.access_token");
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+// Owner-reported bug: the 30-minute access token had no renewal path at
+// all, so leaving the app idle for a bit over that killed every request
+// with a 401 and the only recovery was a full manual logout/login. A
+// single in-flight refresh (deduped via this module-level promise, so N
+// requests failing at once trigger one /auth/refresh call, not N) lets
+// any 401 silently mint a fresh token and retry once, invisibly to the
+// caller — logout only happens if the refresh token itself is dead too.
+let refreshPromise: Promise<void> | null = null;
+
+async function ensureFreshAccessToken(): Promise<void> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const currentRefreshToken = useAuthStore.getState().refreshToken;
+      if (!currentRefreshToken) throw new Error("No refresh token available");
+
+      const response = await fetch(`${API_BASE_URL}${REFRESH_PATH}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: currentRefreshToken }),
+      });
+      if (!response.ok) throw new Error("Refresh token rejected");
+
+      const tokens = (await response.json()) as { access_token: string; refresh_token: string };
+      useAuthStore.getState().setTokens(tokens.access_token, tokens.refresh_token);
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}, isRetry = false): Promise<T> {
   const { body, companyId, branchId, skipAuth, headers, ...rest } = options;
 
   // FormData (file uploads) must NOT get a manual Content-Type: the browser
@@ -61,6 +95,16 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     return undefined as T;
   }
 
+  if (response.status === 401 && !skipAuth && !isRetry && path !== REFRESH_PATH) {
+    try {
+      await ensureFreshAccessToken();
+      return request<T>(path, options, true);
+    } catch {
+      useAuthStore.getState().logout();
+      if (typeof window !== "undefined") window.location.href = "/login";
+    }
+  }
+
   const isJson = response.headers.get("content-type")?.includes("application/json");
   const payload = isJson ? await response.json() : await response.text();
 
@@ -84,7 +128,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 async function requestBlob(
   path: string,
-  options: Omit<RequestOptions, "body"> = {}
+  options: Omit<RequestOptions, "body"> = {},
+  isRetry = false
 ): Promise<{ blob: Blob; filename: string }> {
   const { companyId, branchId, skipAuth, headers, ...rest } = options;
   const finalHeaders: Record<string, string> = { ...(headers as Record<string, string> | undefined) };
@@ -96,6 +141,16 @@ async function requestBlob(
   if (branchId) finalHeaders["X-Branch-Id"] = branchId;
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...rest, headers: finalHeaders });
+
+  if (response.status === 401 && !skipAuth && !isRetry) {
+    try {
+      await ensureFreshAccessToken();
+      return requestBlob(path, options, true);
+    } catch {
+      useAuthStore.getState().logout();
+      if (typeof window !== "undefined") window.location.href = "/login";
+    }
+  }
 
   if (!response.ok) {
     const isJson = response.headers.get("content-type")?.includes("application/json");

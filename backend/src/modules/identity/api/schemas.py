@@ -46,6 +46,10 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
 class TwoFactorRequiredResponse(BaseModel):
     requires_2fa: bool = True
 
