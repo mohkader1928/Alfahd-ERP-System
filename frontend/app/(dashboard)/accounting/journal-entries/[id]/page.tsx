@@ -54,6 +54,15 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
     },
     onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
+  const cancelMutation = useMutation({
+    mutationFn: () => accountingApi.cancelJournalEntry(companyId, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journal-entry", companyId, id] });
+      queryClient.invalidateQueries({ queryKey: ["journal-entries", companyId] });
+      toastSuccess(t("toast.success_title"), t("accounting.je.cancel"));
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+  });
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data) return null;
@@ -126,11 +135,24 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
             </TableBody>
           </Table>
           {entry.status === "draft" && (
-            <Can permission="accounting.journal_entry.post">
-              <Button onClick={() => postMutation.mutate()} disabled={postMutation.isPending}>
-                {postMutation.isPending ? t("common.loading") : t("accounting.je.post")}
-              </Button>
-            </Can>
+            <div className="flex gap-2">
+              <Can permission="accounting.journal_entry.post">
+                <Button onClick={() => postMutation.mutate()} disabled={postMutation.isPending}>
+                  {postMutation.isPending ? t("common.loading") : t("accounting.je.post")}
+                </Button>
+              </Can>
+              <Can permission="accounting.journal_entry.cancel">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (window.confirm(t("accounting.je.cancel_confirm"))) cancelMutation.mutate();
+                  }}
+                  disabled={cancelMutation.isPending}
+                >
+                  {cancelMutation.isPending ? t("common.loading") : t("accounting.je.cancel")}
+                </Button>
+              </Can>
+            </div>
           )}
           {entry.status === "posted" && (
             <Can permission="accounting.journal_entry.reverse">
@@ -139,10 +161,10 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
               </Button>
             </Can>
           )}
-          {(postMutation.isError || reverseMutation.isError) && (
+          {(postMutation.isError || reverseMutation.isError || cancelMutation.isError) && (
             <p className="text-sm text-destructive">
-              {(postMutation.error ?? reverseMutation.error) instanceof ApiError
-                ? ((postMutation.error ?? reverseMutation.error) as ApiError).detail
+              {(postMutation.error ?? reverseMutation.error ?? cancelMutation.error) instanceof ApiError
+                ? ((postMutation.error ?? reverseMutation.error ?? cancelMutation.error) as ApiError).detail
                 : t("common.error")}
             </p>
           )}

@@ -184,7 +184,9 @@ class JournalEntry(Base):
     version: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("1"))
 
     __table_args__ = (
-        CheckConstraint("status IN ('draft','posted','reversed')", name="ck_journal_entry_status"),
+        CheckConstraint(
+            "status IN ('draft','posted','reversed','cancelled')", name="ck_journal_entry_status"
+        ),
         Index("ix_journal_entry_source", "source_table", "source_id"),
     )
 

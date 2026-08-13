@@ -39,6 +39,7 @@ from src.modules.accounting.application.services import (
     ReportingService,
 )
 from src.modules.accounting.domain.entities import (
+    EntryNotDraftError,
     PeriodClosedError,
     PostedEntryImmutableError,
     UnbalancedEntryError,
@@ -308,6 +309,41 @@ async def post_journal_entry(
         field_name="status",
         old_value="draft",
         new_value="posted",
+    )
+
+    await db.commit()
+    return entry
+
+
+@router.post("/journal-entries/{entry_id}:cancel", response_model=JournalEntryOut)
+async def cancel_journal_entry(
+    entry_id: str,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("accounting.journal_entry.cancel")),
+    entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    journal_repo: JournalRepository = Depends(get_journal_repo),
+    account_repo: AccountRepository = Depends(get_account_repo),
+    period_repo: FiscalPeriodRepository = Depends(get_fiscal_period_repo),
+):
+    import uuid as _uuid
+
+    service = JournalEntryService(entry_repo, journal_repo, account_repo, period_repo)
+    try:
+        entry = await service.cancel_draft_entry(entry_id=_uuid.UUID(entry_id), company_id=ctx.company_id)
+    except EntryNotDraftError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="journal_entry",
+        target_id=entry.id,
+        field_name="status",
+        old_value="draft",
+        new_value="cancelled",
     )
 
     await db.commit()

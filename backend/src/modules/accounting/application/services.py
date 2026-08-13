@@ -7,6 +7,7 @@ from uuid import UUID
 
 from src.modules.accounting.domain.entities import (
     ACCOUNT_TYPES,
+    EntryNotDraftError,
     PeriodClosedError,
     PostedEntryImmutableError,
 )
@@ -443,8 +444,8 @@ class JournalEntryService:
         entry = await self.entry_repo.get_by_id(entry_id)
         if entry is None or entry.company_id != company_id:
             raise ValueError("Journal entry not found")
-        if entry.status == "posted":
-            raise PostedEntryImmutableError("This entry is already posted")
+        if entry.status != "draft":
+            raise PostedEntryImmutableError(f"This entry is {entry.status} and cannot be posted")
 
         period = await self.period_repo.find_covering(company_id, entry.entry_date)
         if period is not None and period.is_closed:
@@ -464,6 +465,20 @@ class JournalEntryService:
 
         entry.status = "posted"
         entry.posted_at = _utcnow_naive()
+        entry.version += 1
+        return entry
+
+    async def cancel_draft_entry(self, *, entry_id: UUID, company_id: UUID) -> JournalEntry:
+        """A draft has zero ledger impact until posted, so cancelling one is
+        never blocked by fiscal period status — unlike post_entry, there is
+        deliberately no period_repo check here."""
+        entry = await self.entry_repo.get_by_id(entry_id)
+        if entry is None or entry.company_id != company_id:
+            raise ValueError("Journal entry not found")
+        if entry.status != "draft":
+            raise EntryNotDraftError(f"Only a draft entry can be cancelled (this entry is {entry.status})")
+
+        entry.status = "cancelled"
         entry.version += 1
         return entry
 

@@ -24,6 +24,10 @@ class PeriodClosedError(DomainError):
     """Raised when attempting to post into a closed fiscal period (FR-ACC-011)."""
 
 
+class EntryNotDraftError(DomainError):
+    """Raised when a draft-only operation (cancel) targets a non-draft entry."""
+
+
 @dataclass
 class JournalEntryLine:
     account_id: UUID

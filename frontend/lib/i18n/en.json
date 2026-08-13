@@ -361,6 +361,8 @@
   "accounting.je.save": "Save entry",
   "accounting.je.post": "Post",
   "accounting.je.reverse": "Reverse",
+  "accounting.je.cancel": "Cancel entry",
+  "accounting.je.cancel_confirm": "Cancel this draft entry? It has no ledger impact and this cannot be undone.",
   "accounting.je.unbalanced": "Debits must equal credits",
   "accounting.tb.date_from": "From",
   "accounting.tb.date_to": "To",

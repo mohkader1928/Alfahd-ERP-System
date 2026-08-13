@@ -212,6 +212,7 @@ class UserManagementService:
                     "accounting.journal_entry.create",
                     "accounting.journal_entry.post",
                     "accounting.journal_entry.reverse",
+                    "accounting.journal_entry.cancel",
                     "accounting.fiscal_period.manage",
                     "accounting.reports.trial_balance.view",
                     "accounting.reports.general_ledger.view",

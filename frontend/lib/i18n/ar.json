@@ -361,6 +361,8 @@
   "accounting.je.save": "حفظ القيد",
   "accounting.je.post": "ترحيل",
   "accounting.je.reverse": "عكس القيد",
+  "accounting.je.cancel": "إلغاء القيد",
+  "accounting.je.cancel_confirm": "هل تريد إلغاء هذا القيد (مسودة)؟ لا أثر له على دفتر الأستاذ ولا يمكن التراجع عن هذا الإجراء.",
   "accounting.je.unbalanced": "يجب أن يتساوى المدين مع الدائن",
   "accounting.tb.date_from": "من",
   "accounting.tb.date_to": "إلى",

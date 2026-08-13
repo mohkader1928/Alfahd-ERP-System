@@ -64,6 +64,10 @@ PERMISSION_CATALOG = [
     ("accounting.journal_entry.create", "action"),
     ("accounting.journal_entry.post", "action"),
     ("accounting.journal_entry.reverse", "action"),
+    # Owner-reported gap: a draft entry stuck in a closed fiscal period had
+    # no way out (can't post, no edit/cancel existed at all). A draft has
+    # zero ledger impact, so cancelling one is independent of period status.
+    ("accounting.journal_entry.cancel", "action"),
     ("accounting.reports.trial_balance.view", "screen"),
     ("accounting.fiscal_period.manage", "action"),
     ("accounting.tax_rate.view", "screen"),

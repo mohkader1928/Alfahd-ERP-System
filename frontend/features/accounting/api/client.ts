@@ -63,6 +63,9 @@ export const accountingApi = {
   reverseJournalEntry: (companyId: string, id: string) =>
     apiClient.post<JournalEntry>(`${BASE}/journal-entries/${id}:reverse`, undefined, { companyId }),
 
+  cancelJournalEntry: (companyId: string, id: string) =>
+    apiClient.post<JournalEntry>(`${BASE}/journal-entries/${id}:cancel`, undefined, { companyId }),
+
   trialBalance: (companyId: string, dateFrom: string, dateTo: string, detailLevel?: number) =>
     apiClient.get<TrialBalanceRow[]>(
       `${BASE}/reports/trial-balance?date_from=${dateFrom}&date_to=${dateTo}${detailLevel ? `&detail_level=${detailLevel}` : ""}`,
