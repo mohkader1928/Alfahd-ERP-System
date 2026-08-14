@@ -13,6 +13,7 @@ export interface Quotation {
   status: "draft" | "confirmed" | "done" | "cancelled";
   quote_date: string;
   total_amount: string;
+  warehouse_id: string | null;
   payment_terms: string | null;
   last_emailed_at: string | null;
   last_emailed_to: string | null;
@@ -40,6 +41,7 @@ export interface SalesOrder {
   status: "draft" | "confirmed" | "partially_invoiced" | "done" | "cancelled";
   order_date: string;
   total_amount: string;
+  warehouse_id: string | null;
   cancellation_reason: string | null;
 }
 

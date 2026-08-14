@@ -77,6 +77,7 @@ async def create_quotation(
             branch_id=ctx.branch_id,
             partner_id=payload.partner_id,
             quote_date=payload.quote_date,
+            warehouse_id=payload.warehouse_id,
             payment_terms=payload.payment_terms,
             lines=[line.model_dump() for line in payload.lines],
         )
@@ -101,6 +102,7 @@ async def update_quotation(
             company_id=ctx.company_id,
             partner_id=payload.partner_id,
             quote_date=payload.quote_date,
+            warehouse_id=payload.warehouse_id,
             payment_terms=payload.payment_terms,
             lines=[line.model_dump() for line in payload.lines],
         )
@@ -162,6 +164,7 @@ async def update_sales_order(
             company_id=ctx.company_id,
             partner_id=payload.partner_id,
             order_date=payload.order_date,
+            warehouse_id=payload.warehouse_id,
             lines=[line.model_dump() for line in payload.lines],
         )
     except ValueError as e:

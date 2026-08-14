@@ -30,7 +30,13 @@ export const salesApi = {
   createQuotation: (
     companyId: string,
     branchId: string,
-    payload: { partner_id: string; quote_date: string; payment_terms?: string | null; lines: QuotationLineIn[] }
+    payload: {
+      partner_id: string;
+      quote_date: string;
+      warehouse_id?: string | null;
+      payment_terms?: string | null;
+      lines: QuotationLineIn[];
+    }
   ) => apiClient.post<Quotation>(`${BASE}/quotations`, payload, { companyId, branchId }),
 
   getQuotation: (companyId: string, id: string) =>
@@ -40,7 +46,13 @@ export const salesApi = {
     companyId: string,
     branchId: string,
     id: string,
-    payload: { partner_id: string; quote_date: string; payment_terms?: string | null; lines: QuotationLineIn[] }
+    payload: {
+      partner_id: string;
+      quote_date: string;
+      warehouse_id?: string | null;
+      payment_terms?: string | null;
+      lines: QuotationLineIn[];
+    }
   ) => apiClient.put<Quotation>(`${BASE}/quotations/${id}`, payload, { companyId, branchId }),
 
   confirmQuotation: (companyId: string, branchId: string, id: string) =>
@@ -61,7 +73,12 @@ export const salesApi = {
     companyId: string,
     branchId: string,
     id: string,
-    payload: { partner_id: string; order_date: string; lines: SalesOrderLineIn[] }
+    payload: {
+      partner_id: string;
+      order_date: string;
+      warehouse_id?: string | null;
+      lines: SalesOrderLineIn[];
+    }
   ) => apiClient.put<SalesOrder>(`${BASE}/orders/${id}`, payload, { companyId, branchId }),
 
   cancelSalesOrder: (companyId: string, id: string, reason: string) =>

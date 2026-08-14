@@ -15,6 +15,7 @@ import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { Can } from "@/components/erp/permissions/can";
+import { StockBalanceHint } from "@/components/erp/stock-balance-hint/stock-balance-hint";
 import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
@@ -460,6 +461,7 @@ function TransferTab() {
                 onChange={(v) => setProductId(v ?? "")}
                 placeholder={t("inventory.stock.product")}
               />
+              <StockBalanceHint companyId={companyId} productId={productId} warehouseId={sourceWarehouseId} />
             </div>
             <div className="w-44 space-y-1">
               <Label className="text-xs">{t("inventory.transfer.source")}</Label>

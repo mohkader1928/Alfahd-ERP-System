@@ -13,6 +13,7 @@ export interface PurchaseOrder {
   status: "draft" | "pending_approval" | "confirmed" | "partially_received" | "done" | "closed" | "cancelled";
   order_date: string;
   total_amount: string;
+  warehouse_id: string | null;
   created_by_user_id: string | null;
   approval_status: "not_required" | "pending" | "approved" | "rejected";
   approved_by: string | null;

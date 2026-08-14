@@ -255,6 +255,8 @@ class UserManagementService:
                     "sales.invoice.credit_note",
                     "sales.invoice.send_email",
                     "accounting.tax_rate.view",
+                    "inventory.warehouse.view",
+                    "inventory.stock.view",
                     "partner.view",
                     "partner.create",
                     "partner.update",

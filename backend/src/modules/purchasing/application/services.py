@@ -88,6 +88,7 @@ class PurchaseOrderService:
         partner_id: UUID,
         order_date: date,
         lines: list[dict],
+        warehouse_id: UUID | None = None,
         created_by: UUID | None = None,
     ) -> PurchaseOrder:
         if not lines:
@@ -98,6 +99,7 @@ class PurchaseOrderService:
         order = PurchaseOrder(
             id=uuid.uuid4(),
             company_id=company_id,
+            warehouse_id=warehouse_id,
             branch_id=branch_id,
             partner_id=partner_id,
             number=number,
@@ -144,6 +146,7 @@ class PurchaseOrderService:
         partner_id: UUID,
         order_date: date,
         lines: list[dict],
+        warehouse_id: UUID | None = None,
     ) -> PurchaseOrder:
         """Product Owner request: allow editing a transaction before it's
         posted/confirmed. Full line replace, matching
@@ -174,6 +177,7 @@ class PurchaseOrderService:
         order.partner_id = partner_id
         order.order_date = order_date
         order.total_amount = total
+        order.warehouse_id = warehouse_id
         return order
 
     async def confirm_purchase_order(self, *, order_id: UUID, company_id: UUID) -> PurchaseOrder:
@@ -378,7 +382,14 @@ class GoodsReceiptService:
         if order.status not in ("confirmed", "partially_received"):
             raise ValueError("Only a confirmed or partially-received purchase order can receive goods")
 
-        warehouse = await self.warehouse_repo.get_default_for_company(company_id)
+        # Owner request: receive into the warehouse this order was placed
+        # against, not always the company default — falls back to the
+        # default for orders created before warehouse_id existed.
+        warehouse = None
+        if order.warehouse_id is not None:
+            warehouse = await self.warehouse_repo.get_by_id(order.warehouse_id)
+        if warehouse is None:
+            warehouse = await self.warehouse_repo.get_default_for_company(company_id)
         if warehouse is None:
             raise ValueError("No default warehouse configured for this company")
         locations = await self.location_repo.list_by_warehouse(warehouse.id)
@@ -1008,7 +1019,17 @@ class VendorBillService:
         if self.inventory_service is None or self.warehouse_repo is None:
             return
 
-        warehouse = await self.warehouse_repo.get_default_for_company(debit_note.company_id)
+        # Owner request: pull the return back out of the same warehouse the
+        # original PO received into, not always the company default —
+        # falls back to the default when there's no traceable PO, or it
+        # predates warehouse_id.
+        warehouse = None
+        if debit_note.purchase_order_id is not None:
+            original_order = await self.order_repo.get_by_id(debit_note.purchase_order_id)
+            if original_order is not None and original_order.warehouse_id is not None:
+                warehouse = await self.warehouse_repo.get_by_id(original_order.warehouse_id)
+        if warehouse is None:
+            warehouse = await self.warehouse_repo.get_default_for_company(debit_note.company_id)
         if warehouse is None:
             return
         locations = await self.location_repo.list_by_warehouse(warehouse.id)

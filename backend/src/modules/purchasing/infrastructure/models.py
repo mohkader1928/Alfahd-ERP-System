@@ -36,6 +36,11 @@ class PurchaseOrder(Base):
     currency_code: Mapped[str] = mapped_column(Text, nullable=False, server_default="SAR")
     order_date: Mapped[date] = mapped_column(nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
+    # Owner request: which warehouse this order is expected to receive
+    # into — record_receipt uses it instead of always the company default,
+    # and it's what lets the PO screen show a live on-hand balance per
+    # line. Nullable for pre-existing rows (migration f0a1b2c3d4e5).
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("app_user.id"), nullable=True

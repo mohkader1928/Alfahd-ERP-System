@@ -501,6 +501,7 @@
   "inventory.stock.warehouse": "Warehouse",
   "inventory.stock.save": "Save receipt",
   "inventory.stock.empty_description": "Receive stock for a product to see it here.",
+  "inventory.stock_balance.current": "Current balance",
   "inventory.moves.date": "Date",
   "inventory.moves.source": "Source",
   "inventory.moves.type": "Type",

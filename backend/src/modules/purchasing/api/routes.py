@@ -131,6 +131,7 @@ async def create_purchase_order(
             branch_id=ctx.branch_id,
             partner_id=payload.partner_id,
             order_date=payload.order_date,
+            warehouse_id=payload.warehouse_id,
             lines=[line.model_dump() for line in payload.lines],
             created_by=ctx.user_id,
         )
@@ -155,6 +156,7 @@ async def update_purchase_order(
             company_id=ctx.company_id,
             partner_id=payload.partner_id,
             order_date=payload.order_date,
+            warehouse_id=payload.warehouse_id,
             lines=[line.model_dump() for line in payload.lines],
         )
     except ValueError as e:

@@ -13,10 +13,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
+import { StockBalanceHint } from "@/components/erp/stock-balance-hint/stock-balance-hint";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
 import { identityApi } from "@/features/identity/api/client";
+import { inventoryApi } from "@/features/inventory/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
 
@@ -42,6 +44,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
   const [partnerId, setPartnerId] = useState("");
   const [quoteDate, setQuoteDate] = useState("");
   const [taxRateId, setTaxRateId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [paymentTerms, setPaymentTerms] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +71,10 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
     queryKey: ["tax-rates", companyId],
     queryFn: () => accountingApi.listTaxRates(companyId),
   });
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", companyId],
+    queryFn: () => inventoryApi.listWarehouses(companyId),
+  });
   const effectiveTaxRateId =
     taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
 
@@ -75,6 +82,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
     setPartnerId(data.quotation.partner_id);
     setQuoteDate(data.quotation.quote_date);
     setTaxRateId(data.lines[0]?.tax_rate_id ?? "");
+    setWarehouseId(data.quotation.warehouse_id ?? "");
     setPaymentTerms(data.quotation.payment_terms ?? "");
     setLines(
       data.lines.length > 0
@@ -90,6 +98,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
       salesApi.updateQuotation(companyId, branchId, id, {
         partner_id: partnerId,
         quote_date: quoteDate,
+        warehouse_id: warehouseId || null,
         payment_terms: paymentTerms || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
@@ -173,6 +182,23 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
             <Input type="date" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} />
           </div>
           <div className="space-y-2">
+            <Label>{t("inventory.stock.warehouse")}</Label>
+            <Select value={warehouseId} onValueChange={(v) => setWarehouseId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("inventory.stock.warehouse")}>
+                  {(value: string) => warehousesQuery.data?.find((w) => w.id === value)?.name ?? value}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {warehousesQuery.data?.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             <Label>{t("common.tax_rate")}</Label>
             <Select value={effectiveTaxRateId} onValueChange={(v) => setTaxRateId(v ?? "")}>
               <SelectTrigger className="w-full">
@@ -216,6 +242,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
                     }}
                     placeholder={t("sales.quotations.select_product")}
                   />
+                  <StockBalanceHint companyId={companyId} productId={line.product_id} warehouseId={warehouseId} />
                 </div>
                 <div className="w-20 space-y-1">
                   <Label className="text-xs">{t("sales.quotations.qty")}</Label>

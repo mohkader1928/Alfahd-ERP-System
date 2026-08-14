@@ -43,7 +43,12 @@ export const purchasingApi = {
   createOrder: (
     companyId: string,
     branchId: string,
-    payload: { partner_id: string; order_date: string; lines: PurchaseOrderLineIn[] }
+    payload: {
+      partner_id: string;
+      order_date: string;
+      warehouse_id?: string | null;
+      lines: PurchaseOrderLineIn[];
+    }
   ) => apiClient.post<PurchaseOrder>(`${BASE}/orders`, payload, { companyId, branchId }),
 
   getOrder: (companyId: string, id: string) =>
@@ -53,7 +58,12 @@ export const purchasingApi = {
     companyId: string,
     branchId: string,
     id: string,
-    payload: { partner_id: string; order_date: string; lines: PurchaseOrderLineIn[] }
+    payload: {
+      partner_id: string;
+      order_date: string;
+      warehouse_id?: string | null;
+      lines: PurchaseOrderLineIn[];
+    }
   ) => apiClient.put<PurchaseOrder>(`${BASE}/orders/${id}`, payload, { companyId, branchId }),
 
   confirmOrder: (companyId: string, id: string) =>

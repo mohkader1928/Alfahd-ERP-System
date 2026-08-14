@@ -12,10 +12,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
+import { StockBalanceHint } from "@/components/erp/stock-balance-hint/stock-balance-hint";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
 import { identityApi } from "@/features/identity/api/client";
+import { inventoryApi } from "@/features/inventory/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
 
@@ -42,6 +44,7 @@ export default function NewQuotationPage() {
   const [partnerId, setPartnerId] = useState("");
   const [quoteDate, setQuoteDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [taxRateId, setTaxRateId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
   const [lines, setLines] = useState<Line[]>([{ product_id: "", qty: "1", unit_price: "0" }]);
   const [paymentTerms, setPaymentTerms] = useState("");
   const [paymentTermsTouched, setPaymentTermsTouched] = useState(false);
@@ -59,16 +62,27 @@ export default function NewQuotationPage() {
     queryKey: ["tax-rates", companyId],
     queryFn: () => accountingApi.listTaxRates(companyId),
   });
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", companyId],
+    queryFn: () => inventoryApi.listWarehouses(companyId),
+  });
   // Defaults to the company's own configured Standard rate once loaded,
   // without a separate effect — the user can still override it below.
   const effectiveTaxRateId =
     taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
+  // Same pattern for warehouse: defaults to the company's default
+  // warehouse once loaded, but a company with none configured (a
+  // service-only business) simply has no warehouse field to fill —
+  // stock balance hints and the eventual stock deduction just stay off.
+  const effectiveWarehouseId =
+    warehouseId || warehousesQuery.data?.find((w) => w.is_default)?.id || "";
 
   const createMutation = useMutation({
     mutationFn: () =>
       salesApi.createQuotation(companyId, branchId, {
         partner_id: partnerId,
         quote_date: quoteDate,
+        warehouse_id: effectiveWarehouseId || null,
         payment_terms: paymentTerms || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
@@ -154,6 +168,23 @@ export default function NewQuotationPage() {
             <Input type="date" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} />
           </div>
           <div className="space-y-2">
+            <Label>{t("inventory.stock.warehouse")}</Label>
+            <Select value={effectiveWarehouseId} onValueChange={(v) => setWarehouseId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("inventory.stock.warehouse")}>
+                  {(value: string) => warehousesQuery.data?.find((w) => w.id === value)?.name ?? value}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {warehousesQuery.data?.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
             <Label>{t("common.tax_rate")}</Label>
             <Select value={effectiveTaxRateId} onValueChange={(v) => setTaxRateId(v ?? "")}>
               <SelectTrigger className="w-full">
@@ -200,6 +231,11 @@ export default function NewQuotationPage() {
                       });
                     }}
                     placeholder={t("sales.quotations.select_product")}
+                  />
+                  <StockBalanceHint
+                    companyId={companyId}
+                    productId={line.product_id}
+                    warehouseId={effectiveWarehouseId}
                   />
                 </div>
                 <div className="w-20 space-y-1">

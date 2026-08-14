@@ -43,6 +43,7 @@ from src.modules.inventory.api.schemas import (
     CycleCountOut,
     LowStockRowOut,
     ProductCardexResponse,
+    StockBalanceOut,
     StockMoveOut,
     StockQuantOut,
     StockReceiveRequest,
@@ -167,6 +168,22 @@ async def list_stock_quants(
     quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
 ):
     return await quant_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/stock/balance", response_model=StockBalanceOut)
+async def get_stock_balance(
+    product_id: UUID,
+    warehouse_id: UUID,
+    ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
+    quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
+):
+    """Owner request: the on-hand balance a Quotation/Sales Order/Purchase
+    Order/Transfer line shows next to a product, scoped to that
+    document's own warehouse — one lightweight lookup per product+
+    warehouse pairing rather than shipping the whole `/stock/quants` list
+    to every document-editing screen."""
+    qty = await quant_repo.qty_on_hand_for_product_in_warehouse(ctx.company_id, product_id, warehouse_id)
+    return StockBalanceOut(product_id=product_id, warehouse_id=warehouse_id, qty_on_hand=qty)
 
 
 @router.get("/stock/low-stock", response_model=list[LowStockRowOut])

@@ -501,6 +501,7 @@
   "inventory.stock.warehouse": "المستودع",
   "inventory.stock.save": "حفظ الاستلام",
   "inventory.stock.empty_description": "استلم مخزونًا لصنف ما ليظهر هنا.",
+  "inventory.stock_balance.current": "الرصيد الحالي",
   "inventory.moves.date": "التاريخ",
   "inventory.moves.source": "المصدر",
   "inventory.moves.type": "النوع",

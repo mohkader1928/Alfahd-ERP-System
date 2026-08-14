@@ -39,6 +39,12 @@ class Quotation(Base):
     currency_code: Mapped[str] = mapped_column(Text, nullable=False, server_default="SAR")
     quote_date: Mapped[date] = mapped_column(nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
+    # Owner request: which warehouse this quotation is expected to ship
+    # from — carried forward unchanged by confirm_to_sales_order onto the
+    # SalesOrder, and from there onto the SalesInvoice at issuance, so it
+    # only needs choosing once. Nullable for pre-existing rows (see
+    # migration f0a1b2c3d4e5); the create/update schemas require it.
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     # Owner request (Document Delivery for Quotations): defaults from
     # Partner.payment_terms at creation time but is a free edit from there
     # — the customer's own record is just the starting value, not enforced.
@@ -84,6 +90,9 @@ class SalesOrder(Base):
     currency_code: Mapped[str] = mapped_column(Text, nullable=False, server_default="SAR")
     order_date: Mapped[date] = mapped_column(nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
+    # Copied from the originating Quotation at confirm_to_sales_order time;
+    # still editable via update_order as long as nothing's been invoiced.
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -136,6 +145,11 @@ class SalesInvoice(Base):
     subtotal_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
+    # Copied from the SalesOrder at issue_invoice_from_order time — the
+    # warehouse _deduct_stock_for_lines actually issues stock from, and
+    # what a Sales Return's restock resolves back to instead of always the
+    # company default.
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)

@@ -157,6 +157,29 @@ class StockQuantRepository:
         # regardless of whether any quant rows matched.
         return Decimal(result.scalar_one()).quantize(Decimal("0.000001"))
 
+    async def qty_on_hand_for_product_in_warehouse(
+        self, company_id: UUID, product_id: UUID, warehouse_id: UUID
+    ) -> Decimal:
+        """Owner request: the balance a Quotation/Sales Order/Purchase
+        Order/Transfer line should show next to a product — scoped to one
+        specific warehouse (unlike `qty_on_hand_for_product`, which sums
+        across every warehouse the company has), since a document's own
+        `warehouse_id` is what actually determines which stock it can draw
+        from or receive into. A warehouse can have several locations, so
+        this joins through `Location` and sums rather than doing a single
+        `get(product_id, location_id)` lookup."""
+        result = await self.session.execute(
+            select(func.coalesce(func.sum(StockQuant.qty_on_hand), 0))
+            .select_from(StockQuant)
+            .join(Location, Location.id == StockQuant.location_id)
+            .where(
+                StockQuant.company_id == company_id,
+                StockQuant.product_id == product_id,
+                Location.warehouse_id == warehouse_id,
+            )
+        )
+        return Decimal(result.scalar_one()).quantize(Decimal("0.000001"))
+
     async def qty_on_hand_by_product(self, company_id: UUID) -> dict[UUID, Decimal]:
         """Total qty_on_hand per product across every location/warehouse —
         for the low-stock check (FR-INV low stock alerts), which compares

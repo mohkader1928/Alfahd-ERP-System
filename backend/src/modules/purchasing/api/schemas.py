@@ -17,6 +17,7 @@ class PurchaseOrderLineIn(BaseModel):
 class PurchaseOrderCreateRequest(BaseModel):
     partner_id: UUID
     order_date: date
+    warehouse_id: UUID | None = None
     lines: list[PurchaseOrderLineIn]
 
 
@@ -44,6 +45,7 @@ class PurchaseOrderOut(BaseModel):
     status: str
     order_date: date
     total_amount: Decimal
+    warehouse_id: UUID | None = None
     created_by_user_id: UUID | None
     approval_status: str
     approved_by: UUID | None

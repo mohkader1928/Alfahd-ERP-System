@@ -92,6 +92,7 @@ class QuotationService:
         partner_id: UUID,
         quote_date: date,
         lines: list[dict],
+        warehouse_id: UUID | None = None,
         payment_terms: str | None = None,
     ) -> Quotation:
         if not lines:
@@ -108,6 +109,7 @@ class QuotationService:
             status="draft",
             quote_date=quote_date,
             total_amount=total,
+            warehouse_id=warehouse_id,
             payment_terms=payment_terms,
         )
         orm_lines = [
@@ -134,6 +136,7 @@ class QuotationService:
         partner_id: UUID,
         quote_date: date,
         lines: list[dict],
+        warehouse_id: UUID | None = None,
         payment_terms: str | None = None,
     ) -> Quotation:
         """Product Owner request: allow editing a transaction before it's
@@ -168,6 +171,7 @@ class QuotationService:
         quotation.partner_id = partner_id
         quotation.quote_date = quote_date
         quotation.total_amount = total
+        quotation.warehouse_id = warehouse_id
         quotation.payment_terms = payment_terms
         return quotation
 
@@ -196,6 +200,7 @@ class QuotationService:
             # invoice_date, order_date is never reported to ZATCA).
             order_date=quotation.quote_date,
             total_amount=quotation.total_amount,
+            warehouse_id=quotation.warehouse_id,
         )
         order_lines = [
             SalesOrderLine(
@@ -225,6 +230,7 @@ class QuotationService:
         partner_id: UUID,
         order_date: date,
         lines: list[dict],
+        warehouse_id: UUID | None = None,
     ) -> SalesOrder:
         """Product Owner-reported blocker (SO-000035): a confirmed order
         for more than what's currently in stock had no way to be
@@ -265,6 +271,7 @@ class QuotationService:
         order.partner_id = partner_id
         order.order_date = order_date
         order.total_amount = total
+        order.warehouse_id = warehouse_id
         return order
 
     async def cancel_order(self, *, order_id: UUID, company_id: UUID, reason: str) -> SalesOrder:
@@ -594,6 +601,7 @@ class SalesInvoiceService:
             subtotal_amount=subtotal,
             tax_amount=tax_total,
             total_amount=subtotal + tax_total,
+            warehouse_id=order.warehouse_id,
         )
         try:
             await self.invoice_repo.add(invoice, invoice_lines)
@@ -640,15 +648,23 @@ class SalesInvoiceService:
     async def _deduct_stock_for_lines(self, invoice: SalesInvoice, lines, *, created_by: UUID) -> None:
         """FR-SAL-003 (deduct stock) wired directly at invoice time — M2
         deferred the standalone Delivery document, so this is where physical
-        issue actually happens. Skipped entirely if the company has no
-        default warehouse (service-only companies never set one up) or a
-        line's product isn't stockable; per-line insufficient-stock errors
-        propagate as a 422, matching FR-INV-007.
+        issue actually happens. Issues from the SalesOrder's own
+        `warehouse_id` (chosen once, back at Quotation creation) when set;
+        pre-existing orders created before that field existed fall back to
+        the company's default warehouse, same as before. Skipped entirely
+        if the company has no usable warehouse at all (service-only
+        companies never set one up) or a line's product isn't stockable;
+        per-line insufficient-stock errors propagate as a 422, matching
+        FR-INV-007.
         """
         if self.inventory_service is None or self.warehouse_repo is None:
             return
 
-        warehouse = await self.warehouse_repo.get_default_for_company(invoice.company_id)
+        warehouse = None
+        if invoice.warehouse_id is not None:
+            warehouse = await self.warehouse_repo.get_by_id(invoice.warehouse_id)
+        if warehouse is None:
+            warehouse = await self.warehouse_repo.get_default_for_company(invoice.company_id)
         if warehouse is None:
             return
 
@@ -1002,7 +1018,18 @@ class SalesInvoiceService:
         if self.inventory_service is None or self.warehouse_repo is None:
             return
 
-        warehouse = await self.warehouse_repo.get_default_for_company(credit_note.company_id)
+        # Owner request: restock into the same warehouse the original sale
+        # was issued from — not always the company default — so a return
+        # against a non-default warehouse actually lands back where it
+        # left from. Falls back to the company default when there's no
+        # traceable original invoice, or it predates warehouse_id.
+        warehouse = None
+        if original_invoice_id is not None:
+            original_invoice = await self.invoice_repo.get_by_id(original_invoice_id)
+            if original_invoice is not None and original_invoice.warehouse_id is not None:
+                warehouse = await self.warehouse_repo.get_by_id(original_invoice.warehouse_id)
+        if warehouse is None:
+            warehouse = await self.warehouse_repo.get_default_for_company(credit_note.company_id)
         if warehouse is None:
             return
         locations = await self.location_repo.list_by_warehouse(warehouse.id)
