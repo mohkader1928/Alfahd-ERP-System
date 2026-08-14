@@ -104,6 +104,7 @@ export interface Partner {
   website: string | null;
   vat_number: string | null;
   cr_number: string | null;
+  payment_terms: string | null;
   address: Address | null;
   is_active: boolean;
   image_path: string | null;
@@ -125,6 +126,7 @@ export interface PartnerWriteInput {
   website?: string | null;
   vat_number?: string | null;
   cr_number?: string | null;
+  payment_terms?: string | null;
   address?: Address | null;
 }
 

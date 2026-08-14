@@ -17,6 +17,7 @@ class QuotationLineIn(BaseModel):
 class QuotationCreateRequest(BaseModel):
     partner_id: UUID
     quote_date: date
+    payment_terms: str | None = None
     lines: list[QuotationLineIn]
 
 
@@ -28,8 +29,15 @@ class QuotationOut(BaseModel):
     status: str
     quote_date: date
     total_amount: Decimal
+    payment_terms: str | None = None
+    last_emailed_at: datetime | None = None
+    last_emailed_to: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class SendQuotationEmailRequest(BaseModel):
+    to_email: EmailStr | None = None
 
 
 class QuotationLineOut(BaseModel):

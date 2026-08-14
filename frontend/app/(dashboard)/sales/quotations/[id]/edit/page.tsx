@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
@@ -42,6 +43,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
   const [quoteDate, setQuoteDate] = useState("");
   const [taxRateId, setTaxRateId] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
+  const [paymentTerms, setPaymentTerms] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Not a useEffect: React's own guidance for "adjust state when data
   // arrives" is to compare against the previous render's id during render
@@ -73,6 +75,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
     setPartnerId(data.quotation.partner_id);
     setQuoteDate(data.quotation.quote_date);
     setTaxRateId(data.lines[0]?.tax_rate_id ?? "");
+    setPaymentTerms(data.quotation.payment_terms ?? "");
     setLines(
       data.lines.length > 0
         ? data.lines.map((l) => ({ product_id: l.product_id, qty: l.qty, unit_price: l.unit_price }))
@@ -87,6 +90,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
       salesApi.updateQuotation(companyId, branchId, id, {
         partner_id: partnerId,
         quote_date: quoteDate,
+        payment_terms: paymentTerms || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: () => {
@@ -236,6 +240,15 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
               <Plus className="h-4 w-4" />
               {t("sales.quotations.add_line")}
             </Button>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("sales.quotations.payment_terms")}</Label>
+            <Textarea
+              value={paymentTerms}
+              onChange={(e) => setPaymentTerms(e.target.value)}
+              placeholder={t("sales.quotations.payment_terms_placeholder")}
+              rows={2}
+            />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button

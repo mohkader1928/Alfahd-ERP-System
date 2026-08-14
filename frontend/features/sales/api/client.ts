@@ -30,7 +30,7 @@ export const salesApi = {
   createQuotation: (
     companyId: string,
     branchId: string,
-    payload: { partner_id: string; quote_date: string; lines: QuotationLineIn[] }
+    payload: { partner_id: string; quote_date: string; payment_terms?: string | null; lines: QuotationLineIn[] }
   ) => apiClient.post<Quotation>(`${BASE}/quotations`, payload, { companyId, branchId }),
 
   getQuotation: (companyId: string, id: string) =>
@@ -40,11 +40,17 @@ export const salesApi = {
     companyId: string,
     branchId: string,
     id: string,
-    payload: { partner_id: string; quote_date: string; lines: QuotationLineIn[] }
+    payload: { partner_id: string; quote_date: string; payment_terms?: string | null; lines: QuotationLineIn[] }
   ) => apiClient.put<Quotation>(`${BASE}/quotations/${id}`, payload, { companyId, branchId }),
 
   confirmQuotation: (companyId: string, branchId: string, id: string) =>
     apiClient.post<SalesOrder>(`${BASE}/quotations/${id}:confirm`, undefined, { companyId, branchId }),
+
+  downloadQuotationPdf: (companyId: string, quotationId: string, lang: string) =>
+    apiClient.getBlob(`${BASE}/quotations/${quotationId}/pdf?lang=${lang}`, { companyId }),
+
+  sendQuotationEmail: (companyId: string, quotationId: string, toEmail?: string) =>
+    apiClient.post<Quotation>(`${BASE}/quotations/${quotationId}:send-email`, { to_email: toEmail }, { companyId }),
 
   listOrders: (companyId: string) => apiClient.get<SalesOrder[]>(`${BASE}/orders`, { companyId }),
 

@@ -1,14 +1,18 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Download, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -16,16 +20,20 @@ import { identityApi } from "@/features/identity/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 
 export default function QuotationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const router = useRouter();
   const queryClient = useQueryClient();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId)!;
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [emailOverride, setEmailOverride] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["quotation", companyId, id],
@@ -46,10 +54,40 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
     onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
+  async function handleDownloadPdf() {
+    setDownloading(true);
+    try {
+      const { blob, filename } = await salesApi.downloadQuotationPdf(companyId, id, locale);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || `${data?.quotation.number ?? "quotation"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error"));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const sendEmailMutation = useMutation({
+    mutationFn: () => salesApi.sendQuotationEmail(companyId, id, emailOverride.trim() || undefined),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["quotation", companyId, id] });
+      setEmailDialogOpen(false);
+      setEmailOverride("");
+      toastSuccess(t("toast.success_title"), `${t("sales.quotations.email_sent")} ${updated.last_emailed_to ?? ""}`);
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+  });
+
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data) return null;
   const { quotation, lines } = data;
-  const productLabel = (productId: string) => productsQuery.data?.find((p) => p.id === productId)?.name ?? productId;
+  const productOf = (productId: string) => productsQuery.data?.find((p) => p.id === productId);
 
   return (
     <div className="max-w-xl space-y-4">
@@ -65,6 +103,24 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={downloading}>
+              <Download className="h-4 w-4" />
+              {downloading ? t("common.loading") : t("sales.quotations.download_pdf")}
+            </Button>
+            <Can permission="sales.quotation.send_email">
+              <Button variant="outline" size="sm" onClick={() => setEmailDialogOpen(true)}>
+                <Mail className="h-4 w-4" />
+                {t("sales.quotations.send_email")}
+              </Button>
+            </Can>
+          </div>
+          {quotation.last_emailed_at && (
+            <p className="text-xs text-muted-foreground">
+              {t("sales.quotations.last_emailed")} {formatDate(quotation.last_emailed_at, locale)}
+              {quotation.last_emailed_to ? ` (${quotation.last_emailed_to})` : ""}
+            </p>
+          )}
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <dt className="text-muted-foreground">{t("sales.quotations.date")}</dt>
             <dd>{quotation.quote_date}</dd>
@@ -80,15 +136,29 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lines.map((l) => (
-                <TableRow key={l.id}>
-                  <TableCell>{productLabel(l.product_id)}</TableCell>
-                  <TableCell className="text-end">{l.qty}</TableCell>
-                  <TableCell className="text-end">{formatCurrency(l.unit_price)}</TableCell>
-                </TableRow>
-              ))}
+              {lines.map((l) => {
+                const product = productOf(l.product_id);
+                return (
+                  <TableRow key={l.id}>
+                    <TableCell>
+                      <span className="flex items-center gap-2">
+                        <EntityImage src={product?.image_path} name={product?.name ?? l.product_id} size="xs" />
+                        {product?.name ?? l.product_id}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-end">{l.qty}</TableCell>
+                    <TableCell className="text-end">{formatCurrency(l.unit_price)}</TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
+          {quotation.payment_terms && (
+            <div className="space-y-1 border-t pt-3">
+              <p className="text-xs text-muted-foreground">{t("sales.quotations.payment_terms")}</p>
+              <p className="text-sm whitespace-pre-wrap">{quotation.payment_terms}</p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {quotation.status === "draft" && (
               <Can permission="sales.quotation.update">
@@ -112,6 +182,37 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={emailDialogOpen} onOpenChange={(open) => !open && setEmailDialogOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("sales.quotations.send_email")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label>{t("sales.quotations.recipient_email")}</Label>
+            <Input
+              type="email"
+              placeholder={t("sales.quotations.recipient_email_placeholder")}
+              value={emailOverride}
+              onChange={(e) => setEmailOverride(e.target.value)}
+              autoFocus
+            />
+          </div>
+          {sendEmailMutation.isError && (
+            <p className="text-sm text-destructive">
+              {sendEmailMutation.error instanceof ApiError ? sendEmailMutation.error.detail : t("common.error")}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmailDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => sendEmailMutation.mutate()} disabled={sendEmailMutation.isPending}>
+              {sendEmailMutation.isPending ? t("common.loading") : t("sales.quotations.send_email")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

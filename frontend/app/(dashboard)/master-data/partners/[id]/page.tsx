@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
 import { EmptyState } from "@/components/erp/states/empty-state";
@@ -63,6 +64,7 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
   const [website, setWebsite] = useState(partner.website ?? "");
   const [vatNumber, setVatNumber] = useState(partner.vat_number ?? "");
   const [crNumber, setCrNumber] = useState(partner.cr_number ?? "");
+  const [paymentTerms, setPaymentTerms] = useState(partner.payment_terms ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const invalidatePartner = () => {
@@ -87,6 +89,7 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
         website: website || null,
         vat_number: vatNumber || null,
         cr_number: crNumber || null,
+        payment_terms: paymentTerms || null,
         address: partner.address,
       }),
     onSuccess: () => {
@@ -305,20 +308,32 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
           key: "accounting",
           label: t("master_data.partners.tab_accounting"),
           content: (
-            <div className="flex flex-wrap gap-2">
-              {partner.is_customer && (
-                <Button variant="outline" render={<Link href={`/accounting?tab=customer-subledger&partner=${partner.id}`} />}>
-                  {t("accounting.tabs.customer_subledger")}
-                </Button>
-              )}
-              {partner.is_vendor && (
-                <Button variant="outline" render={<Link href={`/accounting?tab=vendor-subledger&partner=${partner.id}`} />}>
-                  {t("accounting.tabs.vendor_subledger")}
-                </Button>
-              )}
-              {!partner.is_customer && !partner.is_vendor && (
-                <p className="text-sm text-muted-foreground">{t("master_data.partners.accounting_no_roles")}</p>
-              )}
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <Label>{t("master_data.partners.payment_terms")}</Label>
+                <Textarea
+                  value={paymentTerms}
+                  onChange={(e) => setPaymentTerms(e.target.value)}
+                  placeholder={t("master_data.partners.payment_terms_placeholder")}
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">{t("master_data.partners.payment_terms_hint")}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {partner.is_customer && (
+                  <Button variant="outline" render={<Link href={`/accounting?tab=customer-subledger&partner=${partner.id}`} />}>
+                    {t("accounting.tabs.customer_subledger")}
+                  </Button>
+                )}
+                {partner.is_vendor && (
+                  <Button variant="outline" render={<Link href={`/accounting?tab=vendor-subledger&partner=${partner.id}`} />}>
+                    {t("accounting.tabs.vendor_subledger")}
+                  </Button>
+                )}
+                {!partner.is_customer && !partner.is_vendor && (
+                  <p className="text-sm text-muted-foreground">{t("master_data.partners.accounting_no_roles")}</p>
+                )}
+              </div>
             </div>
           ),
         },

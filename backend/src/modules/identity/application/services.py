@@ -249,6 +249,7 @@ class UserManagementService:
                     "sales.quotation.create",
                     "sales.quotation.update",
                     "sales.quotation.confirm",
+                    "sales.quotation.send_email",
                     "sales.order.view",
                     "sales.invoice.create",
                     "sales.invoice.credit_note",
@@ -474,6 +475,7 @@ class PartnerService:
         website: str | None = None,
         vat_number: str | None = None,
         cr_number: str | None = None,
+        payment_terms: str | None = None,
         address: dict | None = None,
     ) -> Partner:
         await self._validate_parent(company_id=company_id, parent_partner_id=parent_partner_id, self_id=None)
@@ -500,6 +502,7 @@ class PartnerService:
             website=website,
             vat_number=vat_number,
             cr_number=cr_number,
+            payment_terms=payment_terms,
             address=address,
         )
         try:
@@ -526,6 +529,7 @@ class PartnerService:
         website: str | None,
         vat_number: str | None,
         cr_number: str | None,
+        payment_terms: str | None,
         address: dict | None,
     ) -> Partner:
         partner = await self.partner_repo.get_by_id(partner_id)
@@ -545,6 +549,7 @@ class PartnerService:
         partner.website = website
         partner.vat_number = vat_number
         partner.cr_number = cr_number
+        partner.payment_terms = payment_terms
         partner.address = address
         return partner
 

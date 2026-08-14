@@ -45,6 +45,11 @@ from src.modules.zatca.application.zatca_service import ZatcaInvoiceProcessor, n
 from src.modules.zatca.domain.entities import InvoiceData, InvoiceLineData, SubmissionResult
 from src.modules.zatca.infrastructure.hash_chain import GENESIS_HASH
 from src.shared.documents.invoice_pdf import InvoiceDocument, InvoiceLineRow, render_invoice_pdf
+from src.shared.documents.quotation_pdf import (
+    QuotationDocument,
+    QuotationLineRow,
+    render_quotation_pdf,
+)
 from src.shared.email.mailer import EmailAttachment
 from src.shared.email.mailer import send_email as default_send_email
 
@@ -60,9 +65,24 @@ ACCOUNT_CODE_COGS = "5100"
 class QuotationService:
     """UC-SAL-01 — Quotation to Sales Order."""
 
-    def __init__(self, quotation_repo: QuotationRepository, order_repo: SalesOrderRepository):
+    def __init__(
+        self,
+        quotation_repo: QuotationRepository,
+        order_repo: SalesOrderRepository,
+        *,
+        partner_repo: PartnerRepository,
+        product_repo: ProductRepository,
+        seller_name: str,
+        seller_name_ar: str | None = None,
+        seller_logo_path: str | None = None,
+    ):
         self.quotation_repo = quotation_repo
         self.order_repo = order_repo
+        self.partner_repo = partner_repo
+        self.product_repo = product_repo
+        self.seller_name = seller_name
+        self.seller_name_ar = seller_name_ar
+        self.seller_logo_path = seller_logo_path
 
     async def create_quotation(
         self,
@@ -72,6 +92,7 @@ class QuotationService:
         partner_id: UUID,
         quote_date: date,
         lines: list[dict],
+        payment_terms: str | None = None,
     ) -> Quotation:
         if not lines:
             raise ValueError("A quotation needs at least one line")
@@ -87,6 +108,7 @@ class QuotationService:
             status="draft",
             quote_date=quote_date,
             total_amount=total,
+            payment_terms=payment_terms,
         )
         orm_lines = [
             QuotationLine(
@@ -112,6 +134,7 @@ class QuotationService:
         partner_id: UUID,
         quote_date: date,
         lines: list[dict],
+        payment_terms: str | None = None,
     ) -> Quotation:
         """Product Owner request: allow editing a transaction before it's
         posted/confirmed. A Quotation is the one genuinely pre-commitment
@@ -145,6 +168,7 @@ class QuotationService:
         quotation.partner_id = partner_id
         quotation.quote_date = quote_date
         quotation.total_amount = total
+        quotation.payment_terms = payment_terms
         return quotation
 
     async def confirm_to_sales_order(self, *, quotation_id: UUID, company_id: UUID) -> SalesOrder:
@@ -258,6 +282,86 @@ class QuotationService:
         order.status = "cancelled"
         order.cancellation_reason = reason
         return order
+
+    async def build_quotation_pdf(self, *, quotation_id: UUID, company_id: UUID, lang: str = "ar") -> bytes:
+        """Document Delivery for Quotations (Owner request): the same
+        letterhead/line-items/totals document approach as invoices, but
+        with each line's product image and the quotation's payment terms
+        instead of any VAT/ZATCA content — a quotation is a pre-sale
+        document, not a tax document."""
+        quotation = await self.quotation_repo.get_by_id(quotation_id)
+        if quotation is None or quotation.company_id != company_id:
+            raise ValueError("Quotation not found")
+        lines = await self.quotation_repo.get_lines(quotation_id)
+        partner = await self.partner_repo.get_by_id(quotation.partner_id, include_archived=True)
+
+        line_rows = []
+        for line in lines:
+            product = await self.product_repo.get_by_id(line.product_id)
+            line_rows.append(
+                QuotationLineRow(
+                    product_name=product.name if product else "",
+                    product_image_path=product.image_path if product else None,
+                    qty=line.qty,
+                    unit_price=line.unit_price,
+                    line_total=line.qty * line.unit_price,
+                )
+            )
+
+        doc = QuotationDocument(
+            number=quotation.number,
+            quote_date=quotation.quote_date,
+            total_amount=quotation.total_amount,
+            lines=line_rows,
+            company_name=self.seller_name,
+            company_name_ar=self.seller_name_ar or self.seller_name,
+            company_logo_path=self.seller_logo_path,
+            partner_name=partner.name if partner else "",
+            payment_terms=quotation.payment_terms,
+            lang=lang,
+        )
+        return render_quotation_pdf(doc)
+
+    async def send_quotation_email(
+        self,
+        *,
+        quotation_id: UUID,
+        company_id: UUID,
+        to_email: str | None = None,
+        lang: str = "ar",
+        mailer: Callable[..., Awaitable[None]] = default_send_email,
+    ) -> Quotation:
+        """Document Delivery for Quotations (Owner request). Defaults to
+        the customer's Partner.email on file; an explicit `to_email`
+        overrides it — mirrors SalesInvoiceService.send_invoice_email."""
+        quotation = await self.quotation_repo.get_by_id(quotation_id)
+        if quotation is None or quotation.company_id != company_id:
+            raise ValueError("Quotation not found")
+        partner = await self.partner_repo.get_by_id(quotation.partner_id, include_archived=True)
+        recipient = to_email or (partner.email if partner else None)
+        if not recipient:
+            raise ValueError(
+                "No email address on file for this customer, and none was provided for this send."
+            )
+
+        pdf_bytes = await self.build_quotation_pdf(quotation_id=quotation_id, company_id=company_id, lang=lang)
+        subject = f"{self.seller_name} — Quotation {quotation.number}"
+        body = (
+            f"Dear {partner.name if partner else 'Customer'},\n\n"
+            f"Please find attached price quotation {quotation.number} dated {quotation.quote_date.isoformat()}, "
+            f"totaling {quotation.total_amount} {quotation.currency_code}.\n\n"
+            f"Regards,\n{self.seller_name}"
+        )
+        await mailer(
+            to=recipient,
+            subject=subject,
+            body=body,
+            attachments=[EmailAttachment(filename=f"{quotation.number}.pdf", content=pdf_bytes)],
+        )
+
+        quotation.last_emailed_at = datetime.now(UTC).replace(tzinfo=None)
+        quotation.last_emailed_to = recipient
+        return quotation
 
 
 class SalesInvoiceService:

@@ -260,6 +260,7 @@ class PartnerCreateRequest(BaseModel):
     website: str | None = None
     vat_number: str | None = None
     cr_number: str | None = None
+    payment_terms: str | None = None
     address: AddressIn | None = None
 
 
@@ -278,6 +279,7 @@ class PartnerUpdateRequest(BaseModel):
     website: str | None = None
     vat_number: str | None = None
     cr_number: str | None = None
+    payment_terms: str | None = None
     address: AddressIn | None = None
 
 
@@ -300,6 +302,7 @@ class PartnerOut(BaseModel):
     website: str | None
     vat_number: str | None
     cr_number: str | None
+    payment_terms: str | None = None
     address: dict | None
     is_active: bool
     image_path: str | None = None

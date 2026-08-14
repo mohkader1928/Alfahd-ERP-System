@@ -39,6 +39,12 @@ class Quotation(Base):
     currency_code: Mapped[str] = mapped_column(Text, nullable=False, server_default="SAR")
     quote_date: Mapped[date] = mapped_column(nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
+    # Owner request (Document Delivery for Quotations): defaults from
+    # Partner.payment_terms at creation time but is a free edit from there
+    # — the customer's own record is just the starting value, not enforced.
+    payment_terms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_emailed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_emailed_to: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
 
     __table_args__ = (

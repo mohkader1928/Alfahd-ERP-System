@@ -32,6 +32,7 @@ from src.modules.sales.api.schemas import (
     SalesOrderDetailResponse,
     SalesOrderOut,
     SendInvoiceEmailRequest,
+    SendQuotationEmailRequest,
     UpdateSalesOrderRequest,
 )
 from src.modules.sales.application.services import QuotationService, SalesInvoiceService
@@ -76,6 +77,7 @@ async def create_quotation(
             branch_id=ctx.branch_id,
             partner_id=payload.partner_id,
             quote_date=payload.quote_date,
+            payment_terms=payload.payment_terms,
             lines=[line.model_dump() for line in payload.lines],
         )
     except ValueError as e:
@@ -99,6 +101,7 @@ async def update_quotation(
             company_id=ctx.company_id,
             partner_id=payload.partner_id,
             quote_date=payload.quote_date,
+            payment_terms=payload.payment_terms,
             lines=[line.model_dump() for line in payload.lines],
         )
     except ValueError as e:
@@ -440,3 +443,42 @@ async def get_quotation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Quotation not found")
     lines = await quotation_repo.get_lines(quotation_id)
     return QuotationDetailResponse(quotation=quotation, lines=lines)
+
+
+@router.get("/quotations/{quotation_id}/pdf")
+async def download_quotation_pdf(
+    quotation_id: UUID,
+    lang: str = "ar",
+    ctx: AuthContext = Depends(require_permission("sales.quotation.create")),
+    service: QuotationService = Depends(get_quotation_service),
+):
+    try:
+        pdf_bytes = await service.build_quotation_pdf(quotation_id=quotation_id, company_id=ctx.company_id, lang=lang)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline; filename=quotation.pdf"},
+    )
+
+
+@router.post("/quotations/{quotation_id}:send-email", response_model=QuotationOut)
+async def send_quotation_email(
+    quotation_id: UUID,
+    payload: SendQuotationEmailRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("sales.quotation.send_email")),
+    service: QuotationService = Depends(get_quotation_service),
+    mailer=Depends(get_mailer),
+):
+    try:
+        quotation = await service.send_quotation_email(
+            quotation_id=quotation_id, company_id=ctx.company_id, to_email=payload.to_email, mailer=mailer
+        )
+    except (EmailNotConfiguredError, ValueError) as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return quotation

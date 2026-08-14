@@ -13,6 +13,9 @@ export interface Quotation {
   status: "draft" | "confirmed" | "done" | "cancelled";
   quote_date: string;
   total_amount: string;
+  payment_terms: string | null;
+  last_emailed_at: string | null;
+  last_emailed_to: string | null;
 }
 
 export interface QuotationLine {

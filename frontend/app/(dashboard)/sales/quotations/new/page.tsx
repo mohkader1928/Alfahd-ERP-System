@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { useI18n } from "@/lib/i18n/config";
@@ -42,6 +43,8 @@ export default function NewQuotationPage() {
   const [quoteDate, setQuoteDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [taxRateId, setTaxRateId] = useState("");
   const [lines, setLines] = useState<Line[]>([{ product_id: "", qty: "1", unit_price: "0" }]);
+  const [paymentTerms, setPaymentTerms] = useState("");
+  const [paymentTermsTouched, setPaymentTermsTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const partnersQuery = useQuery({
@@ -66,6 +69,7 @@ export default function NewQuotationPage() {
       salesApi.createQuotation(companyId, branchId, {
         partner_id: partnerId,
         quote_date: quoteDate,
+        payment_terms: paymentTerms || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: (quotation) => {
@@ -100,7 +104,20 @@ export default function NewQuotationPage() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>{t("sales.quotations.customer")}</Label>
-            <Select value={partnerId} onValueChange={(v) => setPartnerId(v ?? "")}>
+            <Select
+              value={partnerId}
+              onValueChange={(v) => {
+                setPartnerId(v ?? "");
+                // Owner request: default the quotation's payment terms
+                // from the customer's own record, but only while the user
+                // hasn't already typed something here themselves — never
+                // clobber a manual edit by switching customers.
+                if (!paymentTermsTouched) {
+                  const partner = partnersQuery.data?.find((p) => p.id === v);
+                  setPaymentTerms(partner?.payment_terms ?? "");
+                }
+              }}
+            >
               <SelectTrigger className="w-full">
                 {/* Base UI's Select.Value shows the raw `value` (the UUID)
                     by default — it does not look up the matching SelectItem's
@@ -208,6 +225,18 @@ export default function NewQuotationPage() {
               <Plus className="h-4 w-4" />
               {t("sales.quotations.add_line")}
             </Button>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("sales.quotations.payment_terms")}</Label>
+            <Textarea
+              value={paymentTerms}
+              onChange={(e) => {
+                setPaymentTerms(e.target.value);
+                setPaymentTermsTouched(true);
+              }}
+              placeholder={t("sales.quotations.payment_terms_placeholder")}
+              rows={2}
+            />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button

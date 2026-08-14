@@ -52,6 +52,10 @@ class Partner(Base):
     website: Mapped[str | None] = mapped_column(Text, nullable=True)
     vat_number: Mapped[str | None] = mapped_column(Text, nullable=True)
     cr_number: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payment_terms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """Owner request: default payment terms shown to the customer on a
+    Quotation — freeform text (e.g. "Net 30", "50% advance, balance on
+    delivery"), editable per-quotation rather than enforced."""
     address: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     """Deprecated JSONB single-address field, kept post-backfill (not
     dropped) per explicit Owner instruction — superseded by PartnerAddress.

@@ -70,11 +70,26 @@ def get_zatca_submission_repo(db: AsyncSession = Depends(get_db)) -> ZatcaSubmis
     return ZatcaSubmissionRepository(db)
 
 
-def get_quotation_service(
+async def get_quotation_service(
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
     quotation_repo: QuotationRepository = Depends(get_quotation_repo),
     order_repo: SalesOrderRepository = Depends(get_sales_order_repo),
 ) -> QuotationService:
-    return QuotationService(quotation_repo, order_repo)
+    company_repo = CompanyRepository(db)
+    company = await company_repo.get_by_id(ctx.company_id)
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
+
+    return QuotationService(
+        quotation_repo,
+        order_repo,
+        partner_repo=PartnerRepository(db),
+        product_repo=ProductRepository(db),
+        seller_name=company.legal_name,
+        seller_name_ar=company.legal_name_ar,
+        seller_logo_path=company.logo_path,
+    )
 
 
 async def get_sales_invoice_service(
