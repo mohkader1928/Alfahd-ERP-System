@@ -11,6 +11,9 @@ import type {
   PartnerAddress,
   PartnerAddressWriteInput,
   PartnerWriteInput,
+  PasswordResetConfirmRequest,
+  PasswordResetRequestRequest,
+  PasswordResetResponse,
   Permission,
   Product,
   ProductCategory,
@@ -44,6 +47,16 @@ export const identityApi = {
 
   verify2fa: (payload: LoginRequest & { totp_code: string }) =>
     apiClient.post<TokenResponse>(`${BASE}/auth/login/verify-2fa`, payload, { skipAuth: true }),
+
+  requestPasswordReset: (payload: PasswordResetRequestRequest) =>
+    apiClient.post<PasswordResetResponse>(`${BASE}/auth/password-reset/request`, payload, {
+      skipAuth: true,
+    }),
+
+  confirmPasswordReset: (payload: PasswordResetConfirmRequest) =>
+    apiClient.post<PasswordResetResponse>(`${BASE}/auth/password-reset/confirm`, payload, {
+      skipAuth: true,
+    }),
 
   getMyProfile: (companyId: string) => apiClient.get<User>(`${BASE}/me`, { companyId }),
 

@@ -50,6 +50,26 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class PasswordResetRequestRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class PasswordResetRequestedResponse(BaseModel):
+    """Deliberately generic — the same body is returned whether or not the
+    email is on file, so the response itself carries no signal."""
+
+    detail: str = "If an account exists for this email, a reset code has been sent."
+
+
+class PasswordResetConfirmedResponse(BaseModel):
+    detail: str = "Password has been reset. You can now log in with your new password."
+
+
 class TwoFactorRequiredResponse(BaseModel):
     requires_2fa: bool = True
 

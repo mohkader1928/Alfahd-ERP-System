@@ -5,7 +5,11 @@ starts no I/O beyond what's needed for that single use case, and the caller
 (API route) is responsible for committing the Unit of Work.
 """
 
+import hashlib
+import secrets
 import uuid
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -23,6 +27,7 @@ from src.modules.identity.infrastructure.models import (
     AppUser,
     Branch,
     Company,
+    PasswordResetToken,
     Role,
     Tenant,
 )
@@ -32,12 +37,16 @@ from src.modules.identity.infrastructure.repositories import (
     CurrencyRepository,
     PartnerAddressRepository,
     PartnerRepository,
+    PasswordResetTokenRepository,
     ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
     UnitOfMeasureRepository,
     UserRepository,
 )
+from src.shared.email.mailer import EmailNotConfiguredError
+from src.shared.email.mailer import send_email as default_send_email
+from src.shared.infrastructure.db.session import set_tenant_context
 from src.shared.security.jwt import (
     TokenError,
     create_access_token,
@@ -415,6 +424,89 @@ class AuthenticationService:
 def _assert_can_login(user: AppUser) -> None:
     if not user.is_active:
         raise InactiveUserError("This user account has been deactivated")
+
+
+class PasswordResetService:
+    """P0-A (Phase-One closure) — the audit found no password-recovery path
+    anywhere in the codebase. Reuses the existing password policy/hashing
+    (src.shared.security.password) and mailer (src.shared.email.mailer)
+    as-is; does not touch authenticate_step1/2 or token issuance."""
+
+    RESET_TOKEN_TTL_MINUTES = 30
+
+    def __init__(self, user_repo: UserRepository, reset_token_repo: PasswordResetTokenRepository):
+        self.user_repo = user_repo
+        self.reset_token_repo = reset_token_repo
+
+    async def request_reset(
+        self,
+        *,
+        email: str,
+        mailer: Callable[..., Awaitable[None]] = default_send_email,
+    ) -> None:
+        """Anti-enumeration: always returns normally whether the email
+        exists, belongs to a deactivated user, or SMTP isn't configured —
+        the client can't distinguish any of those cases from a real send."""
+        user = await self.user_repo.get_by_email(email)
+        if user is None or not user.is_active:
+            return
+
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        await self.reset_token_repo.add(
+            PasswordResetToken(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=datetime.now(UTC).replace(tzinfo=None)
+                + timedelta(minutes=self.RESET_TOKEN_TTL_MINUTES),
+            )
+        )
+
+        subject = "Password Reset Request"
+        body = (
+            f"Dear {user.full_name},\n\n"
+            "A password reset was requested for your account. Use the code below to set a "
+            f"new password. This code expires in {self.RESET_TOKEN_TTL_MINUTES} minutes and can "
+            "only be used once.\n\n"
+            f"{raw_token}\n\n"
+            "If you did not request this, you can safely ignore this email — your password "
+            "will not be changed."
+        )
+        try:
+            await mailer(to=user.email, subject=subject, body=body)
+        except EmailNotConfiguredError:
+            pass
+
+    async def confirm_reset(self, *, raw_token: str, new_password: str) -> AppUser:
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        token = await self.reset_token_repo.get_by_hash(token_hash)
+        now = datetime.now(UTC).replace(tzinfo=None)
+        if token is None or token.used_at is not None or token.expires_at < now:
+            raise AuthenticationError("Invalid or expired reset token")
+
+        user = await self.user_repo.get_by_id(token.user_id)
+        if user is None:
+            raise AuthenticationError("Invalid or expired reset token")
+        try:
+            _assert_can_login(user)
+        except InactiveUserError as e:
+            raise AuthenticationError(str(e)) from e
+
+        # The reset token (looked up pre-tenant, same as the login-lookup
+        # RLS escape hatch) is what establishes which tenant this write
+        # belongs to — tenant_isolation on app_user otherwise blocks the
+        # UPDATE below with no `app.current_tenant_id` set.
+        await set_tenant_context(self.user_repo.session, user.tenant_id)
+
+        validate_password_policy(new_password)
+        user.password_hash = hash_password(new_password)
+        # A successful reset is also this system's account-recovery path
+        # for P0-B's login lockout — clearing it here means a locked-out
+        # user is never permanently stuck.
+        user.failed_login_count = 0
+        user.locked_until = None
+        token.used_at = now
+        return user
 
 
 class TenantProvisioningService:

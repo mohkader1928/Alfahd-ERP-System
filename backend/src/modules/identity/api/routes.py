@@ -11,8 +11,10 @@ from src.modules.identity.api.deps import (
     get_branch_repo,
     get_company_repo,
     get_currency_repo,
+    get_mailer,
     get_partner_address_repo,
     get_partner_repo,
+    get_password_reset_token_repo,
     get_product_category_repo,
     get_product_repo,
     get_role_repo,
@@ -39,6 +41,10 @@ from src.modules.identity.api.schemas import (
     PartnerCreateRequest,
     PartnerOut,
     PartnerUpdateRequest,
+    PasswordResetConfirmedResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetRequestedResponse,
+    PasswordResetRequestRequest,
     PermissionOut,
     ProductCategoryCreateRequest,
     ProductCategoryOut,
@@ -71,6 +77,7 @@ from src.modules.identity.application.services import (
     AuthenticationService,
     CompanyRegistrationService,
     PartnerService,
+    PasswordResetService,
     ProductCategoryService,
     ProductService,
     TenantProvisioningService,
@@ -86,6 +93,7 @@ from src.modules.identity.infrastructure.repositories import (
     CurrencyRepository,
     PartnerAddressRepository,
     PartnerRepository,
+    PasswordResetTokenRepository,
     ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
@@ -259,6 +267,48 @@ async def refresh_token(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
 
     return TokenResponse(**tokens)
+
+
+@router.post("/auth/password-reset/request", response_model=PasswordResetRequestedResponse)
+async def request_password_reset(
+    payload: PasswordResetRequestRequest,
+    db: AsyncSession = Depends(get_db),
+    user_repo: UserRepository = Depends(get_user_repo),
+    reset_token_repo: PasswordResetTokenRepository = Depends(get_password_reset_token_repo),
+    mailer=Depends(get_mailer),
+):
+    """P0-A (Phase-One closure). Same rationale as /auth/login for the RLS
+    escape hatch: the account isn't known to belong to any company yet at
+    this point. Always returns the same generic response — see
+    PasswordResetService.request_reset's anti-enumeration docstring."""
+    await set_login_lookup(db)
+    reset_service = PasswordResetService(user_repo, reset_token_repo)
+    await reset_service.request_reset(email=payload.email, mailer=mailer)
+    await db.commit()
+    return PasswordResetRequestedResponse()
+
+
+@router.post("/auth/password-reset/confirm", response_model=PasswordResetConfirmedResponse)
+async def confirm_password_reset(
+    payload: PasswordResetConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+    user_repo: UserRepository = Depends(get_user_repo),
+    reset_token_repo: PasswordResetTokenRepository = Depends(get_password_reset_token_repo),
+):
+    """Same rationale as /auth/login for the RLS escape hatch. Does not
+    auto-login on success — the user logs in separately with the new
+    password via the normal /auth/login flow."""
+    await set_login_lookup(db)
+    reset_service = PasswordResetService(user_repo, reset_token_repo)
+    try:
+        await reset_service.confirm_reset(raw_token=payload.token, new_password=payload.new_password)
+    except AuthenticationError as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return PasswordResetConfirmedResponse()
 
 
 @router.get("/me", response_model=UserOut)

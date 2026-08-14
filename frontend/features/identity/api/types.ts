@@ -35,6 +35,19 @@ export interface TwoFactorRequiredResponse {
   requires_2fa: true;
 }
 
+export interface PasswordResetRequestRequest {
+  email: string;
+}
+
+export interface PasswordResetConfirmRequest {
+  token: string;
+  new_password: string;
+}
+
+export interface PasswordResetResponse {
+  detail: string;
+}
+
 export interface TwoFactorSetupResponse {
   secret: string;
   provisioning_uri: string;

@@ -18,6 +18,7 @@ from src.modules.identity.infrastructure.models import (
     Branch,
     Company,
     Currency,
+    PasswordResetToken,
     Permission,
     Role,
     RolePermission,
@@ -161,6 +162,22 @@ class UserRepository:
             }
             for row in result.all()
         ]
+
+
+class PasswordResetTokenRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, token: PasswordResetToken) -> PasswordResetToken:
+        self.session.add(token)
+        await self.session.flush()
+        return token
+
+    async def get_by_hash(self, token_hash: str) -> PasswordResetToken | None:
+        result = await self.session.execute(
+            select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
+        )
+        return result.scalar_one_or_none()
 
 
 class RoleRepository:

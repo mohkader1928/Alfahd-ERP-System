@@ -11,12 +11,14 @@ from src.modules.identity.infrastructure.repositories import (
     CurrencyRepository,
     PartnerAddressRepository,
     PartnerRepository,
+    PasswordResetTokenRepository,
     ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
     UnitOfMeasureRepository,
     UserRepository,
 )
+from src.shared.email.mailer import send_email
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext, get_auth_context, require_branch_context
 
@@ -35,6 +37,19 @@ def get_currency_repo(db: AsyncSession = Depends(get_db)) -> CurrencyRepository:
 
 def get_user_repo(db: AsyncSession = Depends(get_db)) -> UserRepository:
     return UserRepository(db)
+
+
+def get_password_reset_token_repo(
+    db: AsyncSession = Depends(get_db),
+) -> PasswordResetTokenRepository:
+    return PasswordResetTokenRepository(db)
+
+
+def get_mailer():
+    """P0-A — a real FastAPI dependency (not a bare function default)
+    specifically so tests can swap it via `app.dependency_overrides`
+    instead of touching real SMTP. Mirrors sales/api/deps.get_mailer."""
+    return send_email
 
 
 def get_role_repo(db: AsyncSession = Depends(get_db)) -> RoleRepository:

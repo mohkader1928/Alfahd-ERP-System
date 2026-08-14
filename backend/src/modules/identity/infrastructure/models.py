@@ -127,6 +127,8 @@ class AppUser(Base):
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_2fa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    failed_login_count: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
+    locked_until: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=text("now()"), onupdate=text("now()"), nullable=False
@@ -145,6 +147,24 @@ class AppUser(Base):
             postgresql_where=text("deleted_at IS NULL"),
         ),
     )
+
+
+class PasswordResetToken(Base):
+    """P0-A (Phase-One closure): looked up only by an unguessable
+    `token_hash`, before any company/tenant context exists — same shape as
+    `app_user`'s own login-lookup problem, so deliberately no RLS/company_id
+    (see migration a8b9c0d1e2f3)."""
+
+    __tablename__ = "password_reset_token"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
 
 
 class UserCompanyAccess(Base):
