@@ -121,13 +121,11 @@ export default function LoginPage() {
             {pending ? t("common.loading") : t("auth.login.submit")}
           </Button>
         </form>
-        {!requires2fa && (
-          <p className="mt-4 text-center text-sm">
-            <Link href="/forgot-password" className="text-muted-foreground underline underline-offset-4">
-              {t("auth.login.link_forgot_password")}
-            </Link>
-          </p>
-        )}
+        <p className="mt-4 text-center text-sm">
+          <Link href="/forgot-password" className="text-muted-foreground underline underline-offset-4">
+            {t("auth.login.link_forgot_password")}
+          </Link>
+        </p>
         <p className="mt-4 text-center text-sm">
           <Link href="/setup" className="text-muted-foreground underline underline-offset-4">
             {t("auth.login.link_setup")}

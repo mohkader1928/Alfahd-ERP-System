@@ -217,11 +217,24 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db), user_
         await set_login_lookup(db)
         user = await auth_service.authenticate_step1(email=payload.email, plain_password=payload.password)
     except TwoFactorRequiredError:
+        # P0-B: authenticate_step1 already reset failed_login_count on this
+        # correct-password branch — persist it even though 2FA isn't done.
+        await db.commit()
         return TwoFactorRequiredResponse()
     except AuthenticationError as e:
+        # P0-B: persist the failed-attempt increment/lockout set by
+        # authenticate_step1 before surfacing the 401.
+        await db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
 
+    # P0-B: committed only after issue_tokens() — list_authorized_companies()
+    # still relies on set_login_lookup()'s transaction-scoped escape hatch
+    # (user_company_access_login_lookup), which a commit before this point
+    # would end, breaking it (empirically: crashes on any pooled connection
+    # reused from an earlier authenticated request — see set_login_lookup's
+    # docstring on why ending the transaction resets the GUC to '' not NULL).
     tokens = await auth_service.issue_tokens(user)
+    await db.commit()
     return TokenResponse(**tokens)
 
 
@@ -239,9 +252,14 @@ async def verify_2fa(
             email=payload.email, plain_password=payload.password, totp_code=payload.totp_code
         )
     except AuthenticationError as e:
+        # P0-B: persist the failed-attempt increment/lockout set by
+        # authenticate_step2_totp before surfacing the 401.
+        await db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e)) from e
 
+    # P0-B: same ordering rationale as /auth/login above.
     tokens = await auth_service.issue_tokens(user)
+    await db.commit()
     return TokenResponse(**tokens)
 
 

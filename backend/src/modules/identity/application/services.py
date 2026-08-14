@@ -356,13 +356,31 @@ class UserManagementService:
 class AuthenticationService:
     """UC-CORE-01 — Login with optional 2FA."""
 
+    # P0-B (Phase-One closure): the audit found no brute-force protection at
+    # all on the password/2FA guess surface. A fixed, auto-expiring lockout
+    # (never permanent) reusing the same failed_login_count/locked_until
+    # columns added alongside P0-A (migration a8b9c0d1e2f3) for both.
+    MAX_FAILED_LOGIN_ATTEMPTS = 5
+    LOCKOUT_DURATION_MINUTES = 15
+
     def __init__(self, user_repo: UserRepository):
         self.user_repo = user_repo
 
     async def authenticate_step1(self, *, email: str, plain_password: str) -> AppUser:
         user = await self.user_repo.get_by_email(email)
-        if user is None or not verify_password(plain_password, user.password_hash):
+        if user is None:
             raise AuthenticationError("Invalid email or password")
+        # Same rationale as PasswordResetService.confirm_reset: this write
+        # (failed_login_count/locked_until) happens before any tenant
+        # context normally exists, so tenant_isolation on app_user needs it
+        # set explicitly once the user (and their tenant) is resolved.
+        await set_tenant_context(self.user_repo.session, user.tenant_id)
+        self._assert_not_locked(user)
+
+        if not verify_password(plain_password, user.password_hash):
+            self._register_failed_attempt(user)
+            raise AuthenticationError("Invalid email or password")
+        self._register_successful_attempt(user)
 
         try:
             _assert_can_login(user)
@@ -376,13 +394,40 @@ class AuthenticationService:
 
     async def authenticate_step2_totp(self, *, email: str, plain_password: str, totp_code: str) -> AppUser:
         user = await self.user_repo.get_by_email(email)
-        if user is None or not verify_password(plain_password, user.password_hash):
+        if user is None:
+            raise AuthenticationError("Invalid email or password")
+        await set_tenant_context(self.user_repo.session, user.tenant_id)
+        self._assert_not_locked(user)
+
+        if not verify_password(plain_password, user.password_hash):
+            self._register_failed_attempt(user)
             raise AuthenticationError("Invalid email or password")
         if not user.is_2fa_enabled or not user.totp_secret:
             raise AuthenticationError("2FA is not enabled for this user")
         if not verify_totp_code(user.totp_secret, totp_code):
+            self._register_failed_attempt(user)
             raise AuthenticationError("Invalid 2FA code")
+
+        self._register_successful_attempt(user)
         return user
+
+    def _assert_not_locked(self, user: AppUser) -> None:
+        if user.locked_until is not None and user.locked_until > datetime.now(UTC).replace(tzinfo=None):
+            raise AuthenticationError(
+                "This account is temporarily locked due to too many failed login attempts. "
+                "Try again later, or reset your password to regain access immediately."
+            )
+
+    def _register_failed_attempt(self, user: AppUser) -> None:
+        user.failed_login_count += 1
+        if user.failed_login_count >= self.MAX_FAILED_LOGIN_ATTEMPTS:
+            user.locked_until = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+                minutes=self.LOCKOUT_DURATION_MINUTES
+            )
+
+    def _register_successful_attempt(self, user: AppUser) -> None:
+        user.failed_login_count = 0
+        user.locked_until = None
 
     async def issue_tokens(self, user: AppUser) -> dict[str, str]:
         access_entries = await self.user_repo.list_authorized_companies(user.id)
