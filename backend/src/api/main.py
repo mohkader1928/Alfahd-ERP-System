@@ -6,6 +6,8 @@ means importing it here and adding one line to ENABLED_MODULES — no existing
 module file changes.
 """
 
+import asyncio
+import logging
 import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -27,9 +29,11 @@ import src.modules.reporting as reporting_module
 import src.modules.sales as sales_module
 from src.api.middleware.error_handler import register_error_handlers
 from src.shared.config.settings import get_settings
-from src.shared.infrastructure.db.seed import seed_core_data
+from src.shared.infrastructure.db.seed import seed_catalog_data, sync_admin_role_permissions
 from src.shared.infrastructure.db.session import AsyncSessionLocal, engine
 from src.shared.infrastructure.messaging.event_bus import event_bus
+
+logger = logging.getLogger("erp.api")
 
 # Owner-reported bug (live, in شركة المحمود): a WEBP customer photo uploaded
 # and saved correctly (DB row + file on disk both fine, confirmed while
@@ -62,10 +66,36 @@ ENABLED_MODULES = [
 ]
 
 
+async def _run_admin_role_permission_sync_in_background() -> None:
+    """Runs seed.py's Admin-role permission sync out-of-band from startup.
+
+    On the shared dev DB this can take minutes once tens of thousands of
+    test-bootstrap companies/roles have accumulated (see
+    src/shared/infrastructure/db/seed.py's sync_admin_role_permissions()
+    for the full story). Previously this ran inline in lifespan(), so a
+    slow run blocked every request until it finished, and an interrupted
+    run (container restart, killed query) crashed the whole startup hook
+    ("Application startup failed. Exiting."). Backgrounding it means the
+    API starts serving requests immediately regardless of how long — or
+    how many times — this takes to converge; a failure here is logged and
+    retried on the next startup instead of taking the process down.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            await sync_admin_role_permissions(session)
+    except Exception:
+        logger.exception("Admin-role permission sync failed; will retry on next startup")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as session:
-        await seed_core_data(session)
+        await seed_catalog_data(session)
+    # Keep a reference on app.state so the task isn't garbage-collected
+    # mid-run (asyncio only holds a weak reference to fire-and-forget tasks).
+    app.state.admin_role_sync_task = asyncio.create_task(
+        _run_admin_role_permission_sync_in_background()
+    )
     yield
 
 

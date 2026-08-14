@@ -22,6 +22,13 @@ DEFAULT_CURRENCIES = [
 
 ACCOUNT_TYPE_CODES = ["asset", "liability", "equity", "revenue", "expense"]
 
+# Any role holding this permission is treated as an Admin role for the
+# sync below — see sync_admin_role_permissions()'s docstring/comments.
+ADMIN_SYNC_MARKER_CODE = "reporting.dashboard.view"
+# Rows per INSERT batch in sync_admin_role_permissions() — bounds how much
+# progress a single interrupted/failed run can lose.
+ADMIN_SYNC_BATCH_SIZE = 500
+
 # code, scope — screen/action-level permissions. Field-level permissions
 # (FR-CORE-016) and Record Rules (FR-CORE-017) are configured per-role at
 # runtime, not seeded as a fixed catalog.
@@ -82,6 +89,10 @@ PERMISSION_CATALOG = [
     ("sales.quotation.create", "action"),
     ("sales.quotation.update", "action"),
     ("sales.quotation.confirm", "action"),
+    # Owner request: send a quotation to the customer's email as a PDF
+    # document (product image + payment terms) — Document Delivery, same
+    # shape as sales.invoice.send_email.
+    ("sales.quotation.send_email", "action"),
     ("sales.order.view", "screen"),
     ("sales.order.update", "action"),
     ("sales.order.cancel", "action"),
@@ -135,7 +146,11 @@ PERMISSION_CATALOG = [
 ]
 
 
-async def seed_core_data(session: AsyncSession) -> None:
+async def seed_catalog_data(session: AsyncSession) -> None:
+    """Currencies, account types, and the permission catalog: small,
+    existence-guarded upserts, cheap enough to run inline at API startup
+    (src/api/main.py's lifespan calls this directly, synchronously, unlike
+    sync_admin_role_permissions() below — see that module for why)."""
     for code, symbol, decimals in DEFAULT_CURRENCIES:
         existing = await session.execute(select(Currency).where(Currency.code == code))
         if existing.scalar_one_or_none() is None:
@@ -153,9 +168,34 @@ async def seed_core_data(session: AsyncSession) -> None:
         if existing.scalar_one_or_none() is None:
             session.add(Permission(id=uuid.uuid4(), code=code, scope=scope))
 
-    # Flush so every permission row exists before the Admin-role sync below.
+    # Flush + commit so every permission row exists before any Admin-role
+    # sync that follows, whether that's sync_admin_role_permissions() run
+    # inline right after (seed_core_data()) or as a separate background
+    # task (main.py's lifespan).
     await session.flush()
+    await session.commit()
 
+
+async def _fetch_incomplete_admin_role_ids(
+    session: AsyncSession, catalog_size: int
+) -> list[uuid.UUID]:
+    result = await session.execute(
+        text("""
+        SELECT admin_rp.role_id
+        FROM role_permission admin_rp
+        JOIN permission p_marker ON p_marker.id = admin_rp.permission_id
+                                  AND p_marker.code = :marker_code
+        JOIN role_permission rp_count ON rp_count.role_id = admin_rp.role_id
+        GROUP BY admin_rp.role_id
+        HAVING COUNT(*) < :catalog_size
+        ORDER BY admin_rp.role_id
+        """),
+        {"marker_code": ADMIN_SYNC_MARKER_CODE, "catalog_size": catalog_size},
+    )
+    return [row[0] for row in result.all()]
+
+
+async def sync_admin_role_permissions(session: AsyncSession) -> None:
     # Sync: any Admin role should always hold every permission in the catalog
     # — handles new permissions added after the company was bootstrapped.
     #
@@ -179,15 +219,37 @@ async def seed_core_data(session: AsyncSession) -> None:
     # migrations `f7004fe055a4`/`0fc571b91522`), added here for
     # `role_permission` by migration `b6c7d8e9f0a1`.
     await set_admin_sync(session)
-    # Performance note (found live: this query saturated a dev DB that had
-    # accumulated ~9,000 roles from repeated test bootstrapping — every
-    # role x every catalog permission with a correlated NOT EXISTS is
-    # O(roles x permissions), and this runs on every API startup). Narrow
-    # to *incomplete* Admin roles first with a cheap GROUP BY/HAVING (index-
-    # only on the role_permission PK) — in steady state that's ~0 rows, so
-    # the expensive CROSS JOIN below only ever runs against roles that
-    # actually need it (freshly created, or a permission was just added to
-    # the catalog).
+    # Performance note (found live: this query saturated the shared dev DB,
+    # which had accumulated ~70,000 roles / ~5.4M role_permission rows from
+    # repeated test bootstrapping — 10+ minutes per run, at every API
+    # startup/reload). Narrowing to *incomplete* Admin roles first with a
+    # GROUP BY/HAVING (below) is necessary but was NOT sufficient on its
+    # own: the original "in steady state that's ~0 rows" assumption held
+    # only if every historical Admin role was synced against the CURRENT
+    # PERMISSION_CATALOG. In practice PERMISSION_CATALOG has grown across
+    # many milestones, so any company bootstrapped before the latest
+    # addition shows up as "incomplete" again — confirmed live, 68,888 of
+    # 68,932 Admin roles on the dev DB were "incomplete" simultaneously,
+    # i.e. essentially the *entire* narrowed set, not a handful. Two
+    # follow-up fixes address what the narrowing alone couldn't:
+    #   1. `role_permission` had no index usable by the marker join below
+    #      (its only index is the PK, (role_id, permission_id), which can't
+    #      serve an equality lookup on permission_id alone) — forcing a
+    #      full sequential scan of the whole table just to find the ~69,000
+    #      rows holding the marker permission. Migration `e9f0a1b2c3d4`
+    #      adds `ix_role_permission_permission_id` for this.
+    #   2. The INSERT itself ran as a single multi-million-row statement in
+    #      one transaction: if the process was interrupted mid-run
+    #      (container restart, query killed), ALL progress rolled back —
+    #      and because this ran inline in the FastAPI lifespan startup
+    #      hook, that failure took the whole API down ("Application
+    #      startup failed. Exiting."). It's now split into
+    #      ADMIN_SYNC_BATCH_SIZE-sized batches, each committed
+    #      independently, so an interruption loses at most one batch and
+    #      the next run resumes forward progress instead of starting over.
+    #      main.py's lifespan also no longer awaits this function inline —
+    #      it runs as a background task, so a slow or failing sync can
+    #      never block or crash startup.
     # ON CONFLICT DO NOTHING, not a NOT EXISTS predicate: this can run
     # concurrently with itself — multiple API replicas/workers starting up
     # around the same time (or, found live, this same test's direct call
@@ -198,23 +260,34 @@ async def seed_core_data(session: AsyncSession) -> None:
     # role_permission PK IS exactly (role_id, permission_id), so ON
     # CONFLICT makes the fill atomic and idempotent instead.
     catalog_size = len(PERMISSION_CATALOG)
-    await session.execute(
-        text("""
-        INSERT INTO role_permission (role_id, permission_id)
-        SELECT incomplete.role_id, p_missing.id
-        FROM (
-            SELECT admin_rp.role_id
-            FROM role_permission admin_rp
-            JOIN permission p_marker ON p_marker.id = admin_rp.permission_id
-                                      AND p_marker.code = 'reporting.dashboard.view'
-            JOIN role_permission rp_count ON rp_count.role_id = admin_rp.role_id
-            GROUP BY admin_rp.role_id
-            HAVING COUNT(*) < :catalog_size
-        ) incomplete
-        CROSS JOIN permission p_missing
-        ON CONFLICT (role_id, permission_id) DO NOTHING
-    """),
-        {"catalog_size": catalog_size},
-    )
+    incomplete_role_ids = await _fetch_incomplete_admin_role_ids(session, catalog_size)
 
-    await session.commit()
+    for start in range(0, len(incomplete_role_ids), ADMIN_SYNC_BATCH_SIZE):
+        batch = incomplete_role_ids[start : start + ADMIN_SYNC_BATCH_SIZE]
+        # SET LOCAL is transaction-scoped: re-set after every commit below.
+        await set_admin_sync(session)
+        await session.execute(
+            text("""
+            INSERT INTO role_permission (role_id, permission_id)
+            SELECT batch_role.role_id, p_missing.id
+            FROM unnest(CAST(:role_ids AS uuid[])) AS batch_role(role_id)
+            CROSS JOIN permission p_missing
+            ON CONFLICT (role_id, permission_id) DO NOTHING
+        """),
+            {"role_ids": batch},
+        )
+        await session.commit()
+
+
+async def seed_core_data(session: AsyncSession) -> None:
+    """Full seed: catalog data + the Admin-role permission sync, run inline
+    and fully synchronously — kept as a single entry point for tests (and
+    any other direct caller) that need the sync to have completed by the
+    time this returns. API startup itself (src/api/main.py's lifespan)
+    does NOT call this directly: it calls seed_catalog_data() inline and
+    sync_admin_role_permissions() as a background task instead, so that a
+    slow or failing sync never blocks or crashes startup — see
+    sync_admin_role_permissions()'s performance note above for why that
+    matters on the shared dev DB."""
+    await seed_catalog_data(session)
+    await sync_admin_role_permissions(session)
