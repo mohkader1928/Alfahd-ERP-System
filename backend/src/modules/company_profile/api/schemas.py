@@ -1,5 +1,6 @@
-"""Pydantic schemas for Company Profile (Adaptive ERP Stage 2.1)."""
+"""Pydantic schemas for Company Profile + Sizing Engine (Adaptive ERP Stage 2.1-2.2)."""
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -56,5 +57,21 @@ class CompanyProfileOut(BaseModel):
     desired_user_count: int | None
     two_factor_required: bool
     growth_notes: dict
+
+    model_config = {"from_attributes": True}
+
+
+class DimensionScoreOut(BaseModel):
+    score: int
+    reason: str
+
+
+class SizingResultOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    company_profile_id: UUID
+    rule_version: str
+    dimension_scores: dict[str, DimensionScoreOut]
+    created_at: datetime
 
     model_config = {"from_attributes": True}

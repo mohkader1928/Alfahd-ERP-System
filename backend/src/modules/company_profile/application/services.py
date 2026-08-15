@@ -10,9 +10,14 @@ from dataclasses import fields
 from typing import Any
 from uuid import UUID
 
+from src.modules.company_profile.application.sizing_rules import score_profile
 from src.modules.company_profile.domain.entities import CompanyProfile as CompanyProfileDomain
-from src.modules.company_profile.infrastructure.models import CompanyProfile
-from src.modules.company_profile.infrastructure.repositories import CompanyProfileRepository
+from src.modules.company_profile.infrastructure.models import CompanyProfile, SizingResult
+from src.modules.company_profile.infrastructure.repositories import (
+    CompanyProfileRepository,
+    SizingResultRepository,
+    SizingRuleSetRepository,
+)
 from src.modules.identity.infrastructure.repositories import AuditLogRepository
 
 # Fields a caller may set — everything on the domain entity except its
@@ -102,3 +107,69 @@ class CompanyProfileService:
                     new_value=str(new_value) if new_value is not None else None,
                 )
         return profile
+
+
+# Fields score_profile() actually reads from a CompanyProfile — kept
+# explicit (rather than dumping every ORM column) so an unrelated future
+# column addition to company_profile never silently changes sizing input
+# without a deliberate update here.
+_SIZING_INPUT_FIELDS = (
+    "employee_count",
+    "branch_count",
+    "cost_center_tracking_needed",
+    "is_service_business",
+    "warehouse_count",
+    "monthly_sales_order_volume",
+    "monthly_purchase_order_volume",
+    "sku_count_estimate",
+    "coa_depth_preference",
+    "multi_currency_requested",
+    "withholding_tax_needed",
+    "owns_fixed_assets",
+    "fixed_asset_count_estimate",
+    "approval_rigor_preference",
+    "desired_user_count",
+    "two_factor_required",
+)
+
+
+class SizingEngineService:
+    """docs/adaptive/04-erp-sizing-engine-spec.md. Deterministic: the same
+    (profile, active rule_version) always produces the same SizingResult
+    -- score_profile() is a pure function (application/sizing_rules.py),
+    this service only handles fetching the inputs and persisting the
+    output."""
+
+    def __init__(
+        self,
+        profile_repo: CompanyProfileRepository,
+        rule_set_repo: SizingRuleSetRepository,
+        result_repo: SizingResultRepository,
+    ):
+        self.profile_repo = profile_repo
+        self.rule_set_repo = rule_set_repo
+        self.result_repo = result_repo
+
+    async def compute(self, *, tenant_id: UUID, company_id: UUID) -> SizingResult:
+        profile = await self.profile_repo.get_by_company(company_id)
+        if profile is None:
+            raise LookupError("No company_profile exists for this company yet — create one first")
+
+        rule_set = await self.rule_set_repo.get_active()
+        if rule_set is None:
+            raise LookupError("No active sizing_rule_set exists — this is a deployment/seed problem, not a user error")
+
+        profile_values = {name: getattr(profile, name) for name in _SIZING_INPUT_FIELDS}
+        dimension_scores = score_profile(profile_values, rule_set.rules)
+
+        result = SizingResult(
+            tenant_id=tenant_id,
+            company_id=company_id,
+            company_profile_id=profile.id,
+            rule_version=rule_set.version,
+            dimension_scores={dim: {"score": ds.score, "reason": ds.reason} for dim, ds in dimension_scores.items()},
+        )
+        return await self.result_repo.add(result)
+
+    async def get_latest(self, *, company_id: UUID) -> SizingResult | None:
+        return await self.result_repo.get_latest_for_company(company_id)

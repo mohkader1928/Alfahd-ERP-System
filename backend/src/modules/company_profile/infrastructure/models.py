@@ -8,8 +8,20 @@ additive and risk-free to that table's shape (docs/adaptive/02
 §2.2, docs/adaptive/03 "Data model implication").
 """
 
-from sqlalchemy import Boolean, CheckConstraint, Integer, SmallInteger, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB
+import uuid
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.shared.infrastructure.db.base import Base, TenantScopedMixin
@@ -68,3 +80,32 @@ class CompanyProfile(Base, TenantScopedMixin):
             name="ck_company_profile_coa_depth",
         ),
     )
+
+
+class SizingRuleSet(Base):
+    """Versioned Sizing Engine weights/thresholds (docs/adaptive/04 §4.3).
+
+    Deliberately NOT tenant-scoped — this is a global rule catalog shared
+    by every company, the same kind of table as the Core's own
+    `Permission`/`Currency`/`AccountType` (seeded reference data, no
+    company_id, no RLS needed)."""
+
+    __tablename__ = "sizing_rule_set"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    version: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    rules: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))
+
+
+class SizingResult(Base, TenantScopedMixin):
+    __tablename__ = "sizing_result"
+
+    company_profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company_profile.id"), nullable=False, index=True
+    )
+    rule_version: Mapped[str] = mapped_column(Text, nullable=False)
+    dimension_scores: Mapped[dict] = mapped_column(JSONB, nullable=False)

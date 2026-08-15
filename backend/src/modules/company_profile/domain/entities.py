@@ -16,6 +16,18 @@ from dataclasses import dataclass, field
 
 APPROVAL_RIGOR_LEVELS = ("low", "medium", "high")
 
+# docs/adaptive/04-erp-sizing-engine-spec.md §4.2 — the 8 initial dimensions.
+SIZING_DIMENSIONS = (
+    "organizational_complexity",
+    "transaction_volume",
+    "inventory_complexity",
+    "financial_complexity",
+    "tax_compliance_complexity",
+    "asset_complexity",
+    "approval_governance_complexity",
+    "security_access_complexity",
+)
+
 
 @dataclass
 class CompanyProfile:
@@ -83,3 +95,33 @@ class CompanyProfile:
             value = getattr(self, field_name)
             if value is not None and value < 0:
                 raise ValueError(f"{field_name} cannot be negative")
+
+
+@dataclass(frozen=True)
+class DimensionScore:
+    """One Sizing Engine dimension's result — docs/adaptive/04 §4.4
+    (Explainability): a score alone is never valid without its reason."""
+
+    score: int
+    reason: str
+
+    def __post_init__(self) -> None:
+        if not (0 <= self.score <= 100):
+            raise ValueError("score must be between 0 and 100")
+        if not self.reason:
+            raise ValueError("reason is required — a score without an explanation is not valid output")
+
+
+@dataclass
+class SizingResult:
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    company_id: uuid.UUID
+    company_profile_id: uuid.UUID
+    rule_version: str
+    dimensions: dict[str, DimensionScore] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        missing = set(SIZING_DIMENSIONS) - set(self.dimensions)
+        if missing:
+            raise ValueError(f"missing dimension scores: {sorted(missing)}")
