@@ -60,6 +60,46 @@ That off-host copy step does not exist yet; treat it as a prerequisite
 before you trust this procedure for a real production database, not just a
 dev one.
 
+## 1a. Off-host backup (keeping a copy that survives losing this machine)
+
+A local `.dump` file only protects you if *this disk* survives. `infra/backup/copy_offhost.sh` copies the most recent backup to any destination path you point it at — an external drive, a mapped network/NAS share, or a locally-synced cloud-storage folder (OneDrive, Dropbox, Google Drive, etc. — once synced, these are all just ordinary filesystem paths, so this needs **no cloud API and no credentials**):
+
+```bash
+DEST_DIR="D:/erp-backups" bash infra/backup/copy_offhost.sh
+DEST_DIR="//nas-box/backups/erp" bash infra/backup/copy_offhost.sh
+DEST_DIR="D:/erp-backups" RETENTION=14 bash infra/backup/copy_offhost.sh   # also prune to the 14 most recent
+```
+
+It verifies the copy is byte-identical (size check + SHA256, if a `.sha256` sidecar exists) before declaring success — a copy that silently truncated is worse than no copy, because it looks like it worked.
+
+**Honest status as of Stage 0 Closure**: this script's logic was tested and works (copy + checksum verification + retention pruning, verified against a local test directory). **No genuinely off-host copy has actually been made** — this development machine has no external drive, mapped NAS share, or cloud-sync folder configured in this session to point `DEST_DIR` at. This is not something to fake: run the command above yourself, pointed at wherever you actually want a second copy to live, the first time you have one available. If your chosen destination needs real credentials (e.g. a cloud provider's API instead of a synced folder), do not put them in this repo or in this script — read them from an environment variable at run time on the machine that runs the backup, the same pattern every other credential in this project already follows (§12 of `20-developer-guide.md`).
+
+**Retention**: `RETENTION=<N>` on `copy_offhost.sh` keeps the N most recent backups at the destination and deletes older ones. Pick N based on how far back you might need to recover and how much space you have — there's no single right answer; 14 daily backups (two weeks) is a reasonable starting point for a small system like this one.
+
+**Backup verification**: `backup_db.sh` already verifies structural validity (`pg_restore --list`) and writes a SHA256 checksum at creation time (§3 below). `copy_offhost.sh` re-verifies that checksum after every copy.
+
+**Restore verification**: verifying a backup opens != verifying it *restores correctly*. Periodically (monthly is reasonable) actually run the restore procedure (§4) into a throwaway container, the same way Stage 0 did — do not assume a checksum-valid backup is a restorable one; only actually restoring it proves that.
+
+**Recommended frequency**: daily, plus always immediately before a deploy or migration (§1's own "when to run this"). More frequent than daily is reasonable once real customer data exists and every day of loss matters more.
+
+## 1b. Automating the backup (so it doesn't depend on a human remembering)
+
+Two ready-to-run options — pick whichever matches how this is actually deployed. **Neither is registered automatically by this repo** — a recurring scheduled task is a standing change to the machine it runs on, and enabling it is a deliberate decision for whoever operates that machine to make, not something to switch on silently. Copy-paste the command for your platform when you're ready:
+
+**Windows (Task Scheduler)** — runs daily at 02:00, backup then off-host copy:
+```powershell
+schtasks /create /tn "ERP Nightly Backup" /tr "\"C:\Program Files\Git\bin\bash.exe\" -c \"cd '/c/Users/L/Desktop/claude apps/erp-system' && bash infra/backup/backup_db.sh && DEST_DIR='D:/erp-backups' RETENTION=14 bash infra/backup/copy_offhost.sh\"" /sc daily /st 02:00
+```
+Adjust the repo path and `DEST_DIR` for your actual setup. Verify it's registered: `schtasks /query /tn "ERP Nightly Backup"`. Remove it: `schtasks /delete /tn "ERP Nightly Backup" /f`.
+
+**Linux/WSL/production server (cron)** — same schedule:
+```cron
+0 2 * * * cd /path/to/erp-system && bash infra/backup/backup_db.sh && DEST_DIR=/mnt/erp-backups RETENTION=14 bash infra/backup/copy_offhost.sh >> /var/log/erp-backup.log 2>&1
+```
+Add via `crontab -e`.
+
+Both options: (1) require nothing beyond what's already in this repo, (2) run with no AI/Claude involved at all, (3) log their own output, so a failure is visible without needing anyone to have been watching when it ran.
+
 ## 3. How to verify a backup
 
 The backup script already does this automatically (`pg_restore --list`
