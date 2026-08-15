@@ -85,6 +85,15 @@ jobs:
           APP_ENV: test
         run: alembic upgrade head
 
+      # DIAGNOSTIC ONLY (Stage 0 Closure CI investigation) — the backend job
+      # fails at this exact step on GitHub with pytest exit code 4 ("usage
+      # error") in ~4 seconds, while the identical setup (fresh empty DB,
+      # same bootstrap/migrate sequence, same commands) passes 466/0
+      # locally. This temporarily raises verbosity and echoes the tail of
+      # the output as `::error::` annotations so the real traceback is
+      # readable via GitHub's public annotations API without needing
+      # repo-admin log-download rights. Revert to plain `pytest -q` once
+      # root cause is found — this is not the intended long-term step.
       - name: Pytest
         env:
           DATABASE_URL: postgresql+asyncpg://erp_app:ci_app_password@localhost:5432/erp_nucleus
@@ -97,7 +106,17 @@ jobs:
           APP_ENV: test
           LOG_LEVEL: INFO
           CORS_ORIGINS: http://localhost:3000
-        run: pytest -q
+        run: |
+          set +e
+          pytest -vv --tb=long -p no:cacheprovider > /tmp/pytest_output.log 2>&1
+          EXIT=$?
+          echo "pytest exit code: $EXIT"
+          tail -c 6000 /tmp/pytest_output.log > /tmp/pytest_tail.log
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error::$line"
+          done < /tmp/pytest_tail.log
+          cat /tmp/pytest_output.log
+          exit $EXIT
 
   frontend:
     runs-on: ubuntu-latest
