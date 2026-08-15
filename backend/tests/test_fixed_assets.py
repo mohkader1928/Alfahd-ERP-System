@@ -177,7 +177,7 @@ async def test_dispose_asset_posts_gain_and_blocks_further_action(client):
     assert dispose.status_code == 200, dispose.text
     body = dispose.json()
     assert body["status"] == "disposed"
-    assert body["disposal_proceeds"] == "1300.00"
+    assert body["disposal_proceeds"] == "1300.0000"  # NUMERIC(18,4), same convention as every other decimal in this file
 
     tb = await client.get(
         "/api/v1/accounting/reports/trial-balance",

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.identity.infrastructure.repositories import AuditLogRepository
 from src.modules.inventory.domain.entities import InsufficientStockError
 from src.modules.sales.api.deps import (
     get_idempotency_key_repo,
@@ -210,6 +211,21 @@ async def issue_invoice(
     except (ValueError, InsufficientStockError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
+    # P0-C (Phase-One closure): invoice issuance had no audit trail at all.
+    # Mirrors the journal-entry status-transition audit entries in
+    # accounting/api/routes.py — old_value=None since this is a creation
+    # event, not an edit of an existing row.
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="sales_invoice",
+        target_id=invoice.id,
+        field_name="status",
+        old_value=None,
+        new_value=invoice.status,
+    )
+
     await db.commit()
 
     if submission.status == "pending_submission":
@@ -269,6 +285,18 @@ async def issue_credit_note(
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    # P0-C: same rationale as invoice issuance above.
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="sales_invoice",
+        target_id=credit_note.id,
+        field_name="status",
+        old_value=None,
+        new_value=credit_note.status,
+    )
 
     response = InvoiceIssueResponse(invoice=credit_note, zatca_submission=submission)
 
@@ -332,6 +360,18 @@ async def issue_credit_note_for_lines(
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    # P0-C: same rationale as invoice issuance above.
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="sales_invoice",
+        target_id=credit_note.id,
+        field_name="status",
+        old_value=None,
+        new_value=credit_note.status,
+    )
 
     response = InvoiceIssueResponse(invoice=credit_note, zatca_submission=submission)
 

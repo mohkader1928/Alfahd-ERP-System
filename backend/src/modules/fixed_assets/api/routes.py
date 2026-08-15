@@ -35,7 +35,7 @@ from src.modules.fixed_assets.application.services import (
 from src.modules.fixed_assets.domain.entities import AssetAlreadyDisposedError
 from src.modules.fixed_assets.infrastructure.repositories import FixedAssetCategoryRepository
 from src.modules.identity.api.deps import get_company_repo
-from src.modules.identity.infrastructure.repositories import CompanyRepository
+from src.modules.identity.infrastructure.repositories import AuditLogRepository, CompanyRepository
 from src.shared.infrastructure.db.session import get_db
 from src.shared.reporting.company_name import resolve_company_name
 from src.shared.reporting.export_render import ReportColumn, ReportTable
@@ -427,6 +427,23 @@ async def run_depreciation(
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
+    # P0-C (Phase-One closure): depreciation runs had no audit trail at
+    # all — one entry per asset actually posted this run (skipped assets
+    # aren't audit-worthy, nothing changed for them). Same field-name
+    # convention as the other P0-C entries: old_value=None marks a
+    # creation event, not an edit of an existing row.
+    for posted_row in result["posted"]:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="fixed_asset",
+            target_id=posted_row["asset_id"],
+            field_name="depreciation_posted",
+            old_value=None,
+            new_value=f"{posted_row['amount']} for {result['period_month'].isoformat()[:7]}",
+        )
+
     await db.commit()
     return result
 
@@ -452,6 +469,20 @@ async def dispose_fixed_asset(
         )
     except (AssetAlreadyDisposedError, ValueError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    # P0-C: disposal had no audit trail at all — disposed_at is the field
+    # that actually marks the transition (see models.py's docstring on why
+    # FixedAsset has no separate status column).
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="fixed_asset",
+        target_id=asset_id,
+        field_name="disposed_at",
+        old_value=None,
+        new_value=payload.disposal_date.isoformat(),
+    )
 
     result = await service.get_asset(ctx.company_id, asset_id)  # see comment in create_fixed_asset
     await db.commit()
