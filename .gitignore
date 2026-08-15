@@ -31,3 +31,8 @@ next-env.d.ts
 
 # OS/editor
 .DS_Store
+
+# Database backup artifacts (Stage 0 — Golden Baseline Protection). The
+# backup/restore *scripts* are tracked; the dumps they produce are large,
+# environment-specific, and may contain real data — never commit them.
+infra/backup/artifacts/

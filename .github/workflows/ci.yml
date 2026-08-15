@@ -1,0 +1,123 @@
+name: CI
+
+# Stage 0 (Adaptive ERP — Golden Baseline Protection): the minimal safety
+# net this project didn't have before — backend tests + ruff, frontend
+# typecheck + eslint, on every push/PR to main. Deliberately not more than
+# this yet (no build/deploy, no Docker image publish, no coverage gates) —
+# see docs/21-disaster-recovery-and-rollback.md and the Stage 0 final
+# report for why.
+#
+# No repository secrets are used or required. The Postgres credentials
+# below exist only inside this ephemeral CI service container, are
+# meaningless outside it, and are not the same as any real environment's
+# credentials.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: erp
+          POSTGRES_PASSWORD: ci_bootstrap_password
+          POSTGRES_DB: erp_nucleus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U erp -d erp_nucleus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir uv
+          uv pip install --system -e ".[dev]"
+
+      - name: Ruff
+        # Scoped to src/ (matches this project's documented convention —
+        # see docs/20-developer-guide.md §11 — not `ruff check .`:
+        # migrations/ contains Alembic-generated boilerplate using an older
+        # typing style the project deliberately doesn't hold to the same
+        # UP-rule standard as hand-written code).
+        run: ruff check src/
+
+      - name: Bootstrap erp_migrate / erp_app roles
+        env:
+          DATABASE_URL_BOOTSTRAP_SYNC: postgresql://erp:ci_bootstrap_password@localhost:5432/erp_nucleus
+          POSTGRES_DB: erp_nucleus
+          ERP_MIGRATE_PASSWORD: ci_migrate_password
+          ERP_APP_PASSWORD: ci_app_password
+        run: python -m src.scripts.bootstrap_db_roles
+
+      - name: Run migrations
+        env:
+          DATABASE_URL_MIGRATE_SYNC: postgresql+psycopg2://erp_migrate:ci_migrate_password@localhost:5432/erp_nucleus
+          DATABASE_URL: postgresql+asyncpg://erp_migrate:ci_migrate_password@localhost:5432/erp_nucleus
+          DATABASE_URL_SYNC: postgresql+psycopg2://erp_migrate:ci_migrate_password@localhost:5432/erp_nucleus
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: ci-only-not-a-real-secret
+          APP_ENV: test
+        run: alembic upgrade head
+
+      - name: Pytest
+        env:
+          DATABASE_URL: postgresql+asyncpg://erp_app:ci_app_password@localhost:5432/erp_nucleus
+          DATABASE_URL_SYNC: postgresql+psycopg2://erp_app:ci_app_password@localhost:5432/erp_nucleus
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: ci-only-not-a-real-secret
+          JWT_ALGORITHM: HS256
+          JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+          JWT_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+          APP_ENV: test
+          LOG_LEVEL: INFO
+          CORS_ORIGINS: http://localhost:3000
+        run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npm run lint

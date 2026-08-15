@@ -96,6 +96,8 @@ Lint: `docker exec erp-nucleus-api-1 python -m ruff check src/`. Frontend: `npx 
 
 [`14-deployment.md`](14-deployment.md) is the authoritative doc — production Dockerfiles, `docker-compose.prod.yml`, nginx reverse proxy, migration runbook. Not re-derived here.
 
+Backup, restore, and disaster recovery: [`21-disaster-recovery-and-rollback.md`](21-disaster-recovery-and-rollback.md) (Stage 0) — step-by-step, no AI assistant assumed. Scripts live at `infra/backup/backup_db.sh` and `infra/backup/restore_db.sh`.
+
 ## 14. ZATCA / VAT integration
 
 `modules/zatca/` — hash-chain (`infrastructure/hash_chain.py`, `GENESIS_HASH`), clearance (tax invoices, synchronous) vs. reporting (simplified invoices, async via Celery — see §19) submission paths. Tax rates are configurable data (`accounting.tax_rate` table + `GET /accounting/tax-rates`), not a hardcoded percentage — every VAT calculation site in `sales`/`purchasing` resolves a real `tax_rate_id` per line.
@@ -127,6 +129,8 @@ Moving-average costing. `StockQuant`/`Layer` model under `modules/inventory/`; c
 ## 21. Release / versioning conventions
 
 Git tags mark completed milestones: `phase-one-pre-closure`, `phase-one-p0-1-vat-complete`, `phase-one-p0-2-period-closing-complete`, `phase-one-p0-3-2fa-complete`, and (this release) `phase-one-v1.0.0`. Commit messages follow a `<Area>: <what changed>` convention with the *why* in the body, not the subject line — read recent `git log` for the house style before writing one. One concern per commit; full regression + ruff/tsc/eslint before every commit that touches runtime code.
+
+Each tagged release should have a release manifest recording its exact identity (SHA, tag, migration head, component versions, required env var names, test status) — see [`22-release-manifest-v1.0.0.md`](22-release-manifest-v1.0.0.md) for the template, introduced in Stage 0. Write one for every future release, not just this one.
 
 ## 22. Post-Phase-One backlog (known, non-blocking)
 
