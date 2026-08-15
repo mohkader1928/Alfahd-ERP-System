@@ -19,6 +19,7 @@ from sqlalchemy import text
 
 import src.modules.accounting as accounting_module
 import src.modules.attachments as attachments_module
+import src.modules.company_profile as company_profile_module
 import src.modules.fixed_assets as fixed_assets_module
 import src.modules.identity as identity_module
 import src.modules.inventory as inventory_module
@@ -63,6 +64,10 @@ ENABLED_MODULES = [
     purchasing_module,
     payments_module,
     reporting_module,
+    # Adaptive ERP Stage 2 (docs/adaptive/) — Configuration Foundation.
+    # Read/write only against its own new tables in this stage; never
+    # touches Golden Core business logic (accounting/sales/inventory/etc).
+    company_profile_module,
 ]
 
 

@@ -143,6 +143,11 @@ PERMISSION_CATALOG = [
     ("fixed_assets.depreciation.run", "action"),
     ("fixed_assets.dispose", "action"),
     ("fixed_assets.category.manage", "action"),
+    # Adaptive ERP Stage 2.1 (docs/adaptive/06-configuration-engine-architecture.md
+    # §6.6) — Company Profile only in this stage; Sizing/Blueprint/
+    # Configuration permission codes are added in their own stages.
+    ("company_profile.view", "screen"),
+    ("company_profile.manage", "action"),
 ]
 
 
