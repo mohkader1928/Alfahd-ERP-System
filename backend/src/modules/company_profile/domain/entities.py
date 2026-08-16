@@ -173,3 +173,13 @@ class ErpBlueprint:
             raise ValueError(f"status must be one of {BLUEPRINT_STATUSES}")
         if self.version < 1:
             raise ValueError("version must be >= 1")
+
+
+# Stage 2.4 (Configuration Engine) -- Design & Safety Review v1 scope.
+# Only decisions with a key in this set are turned into a ConfigurationPlanItem;
+# everything else stays informational even if a future Blueprint marks it
+# actionable=True, until this set is deliberately extended.
+SUPPORTED_DECISION_KEYS = ("po_approval_threshold", "provision_role_templates")
+
+CONFIGURATION_PLAN_STATUSES = ("draft", "validated", "applied", "failed")
+CONFIGURATION_PLAN_ITEM_STATUSES = ("pending", "skipped_already_applied", "applied", "failed")

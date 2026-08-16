@@ -19,7 +19,7 @@ DECISION_KEYS = {
     "provision_additional_branch",
     "recommended_edition_label",
 }
-ACTIONABLE_KEYS = {"po_approval_threshold", "provision_role_templates", "provision_additional_branch"}
+ACTIONABLE_KEYS = {"po_approval_threshold", "provision_role_templates"}
 
 
 async def _bootstrap_and_login(client, label="BP"):
@@ -95,6 +95,11 @@ async def test_generate_returns_all_decisions_with_honest_tagging(client):
     # the Core has no CRUD API for yet -- never silently applied.
     assert decisions["cost_center_tracking"]["category"] == "EXTENSIBLE"
     assert decisions["cost_center_tracking"]["actionable"] is False
+    # provision_additional_branch: downgraded in Stage 2.4 Design & Safety
+    # Review -- the decision carries no branch name and branch creation
+    # has no duplicate-guard or safe revert path, so it stays a capability
+    # gap rather than a workaround (see blueprint_rules.py comment).
+    assert decisions["provision_additional_branch"]["actionable"] is False
 
 
 async def test_po_approval_threshold_maps_from_rigor_preference(client):

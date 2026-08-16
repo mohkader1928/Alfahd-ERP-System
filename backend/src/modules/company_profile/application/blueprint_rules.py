@@ -142,9 +142,15 @@ def generate_decisions(
         )
     )
 
-    # CONFIGURABLE, actionable -- additional branch provisioning.
-    # POST /companies/{id}/branches already exists (docs/adaptive/02 §2.3),
-    # so this is genuinely actionable, unlike cost centers above.
+    # CONFIGURABLE, NOT actionable (Stage 2.4 Design & Safety Review §2.3).
+    # POST /companies/{id}/branches exists, but this decision as modeled is
+    # boolean-only -- it carries no branch name/name_ar, so there is no
+    # concrete input to actually call that endpoint with. Branch creation
+    # also has zero duplicate-guard and no safe deletion path, so even a
+    # named decision couldn't be safely auto-applied or reverted yet. A
+    # real capability gap, not a workaround target -- stays informational
+    # until a future stage extends the decision model with a name and a
+    # safe apply/revert story.
     branch_threshold = thresholds.get("organizational_complexity_branch_threshold", 60)
     recommend_second_branch = org_score >= branch_threshold and (profile.get("branch_count") or 1) <= 1
     decisions.append(
@@ -152,8 +158,13 @@ def generate_decisions(
             key="provision_additional_branch",
             category="CONFIGURABLE",
             decision=recommend_second_branch,
-            reason=f"organizational_complexity score={org_score} (threshold={branch_threshold}), branch_count={profile.get('branch_count')!r}",
-            actionable=True,
+            reason=(
+                f"organizational_complexity score={org_score} (threshold={branch_threshold}), "
+                f"branch_count={profile.get('branch_count')!r} -- NOT actionable today: the decision "
+                "carries no branch name, POST /companies/{id}/branches has no duplicate-guard, and "
+                "there is no safe way to revert a created branch (see gap analysis)."
+            ),
+            actionable=False,
         )
     )
 

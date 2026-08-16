@@ -100,3 +100,33 @@ class ErpBlueprintOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ConfigurationPlanItemOut(BaseModel):
+    id: UUID
+    plan_id: UUID
+    decision_key: str
+    target_type: str
+    action: str
+    payload: dict[str, Any]
+    status: str
+    result: dict[str, Any]
+    error_message: str | None
+    applied_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ConfigurationPlanOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    blueprint_id: UUID
+    status: str
+    validated_at: datetime | None
+    applied_at: datetime | None
+    failure_reason: str | None
+    created_at: datetime
+    items: list[ConfigurationPlanItemOut] = []
+
+    model_config = {"from_attributes": True}

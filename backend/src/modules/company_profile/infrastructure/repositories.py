@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.company_profile.infrastructure.models import (
     CompanyProfile,
+    ConfigurationPlan,
+    ConfigurationPlanItem,
     ErpBlueprint,
     SizingResult,
     SizingRuleSet,
@@ -102,3 +104,60 @@ class ErpBlueprintRepository:
     async def get_next_version(self, company_id: UUID) -> int:
         latest = await self.get_latest_for_company(company_id)
         return 1 if latest is None else latest.blueprint_version + 1
+
+    async def get_approved_for_company(self, company_id: UUID) -> ErpBlueprint | None:
+        """At most one row can ever be status='approved' per company
+        (BlueprintService.approve() supersedes the prior one) -- this is
+        the single source of truth Configuration Plan creation reads."""
+        result = await self.session.execute(
+            select(ErpBlueprint).where(ErpBlueprint.company_id == company_id, ErpBlueprint.status == "approved")
+        )
+        return result.scalar_one_or_none()
+
+
+class ConfigurationPlanRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, plan: ConfigurationPlan) -> ConfigurationPlan:
+        self.session.add(plan)
+        await self.session.flush()
+        return plan
+
+    async def get_by_id(self, plan_id: UUID) -> ConfigurationPlan | None:
+        result = await self.session.execute(select(ConfigurationPlan).where(ConfigurationPlan.id == plan_id))
+        return result.scalar_one_or_none()
+
+    async def get_by_company_and_blueprint(self, company_id: UUID, blueprint_id: UUID) -> ConfigurationPlan | None:
+        result = await self.session.execute(
+            select(ConfigurationPlan).where(
+                ConfigurationPlan.company_id == company_id, ConfigurationPlan.blueprint_id == blueprint_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_for_company(self, company_id: UUID) -> list[ConfigurationPlan]:
+        result = await self.session.execute(
+            select(ConfigurationPlan)
+            .where(ConfigurationPlan.company_id == company_id)
+            .order_by(ConfigurationPlan.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+
+class ConfigurationPlanItemRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, item: ConfigurationPlanItem) -> ConfigurationPlanItem:
+        self.session.add(item)
+        await self.session.flush()
+        return item
+
+    async def list_for_plan(self, plan_id: UUID) -> list[ConfigurationPlanItem]:
+        result = await self.session.execute(
+            select(ConfigurationPlanItem)
+            .where(ConfigurationPlanItem.plan_id == plan_id)
+            .order_by(ConfigurationPlanItem.decision_key)
+        )
+        return list(result.scalars().all())

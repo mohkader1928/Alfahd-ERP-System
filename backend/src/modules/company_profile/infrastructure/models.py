@@ -138,3 +138,60 @@ class ErpBlueprint(Base, TenantScopedMixin):
         UniqueConstraint("company_id", "blueprint_version", name="ux_erp_blueprint_company_version"),
         CheckConstraint("status IN ('draft','approved','superseded')", name="ck_erp_blueprint_status"),
     )
+
+
+class ConfigurationPlan(Base, TenantScopedMixin):
+    """docs/adaptive/06 §6.1 -- one row per attempt to apply a specific
+    approved Blueprint version to a company. `UniqueConstraint(company_id,
+    blueprint_id)` is the first of several duplicate-application guards
+    (Stage 2.4 Design & Safety Review §3.3 point 7): a second Plan can
+    never be created for the same (company, blueprint) pair."""
+
+    __tablename__ = "configuration_plan"
+
+    blueprint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("erp_blueprint.id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
+    validated_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "blueprint_id", name="ux_configuration_plan_company_blueprint"),
+        CheckConstraint(
+            "status IN ('draft','validated','applied','failed')", name="ck_configuration_plan_status"
+        ),
+    )
+
+
+class ConfigurationPlanItem(Base, TenantScopedMixin):
+    """One row per actionable decision within a ConfigurationPlan. `result`
+    carries whatever the apply step actually did (e.g. {"role_id": "...",
+    "role_name": "..."} or {"old_value": ..., "new_value": ...}) -- this,
+    together with `plan_id` -> plan.blueprint_id -> blueprint.decisions[key],
+    is the traceability chain the governing approval required: every Role
+    created by the Configuration Engine can be traced back to its company,
+    plan, plan item, blueprint, decision_key, actor (plan.created_by /
+    applied via AuditLog user_id) and timestamp."""
+
+    __tablename__ = "configuration_plan_item"
+
+    plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("configuration_plan.id"), nullable=False, index=True
+    )
+    decision_key: Mapped[str] = mapped_column(Text, nullable=False)
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','skipped_already_applied','applied','failed')",
+            name="ck_configuration_plan_item_status",
+        ),
+    )

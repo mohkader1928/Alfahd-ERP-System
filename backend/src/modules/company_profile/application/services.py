@@ -8,24 +8,41 @@ module per docs/adaptive/06-configuration-engine-architecture.md §6.2).
 import uuid
 from dataclasses import fields
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.modules.company_profile.application.blueprint_rules import generate_decisions
+from src.modules.company_profile.application.configuration_rules import build_plan_items
 from src.modules.company_profile.application.sizing_rules import score_profile
 from src.modules.company_profile.domain.entities import CompanyProfile as CompanyProfileDomain
 from src.modules.company_profile.infrastructure.models import (
     CompanyProfile,
+    ConfigurationPlan,
+    ConfigurationPlanItem,
     ErpBlueprint,
     SizingResult,
 )
 from src.modules.company_profile.infrastructure.repositories import (
     CompanyProfileRepository,
+    ConfigurationPlanItemRepository,
+    ConfigurationPlanRepository,
     ErpBlueprintRepository,
     SizingResultRepository,
     SizingRuleSetRepository,
 )
+from src.modules.identity.application.services import CompanyService, UserManagementService
+from src.modules.identity.infrastructure.models import Role
 from src.modules.identity.infrastructure.repositories import AuditLogRepository
+
+
+class ConfigurationApplyError(Exception):
+    """Raised by ConfigurationEngineService._apply_item() to abort the
+    current Apply attempt cleanly -- caught by apply() to trigger the
+    nested-transaction rollback and mark the Plan/item as failed."""
 
 # Fields a caller may set — everything on the domain entity except its
 # identity columns (id/tenant_id/company_id), which are never client-supplied
@@ -271,3 +288,219 @@ class BlueprintService:
 
     async def get_latest(self, *, company_id: UUID) -> ErpBlueprint | None:
         return await self.blueprint_repo.get_latest_for_company(company_id)
+
+
+# The 4 canonical role-template names UserManagementService.seed_default_role_templates()
+# (backend/src/modules/identity/application/services.py) creates as one atomic batch.
+# ConfigurationEngineService needs to know these NAMES (not their permission
+# codes) to decide, per company, whether that batch has already run --
+# seed_default_role_templates() has no per-name existence check of its own,
+# so calling it again on a company that already has some/all of them would
+# create duplicates (Stage 2.4 Design & Safety Review §2.2).
+CANONICAL_ROLE_TEMPLATE_NAMES = ("Accountant", "Sales", "Purchasing & Warehouse", "Read-Only Viewer")
+
+
+class ConfigurationEngineService:
+    """docs/adaptive/06-configuration-engine-architecture.md §6.1, narrowed
+    to the Stage 2.4 v1 scope approved in the Design & Safety Review:
+    Approved Blueprint -> Configuration Plan -> Validation -> Apply ->
+    Verification -> Audit. Only two decision keys are ever turned into
+    plan items (see application/configuration_rules.SUPPORTED_DECISION_KEYS)
+    -- po_approval_threshold (Company.po_approval_threshold, via the one
+    approved identity exception CompanyService.set_po_approval_threshold)
+    and provision_role_templates (via the existing, unmodified
+    UserManagementService.seed_default_role_templates() / create_role()).
+
+    Every write happens through the SAME AsyncSession/AuthContext as the
+    triggering request -- no second DB connection, no elevated context, no
+    company_id ever taken from anywhere but the approved Blueprint itself.
+    """
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        blueprint_repo: ErpBlueprintRepository,
+        plan_repo: ConfigurationPlanRepository,
+        item_repo: ConfigurationPlanItemRepository,
+        company_service: CompanyService,
+        user_management_service: UserManagementService,
+        audit_repo: AuditLogRepository,
+    ):
+        self.session = session
+        self.blueprint_repo = blueprint_repo
+        self.plan_repo = plan_repo
+        self.item_repo = item_repo
+        self.company_service = company_service
+        self.user_management_service = user_management_service
+        self.audit_repo = audit_repo
+
+    async def create_plan(self, *, tenant_id: UUID, company_id: UUID, user_id: UUID | None) -> ConfigurationPlan:
+        blueprint = await self.blueprint_repo.get_approved_for_company(company_id)
+        if blueprint is None:
+            raise LookupError("No approved Blueprint exists for this company -- approve one first")
+
+        existing = await self.plan_repo.get_by_company_and_blueprint(company_id, blueprint.id)
+        if existing is not None:
+            raise ValueError(
+                f"A Configuration Plan already exists for this Blueprint version (plan_id={existing.id})"
+            )
+
+        plan = ConfigurationPlan(
+            tenant_id=tenant_id, company_id=company_id, blueprint_id=blueprint.id, status="draft", created_by=user_id
+        )
+        plan = await self.plan_repo.add(plan)
+
+        for spec in build_plan_items(blueprint.decisions):
+            await self.item_repo.add(
+                ConfigurationPlanItem(
+                    tenant_id=tenant_id,
+                    company_id=company_id,
+                    plan_id=plan.id,
+                    decision_key=spec["decision_key"],
+                    target_type=spec["target_type"],
+                    action=spec["action"],
+                    payload=spec["payload"],
+                    status="pending",
+                    created_by=user_id,
+                )
+            )
+        return plan
+
+    async def validate(self, *, plan_id: UUID, company_id: UUID) -> ConfigurationPlan:
+        plan = await self.plan_repo.get_by_id(plan_id)
+        if plan is None or plan.company_id != company_id:
+            raise LookupError("Configuration Plan not found")
+        if plan.status != "draft":
+            raise ValueError(f"Only a draft Plan can be validated (current status: {plan.status!r})")
+
+        blueprint = await self.blueprint_repo.get_by_id(plan.blueprint_id)
+        if blueprint is None or blueprint.status != "approved":
+            plan.status = "failed"
+            plan.failure_reason = "Blueprint is no longer approved"
+            return plan
+
+        plan.status = "validated"
+        plan.validated_at = datetime.now(UTC).replace(tzinfo=None)
+        return plan
+
+    async def apply(
+        self, *, plan_id: UUID, tenant_id: UUID, company_id: UUID, user_id: UUID | None
+    ) -> ConfigurationPlan:
+        plan = await self.plan_repo.get_by_id(plan_id)
+        if plan is None or plan.company_id != company_id:
+            raise LookupError("Configuration Plan not found")
+        if plan.status not in ("validated", "applied", "failed"):
+            raise ValueError(f"Plan must be validated before it can be applied (current status: {plan.status!r})")
+
+        # Re-checked fresh every time, including idempotent re-runs -- if a
+        # newer Blueprint has since been approved (superseding this one),
+        # Apply refuses rather than applying a stale decision set
+        # (Stage 2.4 Design & Safety Review §3.3 point 6).
+        blueprint = await self.blueprint_repo.get_by_id(plan.blueprint_id)
+        if blueprint is None or blueprint.status != "approved":
+            plan.status = "failed"
+            plan.failure_reason = "Blueprint is no longer approved (superseded or missing) -- Apply refused"
+            return plan
+
+        items = await self.item_repo.list_for_plan(plan.id)
+        failed_item: ConfigurationPlanItem | None = None
+        try:
+            async with self.session.begin_nested():
+                for item in items:
+                    failed_item = item
+                    await self._apply_item(item, tenant_id=tenant_id, company_id=company_id, user_id=user_id)
+                failed_item = None
+        except Exception as exc:
+            # Nested rollback above already reverted every write attempted
+            # inside this Apply call (Company field + any Role rows) -- the
+            # mutations below happen OUTSIDE the rolled-back savepoint, so
+            # only the failure record itself survives to the outer commit.
+            plan.status = "failed"
+            plan.failure_reason = str(exc)
+            if failed_item is not None:
+                failed_item.status = "failed"
+                failed_item.error_message = str(exc)
+            return plan
+
+        plan.status = "applied"
+        plan.applied_at = datetime.now(UTC).replace(tzinfo=None)
+        plan.failure_reason = None
+        return plan
+
+    async def _apply_item(
+        self, item: ConfigurationPlanItem, *, tenant_id: UUID, company_id: UUID, user_id: UUID | None
+    ) -> None:
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        if item.decision_key == "po_approval_threshold":
+            raw_value = item.payload["value"]
+            target = Decimal(str(raw_value)) if raw_value is not None else None
+            company, changed = await self.company_service.set_po_approval_threshold(
+                tenant_id=tenant_id, company_id=company_id, value=target, user_id=user_id
+            )
+            item.result = {
+                "field": "po_approval_threshold",
+                "new_value": str(target) if target is not None else None,
+                "current_value": str(company.po_approval_threshold)
+                if company.po_approval_threshold is not None
+                else None,
+            }
+            item.status = "applied" if changed else "skipped_already_applied"
+            item.applied_at = now
+            return
+
+        if item.decision_key == "provision_role_templates":
+            existing_result = await self.session.execute(
+                select(Role.name).where(
+                    Role.company_id == company_id, Role.name.in_(CANONICAL_ROLE_TEMPLATE_NAMES)
+                )
+            )
+            existing_names = set(existing_result.scalars().all())
+            target_names = set(item.payload["names"])
+
+            if target_names <= existing_names:
+                item.status = "skipped_already_applied"
+                item.result = {"already_existing": sorted(existing_names)}
+                item.applied_at = now
+                return
+
+            if existing_names:
+                # Partial state: seed_default_role_templates() is all-or-
+                # nothing and create_role() alone doesn't know per-template
+                # permission sets without duplicating identity's
+                # definitions -- reported as a gap, never guessed at or
+                # silently partially applied (Stage 2.4 Design & Safety
+                # Review's "no workaround for a capability gap" rule).
+                raise ConfigurationApplyError(
+                    f"Partial role-template state for this company (existing: {sorted(existing_names)}, "
+                    f"target: {sorted(target_names)}) -- Configuration Engine v1 only auto-provisions when "
+                    "none of the canonical templates exist yet; reconcile manually via Settings > Roles."
+                )
+
+            created_roles = await self.user_management_service.seed_default_role_templates(company_id=company_id)
+            for role in created_roles:
+                await self.audit_repo.record(
+                    tenant_id=tenant_id,
+                    company_id=company_id,
+                    user_id=user_id,
+                    target_table="role",
+                    target_id=role.id,
+                    field_name="name",
+                    old_value=None,
+                    new_value=role.name,
+                )
+            item.result = {"created": [{"role_id": str(r.id), "role_name": r.name} for r in created_roles]}
+            item.status = "applied"
+            item.applied_at = now
+            return
+
+        raise ConfigurationApplyError(f"No apply handler registered for decision_key {item.decision_key!r}")
+
+    async def get(self, *, plan_id: UUID) -> ConfigurationPlan | None:
+        return await self.plan_repo.get_by_id(plan_id)
+
+    async def list_items(self, *, plan_id: UUID) -> list[ConfigurationPlanItem]:
+        return await self.item_repo.list_for_plan(plan_id)
+
+    async def list_for_company(self, *, company_id: UUID) -> list[ConfigurationPlan]:
+        return await self.plan_repo.list_for_company(company_id)

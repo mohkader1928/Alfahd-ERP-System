@@ -153,6 +153,9 @@ PERMISSION_CATALOG = [
     ("configuration.blueprint.view", "screen"),
     ("configuration.blueprint.generate", "action"),
     ("configuration.blueprint.approve", "action"),
+    ("configuration.plan.view", "screen"),
+    ("configuration.plan.create", "action"),
+    ("configuration.plan.apply", "action"),
 ]
 
 

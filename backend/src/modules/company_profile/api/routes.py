@@ -15,25 +15,47 @@ from src.modules.company_profile.api.deps import (
     get_blueprint_service,
     get_company_profile_repo,
     get_company_profile_service,
+    get_configuration_engine_service,
     get_sizing_engine_service,
     require_permission,
 )
 from src.modules.company_profile.api.schemas import (
     CompanyProfileOut,
     CompanyProfileWriteRequest,
+    ConfigurationPlanItemOut,
+    ConfigurationPlanOut,
     ErpBlueprintOut,
     SizingResultOut,
 )
 from src.modules.company_profile.application.services import (
     BlueprintService,
     CompanyProfileService,
+    ConfigurationEngineService,
     SizingEngineService,
+)
+from src.modules.company_profile.infrastructure.models import (
+    ConfigurationPlan,
+    ConfigurationPlanItem,
 )
 from src.modules.company_profile.infrastructure.repositories import CompanyProfileRepository
 from src.shared.infrastructure.db.session import get_db
 from src.shared.security.auth_context import AuthContext
 
 router = APIRouter()
+
+
+def _plan_out(plan: ConfigurationPlan, items: list[ConfigurationPlanItem]) -> ConfigurationPlanOut:
+    return ConfigurationPlanOut(
+        id=plan.id,
+        company_id=plan.company_id,
+        blueprint_id=plan.blueprint_id,
+        status=plan.status,
+        validated_at=plan.validated_at,
+        applied_at=plan.applied_at,
+        failure_reason=plan.failure_reason,
+        created_at=plan.created_at,
+        items=[ConfigurationPlanItemOut.model_validate(i) for i in items],
+    )
 
 
 @router.get("", response_model=CompanyProfileOut)
@@ -195,3 +217,105 @@ async def approve_blueprint(
 
     await db.commit()
     return blueprint
+
+
+@router.post("/configuration-plan", response_model=ConfigurationPlanOut, status_code=status.HTTP_201_CREATED)
+async def create_configuration_plan(
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("configuration.plan.create")),
+    engine: ConfigurationEngineService = Depends(get_configuration_engine_service),
+):
+    """Stage 2.4 v1 (Design & Safety Review). company_id is taken only from
+    the approved Blueprint (never client-supplied); at most one Plan can
+    ever exist per (company, blueprint) pair -- DB UniqueConstraint plus a
+    pre-check here."""
+    try:
+        plan = await engine.create_plan(tenant_id=ctx.tenant_id, company_id=ctx.company_id, user_id=ctx.user_id)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+
+    items = await engine.list_items(plan_id=plan.id)
+    await db.commit()
+    return _plan_out(plan, items)
+
+
+@router.post("/configuration-plan/{plan_id}/validate", response_model=ConfigurationPlanOut)
+async def validate_configuration_plan(
+    plan_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("configuration.plan.create")),
+    engine: ConfigurationEngineService = Depends(get_configuration_engine_service),
+):
+    try:
+        plan = await engine.validate(plan_id=plan_id, company_id=ctx.company_id)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+
+    items = await engine.list_items(plan_id=plan.id)
+    await db.commit()
+    return _plan_out(plan, items)
+
+
+@router.post("/configuration-plan/{plan_id}/apply", response_model=ConfigurationPlanOut)
+async def apply_configuration_plan(
+    plan_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("configuration.plan.apply")),
+    engine: ConfigurationEngineService = Depends(get_configuration_engine_service),
+):
+    """Re-checks the source Blueprint is still 'approved' immediately
+    before writing, every call -- including idempotent re-runs on an
+    already-applied Plan. A failure mid-Apply rolls back every write made
+    in this attempt via a nested transaction; only the failure record
+    itself survives (Stage 2.4 Design & Safety Review §3.2/§3.3)."""
+    try:
+        plan = await engine.apply(
+            plan_id=plan_id, tenant_id=ctx.tenant_id, company_id=ctx.company_id, user_id=ctx.user_id
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+
+    items = await engine.list_items(plan_id=plan.id)
+    await db.commit()
+    return _plan_out(plan, items)
+
+
+@router.get("/configuration-plan/latest", response_model=ConfigurationPlanOut)
+async def get_latest_configuration_plan(
+    ctx: AuthContext = Depends(require_permission("configuration.plan.view")),
+    engine: ConfigurationEngineService = Depends(get_configuration_engine_service),
+):
+    plans = await engine.list_for_company(company_id=ctx.company_id)
+    if not plans:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No Configuration Plan exists for this company yet")
+    plan = plans[0]
+    items = await engine.list_items(plan_id=plan.id)
+    return _plan_out(plan, items)
+
+
+@router.get("/configuration-plan", response_model=list[ConfigurationPlanOut])
+async def list_configuration_plans(
+    ctx: AuthContext = Depends(require_permission("configuration.plan.view")),
+    engine: ConfigurationEngineService = Depends(get_configuration_engine_service),
+):
+    plans = await engine.list_for_company(company_id=ctx.company_id)
+    return [_plan_out(plan, await engine.list_items(plan_id=plan.id)) for plan in plans]
+
+
+@router.get("/configuration-plan/{plan_id}", response_model=ConfigurationPlanOut)
+async def get_configuration_plan(
+    plan_id: UUID,
+    ctx: AuthContext = Depends(require_permission("configuration.plan.view")),
+    engine: ConfigurationEngineService = Depends(get_configuration_engine_service),
+):
+    plan = await engine.get(plan_id=plan_id)
+    if plan is None or plan.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Configuration Plan not found")
+    items = await engine.list_items(plan_id=plan.id)
+    return _plan_out(plan, items)

@@ -32,6 +32,7 @@ from src.modules.identity.infrastructure.models import (
     Tenant,
 )
 from src.modules.identity.infrastructure.repositories import (
+    AuditLogRepository,
     BranchRepository,
     CompanyRepository,
     CurrencyRepository,
@@ -111,6 +112,49 @@ class CompanyRegistrationService:
         await self.branch_repo.add(branch)
 
         return company, branch
+
+
+class CompanyService:
+    """Adaptive ERP Stage 2.4 — the single, narrow exception approved for
+    the Golden Core in this stage (Stage 2.4 Design & Safety Review §2.1/§6).
+    `PATCH /companies/{id}` (see api/routes.py) is a full-replace endpoint —
+    every field on `CompanyUpdateRequest` is required or defaults to None,
+    so a caller supplying only `po_approval_threshold` would silently null
+    out `cr_number`/`fiscal_year_start_month` and overwrite `legal_name`/
+    `vat_number` with whatever it happened to send. The Configuration
+    Engine must never risk that: this method touches exactly one column."""
+
+    def __init__(self, company_repo: CompanyRepository, audit_repo: AuditLogRepository):
+        self.company_repo = company_repo
+        self.audit_repo = audit_repo
+
+    async def set_po_approval_threshold(
+        self, *, tenant_id: UUID, company_id: UUID, value: Decimal | None, user_id: UUID | None
+    ) -> tuple[Company, bool]:
+        """Returns (company, changed). changed=False (no write, no audit
+        entry) when `value` already equals the current threshold — the
+        idempotency check lives here, not just in the caller, so this
+        method is safe to call repeatedly with the same target value."""
+        company = await self.company_repo.get_by_id(company_id)
+        if company is None:
+            raise LookupError("Company not found")
+
+        old_value = company.po_approval_threshold
+        if old_value == value:
+            return company, False
+
+        company.po_approval_threshold = value
+        await self.audit_repo.record(
+            tenant_id=tenant_id,
+            company_id=company_id,
+            user_id=user_id,
+            target_table="company",
+            target_id=company.id,
+            field_name="po_approval_threshold",
+            old_value=str(old_value) if old_value is not None else None,
+            new_value=str(value) if value is not None else None,
+        )
+        return company, True
 
 
 class UserManagementService:
