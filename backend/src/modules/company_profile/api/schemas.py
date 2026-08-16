@@ -1,7 +1,7 @@
 """Pydantic schemas for Company Profile + Sizing Engine (Adaptive ERP Stage 2.1-2.2)."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -72,6 +72,31 @@ class SizingResultOut(BaseModel):
     company_profile_id: UUID
     rule_version: str
     dimension_scores: dict[str, DimensionScoreOut]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class BlueprintDecisionOut(BaseModel):
+    key: str
+    category: str
+    decision: Any
+    reason: str
+    actionable: bool
+
+
+class ErpBlueprintOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    company_profile_id: UUID
+    sizing_result_id: UUID
+    blueprint_version: int
+    status: str
+    decisions: list[BlueprintDecisionOut]
+    enabled_modules: dict[str, bool]
+    approved_at: datetime | None
+    approved_by: UUID | None
+    superseded_by_id: UUID | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

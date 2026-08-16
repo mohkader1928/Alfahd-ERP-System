@@ -125,3 +125,51 @@ class SizingResult:
         missing = set(SIZING_DIMENSIONS) - set(self.dimensions)
         if missing:
             raise ValueError(f"missing dimension scores: {sorted(missing)}")
+
+
+BLUEPRINT_STATUSES = ("draft", "approved", "superseded")
+
+# docs/adaptive/06-configuration-engine-architecture.md §6.5 — the four
+# tiers every Blueprint decision must be classified into.
+DECISION_CATEGORIES = ("STANDARD", "CONFIGURABLE", "EXTENSIBLE", "CUSTOM_DEVELOPMENT")
+
+
+@dataclass(frozen=True)
+class BlueprintDecision:
+    """One recommendation. `actionable` is the honesty mechanism from
+    docs/adaptive/10-adaptive-gap-analysis.md: some CONFIGURABLE decisions
+    (e.g. the PO approval threshold) can actually be applied by the
+    Configuration Engine today; others (e.g. cost-center tracking) are
+    real, correctly-classified recommendations that the Core has no
+    management surface for yet -- `actionable=False` records that
+    honestly instead of silently pretending it was applied."""
+
+    key: str
+    category: str
+    decision: object
+    reason: str
+    actionable: bool
+
+    def __post_init__(self) -> None:
+        if self.category not in DECISION_CATEGORIES:
+            raise ValueError(f"category must be one of {DECISION_CATEGORIES}")
+        if not self.reason:
+            raise ValueError("reason is required")
+
+
+@dataclass
+class ErpBlueprint:
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    company_id: uuid.UUID
+    company_profile_id: uuid.UUID
+    sizing_result_id: uuid.UUID
+    version: int
+    status: str
+    decisions: list[BlueprintDecision] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.status not in BLUEPRINT_STATUSES:
+            raise ValueError(f"status must be one of {BLUEPRINT_STATUSES}")
+        if self.version < 1:
+            raise ValueError("version must be >= 1")

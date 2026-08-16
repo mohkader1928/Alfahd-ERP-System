@@ -144,10 +144,15 @@ PERMISSION_CATALOG = [
     ("fixed_assets.dispose", "action"),
     ("fixed_assets.category.manage", "action"),
     # Adaptive ERP Stage 2.1 (docs/adaptive/06-configuration-engine-architecture.md
-    # §6.6) — Company Profile only in this stage; Sizing/Blueprint/
-    # Configuration permission codes are added in their own stages.
+    # §6.6) — Company Profile only in this stage; Sizing reuses these same
+    # codes (see company_profile module's routes.py). Blueprint gets its
+    # own codes below (Stage 2.3) since generate/approve are distinct,
+    # separately-grantable actions (docs/adaptive/06 §6.6).
     ("company_profile.view", "screen"),
     ("company_profile.manage", "action"),
+    ("configuration.blueprint.view", "screen"),
+    ("configuration.blueprint.generate", "action"),
+    ("configuration.blueprint.approve", "action"),
 ]
 
 

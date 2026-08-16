@@ -109,3 +109,32 @@ class SizingResult(Base, TenantScopedMixin):
     )
     rule_version: Mapped[str] = mapped_column(Text, nullable=False)
     dimension_scores: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class ErpBlueprint(Base, TenantScopedMixin):
+    """docs/adaptive/05-erp-blueprint-spec.md. Immutable once
+    status='approved' -- a later change is always a new row (new
+    `version`), never an UPDATE of this one (docs/adaptive/05 §5.3)."""
+
+    __tablename__ = "erp_blueprint"
+
+    company_profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company_profile.id"), nullable=False, index=True
+    )
+    sizing_result_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sizing_result.id"), nullable=False
+    )
+    blueprint_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
+    decisions: Mapped[list] = mapped_column(JSONB, nullable=False)
+    enabled_modules: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("erp_blueprint.id"), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "blueprint_version", name="ux_erp_blueprint_company_version"),
+        CheckConstraint("status IN ('draft','approved','superseded')", name="ck_erp_blueprint_status"),
+    )

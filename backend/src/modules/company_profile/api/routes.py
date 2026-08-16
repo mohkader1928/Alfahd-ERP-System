@@ -6,10 +6,13 @@ justification and docs/adaptive/06-configuration-engine-architecture.md
 every other module — no new isolation or auth mechanism introduced here).
 """
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.company_profile.api.deps import (
+    get_blueprint_service,
     get_company_profile_repo,
     get_company_profile_service,
     get_sizing_engine_service,
@@ -18,9 +21,11 @@ from src.modules.company_profile.api.deps import (
 from src.modules.company_profile.api.schemas import (
     CompanyProfileOut,
     CompanyProfileWriteRequest,
+    ErpBlueprintOut,
     SizingResultOut,
 )
 from src.modules.company_profile.application.services import (
+    BlueprintService,
     CompanyProfileService,
     SizingEngineService,
 )
@@ -115,3 +120,78 @@ async def get_latest_sizing(
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No sizing result exists for this company yet")
     return result
+
+
+@router.post("/blueprint", response_model=ErpBlueprintOut, status_code=status.HTTP_201_CREATED)
+async def generate_blueprint(
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("configuration.blueprint.generate")),
+    blueprint_service: BlueprintService = Depends(get_blueprint_service),
+):
+    """docs/adaptive/05-erp-blueprint-spec.md. Generates a new draft
+    Blueprint from the company's latest SizingResult -- generation never
+    approves itself, and never mutates business data (see BlueprintService
+    docstring)."""
+    try:
+        blueprint = await blueprint_service.generate(
+            tenant_id=ctx.tenant_id, company_id=ctx.company_id, user_id=ctx.user_id
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+    await db.commit()
+    return blueprint
+
+
+@router.get("/blueprint/latest", response_model=ErpBlueprintOut)
+async def get_latest_blueprint(
+    ctx: AuthContext = Depends(require_permission("configuration.blueprint.view")),
+    blueprint_service: BlueprintService = Depends(get_blueprint_service),
+):
+    blueprint = await blueprint_service.get_latest(company_id=ctx.company_id)
+    if blueprint is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No Blueprint exists for this company yet")
+    return blueprint
+
+
+@router.get("/blueprint", response_model=list[ErpBlueprintOut])
+async def list_blueprints(
+    ctx: AuthContext = Depends(require_permission("configuration.blueprint.view")),
+    blueprint_service: BlueprintService = Depends(get_blueprint_service),
+):
+    return await blueprint_service.list_for_company(company_id=ctx.company_id)
+
+
+@router.get("/blueprint/{blueprint_id}", response_model=ErpBlueprintOut)
+async def get_blueprint(
+    blueprint_id: UUID,
+    ctx: AuthContext = Depends(require_permission("configuration.blueprint.view")),
+    blueprint_service: BlueprintService = Depends(get_blueprint_service),
+):
+    blueprint = await blueprint_service.get(blueprint_id=blueprint_id)
+    if blueprint is None or blueprint.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Blueprint not found")
+    return blueprint
+
+
+@router.post("/blueprint/{blueprint_id}/approve", response_model=ErpBlueprintOut)
+async def approve_blueprint(
+    blueprint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("configuration.blueprint.approve")),
+    blueprint_service: BlueprintService = Depends(get_blueprint_service),
+):
+    """Approving a Blueprint automatically supersedes whatever was
+    previously the sole approved Blueprint for this company -- never
+    deleted, never mutated in place (docs/adaptive/05 §5.3)."""
+    try:
+        blueprint = await blueprint_service.approve(
+            company_id=ctx.company_id, blueprint_id=blueprint_id, user_id=ctx.user_id
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+
+    await db.commit()
+    return blueprint

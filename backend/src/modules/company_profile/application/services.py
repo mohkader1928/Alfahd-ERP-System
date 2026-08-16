@@ -7,14 +7,21 @@ module per docs/adaptive/06-configuration-engine-architecture.md §6.2).
 
 import uuid
 from dataclasses import fields
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from src.modules.company_profile.application.blueprint_rules import generate_decisions
 from src.modules.company_profile.application.sizing_rules import score_profile
 from src.modules.company_profile.domain.entities import CompanyProfile as CompanyProfileDomain
-from src.modules.company_profile.infrastructure.models import CompanyProfile, SizingResult
+from src.modules.company_profile.infrastructure.models import (
+    CompanyProfile,
+    ErpBlueprint,
+    SizingResult,
+)
 from src.modules.company_profile.infrastructure.repositories import (
     CompanyProfileRepository,
+    ErpBlueprintRepository,
     SizingResultRepository,
     SizingRuleSetRepository,
 )
@@ -173,3 +180,94 @@ class SizingEngineService:
 
     async def get_latest(self, *, company_id: UUID) -> SizingResult | None:
         return await self.result_repo.get_latest_for_company(company_id)
+
+
+class BlueprintService:
+    """docs/adaptive/05-erp-blueprint-spec.md. Generates a draft Blueprint
+    from the company's latest SizingResult; a separate, explicit approve()
+    call is the only way a Blueprint becomes 'approved' -- generation is
+    never itself an approval (docs/adaptive/12 Principle 5, and the
+    governing spec's "AI/engine must not directly mutate production
+    configuration without explicit approval" rule applies here even though
+    no AI is involved yet)."""
+
+    def __init__(
+        self,
+        profile_repo: CompanyProfileRepository,
+        rule_set_repo: SizingRuleSetRepository,
+        result_repo: SizingResultRepository,
+        blueprint_repo: ErpBlueprintRepository,
+    ):
+        self.profile_repo = profile_repo
+        self.rule_set_repo = rule_set_repo
+        self.result_repo = result_repo
+        self.blueprint_repo = blueprint_repo
+
+    async def generate(self, *, tenant_id: UUID, company_id: UUID, user_id: UUID | None) -> ErpBlueprint:
+        profile = await self.profile_repo.get_by_company(company_id)
+        if profile is None:
+            raise LookupError("No company_profile exists for this company yet — create one first")
+
+        sizing_result = await self.result_repo.get_latest_for_company(company_id)
+        if sizing_result is None:
+            raise LookupError("No sizing result exists for this company yet — run sizing first")
+
+        rule_set = await self.rule_set_repo.get_by_version(sizing_result.rule_version)
+        if rule_set is None:
+            raise LookupError(f"Rule set {sizing_result.rule_version!r} referenced by the sizing result no longer exists")
+
+        profile_values = {name: getattr(profile, name) for name in _SIZING_INPUT_FIELDS}
+        thresholds = rule_set.rules.get("blueprint_decisions", {})
+        decisions, enabled_modules = generate_decisions(profile_values, sizing_result.dimension_scores, thresholds)
+
+        next_version = await self.blueprint_repo.get_next_version(company_id)
+        blueprint = ErpBlueprint(
+            tenant_id=tenant_id,
+            company_id=company_id,
+            company_profile_id=profile.id,
+            sizing_result_id=sizing_result.id,
+            blueprint_version=next_version,
+            status="draft",
+            decisions=[
+                {
+                    "key": d.key,
+                    "category": d.category,
+                    "decision": d.decision,
+                    "reason": d.reason,
+                    "actionable": d.actionable,
+                }
+                for d in decisions
+            ],
+            enabled_modules=enabled_modules,
+            created_by=user_id,
+        )
+        return await self.blueprint_repo.add(blueprint)
+
+    async def approve(self, *, company_id: UUID, blueprint_id: UUID, user_id: UUID | None) -> ErpBlueprint:
+        blueprint = await self.blueprint_repo.get_by_id(blueprint_id)
+        if blueprint is None or blueprint.company_id != company_id:
+            raise LookupError("Blueprint not found")
+        if blueprint.status != "draft":
+            raise ValueError(f"Only a draft Blueprint can be approved (current status: {blueprint.status!r})")
+
+        # Supersede whatever was previously the approved Blueprint, if any
+        # -- exactly one "currently approved" Blueprint per company at a
+        # time, never deleted, always superseded forward (docs/adaptive/05 §5.3).
+        for existing in await self.blueprint_repo.list_for_company(company_id):
+            if existing.status == "approved":
+                existing.status = "superseded"
+                existing.superseded_by_id = blueprint.id
+
+        blueprint.status = "approved"
+        blueprint.approved_at = datetime.now(UTC).replace(tzinfo=None)
+        blueprint.approved_by = user_id
+        return blueprint
+
+    async def get(self, *, blueprint_id: UUID) -> ErpBlueprint | None:
+        return await self.blueprint_repo.get_by_id(blueprint_id)
+
+    async def list_for_company(self, *, company_id: UUID) -> list[ErpBlueprint]:
+        return await self.blueprint_repo.list_for_company(company_id)
+
+    async def get_latest(self, *, company_id: UUID) -> ErpBlueprint | None:
+        return await self.blueprint_repo.get_latest_for_company(company_id)

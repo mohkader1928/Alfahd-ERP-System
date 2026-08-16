@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.company_profile.infrastructure.models import (
     CompanyProfile,
+    ErpBlueprint,
     SizingResult,
     SizingRuleSet,
 )
@@ -67,3 +68,37 @@ class SizingResultRepository:
     async def get_by_id(self, result_id: UUID) -> SizingResult | None:
         result = await self.session.execute(select(SizingResult).where(SizingResult.id == result_id))
         return result.scalar_one_or_none()
+
+
+class ErpBlueprintRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, blueprint: ErpBlueprint) -> ErpBlueprint:
+        self.session.add(blueprint)
+        await self.session.flush()
+        return blueprint
+
+    async def get_by_id(self, blueprint_id: UUID) -> ErpBlueprint | None:
+        result = await self.session.execute(select(ErpBlueprint).where(ErpBlueprint.id == blueprint_id))
+        return result.scalar_one_or_none()
+
+    async def get_latest_for_company(self, company_id: UUID) -> ErpBlueprint | None:
+        result = await self.session.execute(
+            select(ErpBlueprint)
+            .where(ErpBlueprint.company_id == company_id)
+            .order_by(ErpBlueprint.blueprint_version.desc())
+        )
+        return result.scalars().first()
+
+    async def list_for_company(self, company_id: UUID) -> list[ErpBlueprint]:
+        result = await self.session.execute(
+            select(ErpBlueprint)
+            .where(ErpBlueprint.company_id == company_id)
+            .order_by(ErpBlueprint.blueprint_version.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_next_version(self, company_id: UUID) -> int:
+        latest = await self.get_latest_for_company(company_id)
+        return 1 if latest is None else latest.blueprint_version + 1
