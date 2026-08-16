@@ -4,6 +4,7 @@ import type {
   BootstrapRequest,
   BootstrapResponse,
   Company,
+  CompanyCreateInput,
   CompanyWriteInput,
   LoginRequest,
   MyPermissions,
@@ -48,6 +49,16 @@ export const identityApi = {
   verify2fa: (payload: LoginRequest & { totp_code: string }) =>
     apiClient.post<TokenResponse>(`${BASE}/auth/login/verify-2fa`, payload, { skipAuth: true }),
 
+  // `authorized_companies` is baked into the access token at issue time
+  // (backend/src/shared/security/auth_context.py) -- after creating a new
+  // company (POST /companies), the *current* token still 403s against it
+  // until a fresh token is minted. AuthenticationService.refresh_tokens()
+  // re-derives authorized_companies live from DB, so an explicit refresh
+  // call (not a full re-login) is what the Company Setup Wizard's first
+  // step must do right after company creation.
+  refreshToken: (refreshToken: string) =>
+    apiClient.post<TokenResponse>(`${BASE}/auth/refresh`, { refresh_token: refreshToken }, { skipAuth: true }),
+
   requestPasswordReset: (payload: PasswordResetRequestRequest) =>
     apiClient.post<PasswordResetResponse>(`${BASE}/auth/password-reset/request`, payload, {
       skipAuth: true,
@@ -67,6 +78,9 @@ export const identityApi = {
     apiClient.post<User>(`${BASE}/me/2fa/verify`, { totp_code: totpCode }, { companyId }),
 
   getCompany: (companyId: string) => apiClient.get<Company>(`${BASE}/companies/${companyId}`, { companyId }),
+
+  createCompany: (currentCompanyId: string, payload: CompanyCreateInput) =>
+    apiClient.post<Company>(`${BASE}/companies`, payload, { companyId: currentCompanyId }),
 
   updateCompany: (companyId: string, payload: CompanyWriteInput) =>
     apiClient.patch<Company>(`${BASE}/companies/${companyId}`, payload, { companyId }),

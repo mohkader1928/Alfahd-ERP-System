@@ -82,6 +82,16 @@ export interface CompanyWriteInput {
   fiscal_year_start_month?: number;
 }
 
+export interface CompanyCreateInput {
+  legal_name: string;
+  legal_name_ar: string;
+  vat_number: string;
+  base_currency_code?: string;
+  valuation_method?: "fifo" | "average";
+  main_branch_name?: string;
+  main_branch_name_ar?: string;
+}
+
 export interface Branch {
   id: string;
   company_id: string;
