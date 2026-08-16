@@ -26,6 +26,38 @@ EDITION_BANDS = [
 ]
 EDITION_TOP = "Growth"
 
+# docs/adaptive/03-customer-profile-spec.md §J "Future Needs" -- static,
+# never derived from a per-customer answer (no structured field for any of
+# these exists in CompanyProfile; §J is deliberately asked about only via
+# the freeform growth_notes text, not a boolean). Always surfaced on the
+# Customer Assessment as known Core boundaries so a request for any of
+# these is never silently implied as available -- this is exactly what §J
+# says: "recorded for product-roadmap signal only, never claimed as
+# available." Not BlueprintDecision rows (they carry no per-company
+# decision value), consumed only by AssessmentService.
+FUTURE_NEEDS_CATALOG = (
+    {
+        "key": "api_integration_access",
+        "note": "No public partner API exists today beyond the internal REST API.",
+    },
+    {
+        "key": "ecommerce_connection",
+        "note": "No e-commerce channel integration exists.",
+    },
+    {
+        "key": "payroll_hr",
+        "note": "No HR/payroll module exists -- Partner.is_employee is master-data only, not an HR system.",
+    },
+    {
+        "key": "manufacturing",
+        "note": "No BOM/production module exists.",
+    },
+    {
+        "key": "crm",
+        "note": "No lead/opportunity tracking exists -- Partner is master data only.",
+    },
+)
+
 
 def _recommended_edition(average_score: float) -> str:
     for ceiling, name in EDITION_BANDS:
@@ -163,6 +195,28 @@ def generate_decisions(
                 f"branch_count={profile.get('branch_count')!r} -- NOT actionable today: the decision "
                 "carries no branch name, POST /companies/{id}/branches has no duplicate-guard, and "
                 "there is no safe way to revert a created branch (see gap analysis)."
+            ),
+            actionable=False,
+        )
+    )
+
+    # CUSTOM_DEVELOPMENT -- multi-currency. docs/adaptive/03 §D is explicit:
+    # this must be answered honestly against a real gap, never silently
+    # dropped. The Core has no exchange_rate concept anywhere and no
+    # currency-creation service (only seed-time inserts) -- this is not a
+    # missing CRUD screen like cost centers, it is a genuinely new Core
+    # capability (docs/adaptive/06 §6.5 tier 4), so it stays informational
+    # regardless of what the customer answered.
+    want_multi_currency = bool(profile.get("multi_currency_requested"))
+    decisions.append(
+        BlueprintDecision(
+            key="multi_currency_support",
+            category="CUSTOM_DEVELOPMENT",
+            decision=want_multi_currency,
+            reason=(
+                f"multi_currency_requested={profile.get('multi_currency_requested')} -- "
+                "NOT actionable today: no exchange_rate concept or currency-creation service "
+                "exists anywhere in the Core (see gap analysis, honesty gap not a build gap)."
             ),
             actionable=False,
         )

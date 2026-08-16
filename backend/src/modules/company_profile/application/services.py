@@ -15,7 +15,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.modules.company_profile.application.blueprint_rules import generate_decisions
+from src.modules.company_profile.application.blueprint_rules import (
+    FUTURE_NEEDS_CATALOG,
+    generate_decisions,
+)
 from src.modules.company_profile.application.configuration_rules import build_plan_items
 from src.modules.company_profile.application.sizing_rules import score_profile
 from src.modules.company_profile.domain.entities import CompanyProfile as CompanyProfileDomain
@@ -504,3 +507,91 @@ class ConfigurationEngineService:
 
     async def list_for_company(self, *, company_id: UUID) -> list[ConfigurationPlan]:
         return await self.plan_repo.list_for_company(company_id)
+
+
+class AssessmentService:
+    """Adaptive ERP -- Customer Assessment / Implementation Summary.
+
+    Pure read/aggregation layer, per the governing instruction: assembles
+    Profile -> Sizing -> Blueprint -> Configuration Plan (all already
+    real, versioned, audited records) into one structured view. Writes
+    nothing, stores nothing new, invents no business logic -- every value
+    here is either read straight from an existing table or derived by a
+    pure function over data already produced by SizingEngineService /
+    BlueprintService / ConfigurationEngineService. Reopening this view
+    twice for the same company returns the same shape from the same
+    underlying rows (no new row is ever created by reading it).
+    """
+
+    def __init__(
+        self,
+        profile_repo: CompanyProfileRepository,
+        sizing_service: SizingEngineService,
+        blueprint_service: BlueprintService,
+        configuration_engine: ConfigurationEngineService,
+    ):
+        self.profile_repo = profile_repo
+        self.sizing_service = sizing_service
+        self.blueprint_service = blueprint_service
+        self.configuration_engine = configuration_engine
+
+    async def assemble(self, *, company_id: UUID) -> dict[str, Any] | None:
+        profile = await self.profile_repo.get_by_company(company_id)
+        if profile is None:
+            return None
+
+        sizing = await self.sizing_service.get_latest(company_id=company_id)
+        blueprint = await self.blueprint_service.get_latest(company_id=company_id)
+
+        plan = None
+        plan_items: list[ConfigurationPlanItem] = []
+        if blueprint is not None:
+            plans = await self.configuration_engine.list_for_company(company_id=company_id)
+            if plans:
+                plan = plans[0]
+                plan_items = await self.configuration_engine.list_items(plan_id=plan.id)
+        applied_by_key = {i.decision_key: i.status for i in plan_items}
+
+        decisions: list[dict[str, Any]] = blueprint.decisions if blueprint is not None else []
+        capability_matrix = [
+            {
+                "key": d["key"],
+                "category": d["category"],
+                "decision": d["decision"],
+                "reason": d["reason"],
+                "actionable": d["actionable"],
+                "is_gap": not d["actionable"],
+                "needs_development": d["category"] in ("EXTENSIBLE", "CUSTOM_DEVELOPMENT"),
+                "applied_status": applied_by_key.get(d["key"]),
+            }
+            for d in decisions
+        ]
+        future_needs = [dict(item) for item in FUTURE_NEEDS_CATALOG]
+
+        edition_decision = next((d for d in decisions if d["key"] == "recommended_edition_label"), None)
+        commercial_inputs = {
+            "employee_count": profile.employee_count,
+            "desired_user_count": profile.desired_user_count,
+            "branch_count": profile.branch_count,
+            "warehouse_count": profile.warehouse_count,
+            "monthly_sales_order_volume": profile.monthly_sales_order_volume,
+            "monthly_purchase_order_volume": profile.monthly_purchase_order_volume,
+            "sku_count_estimate": profile.sku_count_estimate,
+            "fixed_asset_count_estimate": profile.fixed_asset_count_estimate,
+            "dimension_scores": sizing.dimension_scores if sizing is not None else {},
+            "recommended_edition_label": edition_decision["decision"] if edition_decision else None,
+            "actionable_capability_count": sum(1 for d in decisions if d["actionable"]),
+            "gap_capability_count": sum(1 for d in decisions if not d["actionable"]),
+            "custom_development_needed_count": sum(1 for d in decisions if d["category"] == "CUSTOM_DEVELOPMENT"),
+        }
+
+        return {
+            "profile": profile,
+            "sizing": sizing,
+            "blueprint": blueprint,
+            "configuration_plan": plan,
+            "configuration_plan_items": plan_items,
+            "capability_matrix": capability_matrix,
+            "future_needs": future_needs,
+            "commercial_inputs": commercial_inputs,
+        }

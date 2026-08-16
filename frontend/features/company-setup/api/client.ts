@@ -3,6 +3,7 @@ import type {
   CompanyProfile,
   CompanyProfileWriteInput,
   ConfigurationPlan,
+  CustomerAssessment,
   ErpBlueprint,
   SizingResult,
 } from "./types";
@@ -44,4 +45,6 @@ export const companySetupApi = {
 
   getConfigurationPlan: (companyId: string, planId: string) =>
     apiClient.get<ConfigurationPlan>(`${BASE}/configuration-plan/${planId}`, { companyId }),
+
+  getAssessment: (companyId: string) => apiClient.get<CustomerAssessment>(`${BASE}/assessment`, { companyId }),
 };

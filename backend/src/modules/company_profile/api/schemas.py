@@ -130,3 +130,64 @@ class ConfigurationPlanOut(BaseModel):
     items: list[ConfigurationPlanItemOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class CapabilityMatrixEntryOut(BaseModel):
+    """One ERP Blueprint decision, reshaped for commercial/implementation
+    consumption -- key/category/decision/reason/actionable are the exact
+    fields already on BlueprintDecisionOut; the rest are pure derivations,
+    never a second source of truth."""
+
+    key: str
+    category: str
+    decision: Any
+    reason: str
+    actionable: bool
+    is_gap: bool
+    needs_development: bool
+    applied_status: str | None = None
+
+
+class FutureNeedOut(BaseModel):
+    """A known Core boundary from docs/adaptive/03 §J -- always shown,
+    never derived from a per-customer answer (see AssessmentService)."""
+
+    key: str
+    note: str
+
+
+class CommercialInputsOut(BaseModel):
+    """Structured inputs for a future, separate Pricing Engine -- numbers
+    only, never a price. See docs/adaptive/07-editions-and-growth-model.md."""
+
+    employee_count: int | None
+    desired_user_count: int | None
+    branch_count: int | None
+    warehouse_count: int | None
+    monthly_sales_order_volume: int | None
+    monthly_purchase_order_volume: int | None
+    sku_count_estimate: int | None
+    fixed_asset_count_estimate: int | None
+    dimension_scores: dict[str, DimensionScoreOut]
+    recommended_edition_label: str | None
+    actionable_capability_count: int
+    gap_capability_count: int
+    custom_development_needed_count: int
+
+
+class CustomerAssessmentOut(BaseModel):
+    """Customer Assessment / Implementation Summary -- a read-only view
+    over Profile -> Sizing -> Blueprint -> Configuration Plan, all already
+    real, versioned, audited records (see AssessmentService docstring).
+    Any field below may be null if that stage of onboarding hasn't
+    happened yet for this company (e.g. profile filled but sizing not run
+    yet) -- this is never an error, just an incomplete-so-far assessment."""
+
+    company_id: UUID
+    profile: CompanyProfileOut
+    sizing: SizingResultOut | None
+    blueprint: ErpBlueprintOut | None
+    configuration_plan: ConfigurationPlanOut | None
+    capability_matrix: list[CapabilityMatrixEntryOut]
+    future_needs: list[FutureNeedOut]
+    commercial_inputs: CommercialInputsOut

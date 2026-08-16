@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.company_profile.api.deps import (
+    get_assessment_service,
     get_blueprint_service,
     get_company_profile_repo,
     get_company_profile_service,
@@ -24,10 +25,12 @@ from src.modules.company_profile.api.schemas import (
     CompanyProfileWriteRequest,
     ConfigurationPlanItemOut,
     ConfigurationPlanOut,
+    CustomerAssessmentOut,
     ErpBlueprintOut,
     SizingResultOut,
 )
 from src.modules.company_profile.application.services import (
+    AssessmentService,
     BlueprintService,
     CompanyProfileService,
     ConfigurationEngineService,
@@ -319,3 +322,34 @@ async def get_configuration_plan(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Configuration Plan not found")
     items = await engine.list_items(plan_id=plan.id)
     return _plan_out(plan, items)
+
+
+@router.get("/assessment", response_model=CustomerAssessmentOut)
+async def get_customer_assessment(
+    ctx: AuthContext = Depends(require_permission("company_profile.view")),
+    assessment_service: AssessmentService = Depends(get_assessment_service),
+):
+    """Customer Assessment / Implementation Summary -- read-only view over
+    Profile -> Sizing -> Blueprint -> Configuration Plan, gated by the same
+    permission as GET /company-profile (a superset read of data the caller
+    can already see individually; no new RBAC surface). Reopening this
+    endpoint is always safe: it writes nothing and creates nothing."""
+    result = await assessment_service.assemble(company_id=ctx.company_id)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No company profile exists for this company yet")
+
+    plan_out = (
+        _plan_out(result["configuration_plan"], result["configuration_plan_items"])
+        if result["configuration_plan"] is not None
+        else None
+    )
+    return CustomerAssessmentOut(
+        company_id=ctx.company_id,
+        profile=CompanyProfileOut.model_validate(result["profile"]),
+        sizing=SizingResultOut.model_validate(result["sizing"]) if result["sizing"] is not None else None,
+        blueprint=ErpBlueprintOut.model_validate(result["blueprint"]) if result["blueprint"] is not None else None,
+        configuration_plan=plan_out,
+        capability_matrix=result["capability_matrix"],
+        future_needs=result["future_needs"],
+        commercial_inputs=result["commercial_inputs"],
+    )

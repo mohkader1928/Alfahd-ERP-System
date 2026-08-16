@@ -4,6 +4,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.company_profile.application.services import (
+    AssessmentService,
     BlueprintService,
     CompanyProfileService,
     ConfigurationEngineService,
@@ -94,3 +95,12 @@ def get_configuration_engine_service(
     return ConfigurationEngineService(
         db, blueprint_repo, plan_repo, item_repo, company_service, user_management_service, audit_repo
     )
+
+
+def get_assessment_service(
+    profile_repo: CompanyProfileRepository = Depends(get_company_profile_repo),
+    sizing_service: SizingEngineService = Depends(get_sizing_engine_service),
+    blueprint_service: BlueprintService = Depends(get_blueprint_service),
+    configuration_engine: ConfigurationEngineService = Depends(get_configuration_engine_service),
+) -> AssessmentService:
+    return AssessmentService(profile_repo, sizing_service, blueprint_service, configuration_engine)

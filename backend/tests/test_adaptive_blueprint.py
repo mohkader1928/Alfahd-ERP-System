@@ -17,6 +17,7 @@ DECISION_KEYS = {
     "provision_role_templates",
     "cost_center_tracking",
     "provision_additional_branch",
+    "multi_currency_support",
     "recommended_edition_label",
 }
 ACTIONABLE_KEYS = {"po_approval_threshold", "provision_role_templates"}
@@ -100,6 +101,23 @@ async def test_generate_returns_all_decisions_with_honest_tagging(client):
     # has no duplicate-guard or safe revert path, so it stays a capability
     # gap rather than a workaround (see blueprint_rules.py comment).
     assert decisions["provision_additional_branch"]["actionable"] is False
+    # multi_currency_support: honesty gap (docs/adaptive/03 §D) -- no
+    # exchange_rate concept exists anywhere in the Core, so this must never
+    # be actionable regardless of what the customer answered.
+    assert decisions["multi_currency_support"]["category"] == "CUSTOM_DEVELOPMENT"
+    assert decisions["multi_currency_support"]["actionable"] is False
+
+
+async def test_multi_currency_requested_still_stays_a_capability_gap(client):
+    """A customer answering 'yes' to multi-currency must never make the
+    decision look actionable -- the gap is in the Core, not the answer."""
+    _, headers = await _bootstrap_and_login(client, "BP_MultiCurrency")
+    await _create_profile(client, headers, multi_currency_requested=True)
+    await _size(client, headers)
+    resp = await client.post("/api/v1/company-profile/blueprint", headers=headers)
+    decisions = {d["key"]: d for d in resp.json()["decisions"]}
+    assert decisions["multi_currency_support"]["decision"] is True
+    assert decisions["multi_currency_support"]["actionable"] is False
 
 
 async def test_po_approval_threshold_maps_from_rigor_preference(client):

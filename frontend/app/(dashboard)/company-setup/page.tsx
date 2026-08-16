@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
@@ -849,6 +850,9 @@ function StepComplete({
         <p className="text-xs text-muted-foreground">
           {t("company_setup.complete.before")}: {beforeThreshold ?? "—"}
         </p>
+        <Button nativeButton={false} render={<Link href="/company-setup/assessment" />}>
+          {t("company_setup.action.view_assessment")}
+        </Button>
       </CardContent>
     </Card>
   );

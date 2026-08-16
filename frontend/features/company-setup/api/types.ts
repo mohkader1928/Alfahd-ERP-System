@@ -120,3 +120,46 @@ export interface ConfigurationPlan {
   created_at: string;
   items: ConfigurationPlanItem[];
 }
+
+export interface CapabilityMatrixEntry {
+  key: string;
+  category: DecisionCategory;
+  decision: unknown;
+  reason: string;
+  actionable: boolean;
+  is_gap: boolean;
+  needs_development: boolean;
+  applied_status: ConfigurationPlanItemStatus | null;
+}
+
+export interface FutureNeed {
+  key: string;
+  note: string;
+}
+
+export interface CommercialInputs {
+  employee_count: number | null;
+  desired_user_count: number | null;
+  branch_count: number | null;
+  warehouse_count: number | null;
+  monthly_sales_order_volume: number | null;
+  monthly_purchase_order_volume: number | null;
+  sku_count_estimate: number | null;
+  fixed_asset_count_estimate: number | null;
+  dimension_scores: Record<string, DimensionScore>;
+  recommended_edition_label: string | null;
+  actionable_capability_count: number;
+  gap_capability_count: number;
+  custom_development_needed_count: number;
+}
+
+export interface CustomerAssessment {
+  company_id: string;
+  profile: CompanyProfile;
+  sizing: SizingResult | null;
+  blueprint: ErpBlueprint | null;
+  configuration_plan: ConfigurationPlan | null;
+  capability_matrix: CapabilityMatrixEntry[];
+  future_needs: FutureNeed[];
+  commercial_inputs: CommercialInputs;
+}
