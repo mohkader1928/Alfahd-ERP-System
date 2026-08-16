@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,13 +68,26 @@ export default function CompanySetupWizardPage() {
   const setTokens = useAuthStore((s) => s.setTokens);
   const currentCompanyId = useAuthStore((s) => s.activeCompanyId)!;
 
-  const [step, setStep] = useState(0);
+  // First-Company Entry Integration: /setup's bootstrap success now signs
+  // the admin in and lands here with ?mode=first -- the active company IS
+  // the one just created (via bootstrap, not this wizard's own Step 0), so
+  // there is nothing left to create. Skip straight to Define Profile
+  // instead of rendering a redundant "create a company" step for a company
+  // that already exists. The ordinary entry (typing /company-setup while
+  // already inside an existing company, to add another one) is unaffected
+  // -- it still starts at step 0 exactly as before.
+  const searchParams = useSearchParams();
+  const isFirstCompanyOnboarding = searchParams.get("mode") === "first";
+
+  const [step, setStep] = useState(isFirstCompanyOnboarding ? 1 : 0);
   const [error, setError] = useState<string | null>(null);
 
   // Accumulated wizard state -- Backend is the sole source of truth for
   // every computed value (sizing, blueprint decisions, plan items); this
   // component only threads the ids/results it already received forward.
-  const [newCompanyId, setNewCompanyId] = useState<string | null>(null);
+  const [newCompanyId, setNewCompanyId] = useState<string | null>(
+    isFirstCompanyOnboarding ? currentCompanyId : null
+  );
   const [companyForm, setCompanyForm] = useState({ legal_name: "", legal_name_ar: "", vat_number: "" });
   const [profileForm, setProfileForm] = useState<CompanyProfileWriteInput>(initialProfile);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);

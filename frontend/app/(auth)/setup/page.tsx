@@ -11,8 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n/config";
 import { identityApi } from "@/features/identity/api/client";
+import { useAuthStore } from "@/stores/auth-store";
 import { ApiError } from "@/lib/api-client";
-import type { BootstrapRequest } from "@/features/identity/api/types";
+import type { BootstrapRequest, BootstrapResponse } from "@/features/identity/api/types";
 
 const initialForm: BootstrapRequest = {
   tenant_legal_name: "",
@@ -34,12 +35,49 @@ const VALUATION_METHOD_LABELS: Record<string, string> = {
 export default function SetupPage() {
   const { t } = useI18n();
   const router = useRouter();
+  const setTokens = useAuthStore((s) => s.setTokens);
+  const setActiveCompany = useAuthStore((s) => s.setActiveCompany);
   const [form, setForm] = useState<BootstrapRequest>(initialForm);
   const [error, setError] = useState<string | null>(null);
 
+  // Adaptive ERP -- First-Company Entry Integration: bootstrap() only ever
+  // creates the tenant/company/admin (Golden Core, unchanged) and returns
+  // no session -- previously this screen sent the new admin back to a
+  // manual /login. A brand-new customer's first company must land in
+  // Adaptive onboarding automatically instead of a plain, unconfigured
+  // company, so this now signs the admin in immediately with the same
+  // credentials just submitted (a normal, already-tested /auth/login --
+  // no new backend surface) and continues straight into the wizard.
+  //
+  // No /auth/refresh is needed here (unlike the wizard's own "add another
+  // company" Step 0): AuthenticationService.issue_tokens() derives
+  // authorized_companies live from the DB at login time, so this freshly
+  // minted token already includes the company bootstrap() just created.
+  async function finishOnboarding(response: BootstrapResponse) {
+    try {
+      const loginResult = await identityApi.login({ email: form.admin_email, password: form.admin_password });
+      if ("requires_2fa" in loginResult) {
+        // Unreachable in practice -- a freshly bootstrapped admin has never
+        // enrolled in 2FA -- but the response type is a union. Fail safe
+        // into a normal manual login rather than dropping the challenge.
+        router.push("/login");
+        return;
+      }
+      setTokens(loginResult.access_token, loginResult.refresh_token);
+      setActiveCompany(response.company_id, response.branch_id);
+      router.push("/company-setup?mode=first");
+    } catch {
+      // The company + admin user were already created successfully
+      // (bootstrap already committed) -- only this automatic sign-in step
+      // failed. Send the user to a normal manual login instead of leaving
+      // them on this form, where resubmitting the same email would fail.
+      router.push("/login");
+    }
+  }
+
   const bootstrapMutation = useMutation({
     mutationFn: () => identityApi.bootstrap(form),
-    onSuccess: () => router.push("/login"),
+    onSuccess: (response) => finishOnboarding(response),
     onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
   });
 
