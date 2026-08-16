@@ -19,6 +19,7 @@ from src.modules.accounting.domain.entities import (
 )
 from src.modules.accounting.infrastructure.models import (
     Account,
+    CostCenter,
     FiscalPeriod,
     Journal,
     JournalEntry,
@@ -29,6 +30,7 @@ from src.modules.accounting.infrastructure.models import (
 from src.modules.accounting.infrastructure.repositories import (
     AccountRepository,
     AccountTypeRepository,
+    CostCenterRepository,
     FiscalPeriodRepository,
     JournalEntryRepository,
     JournalRepository,
@@ -352,6 +354,57 @@ class ChartOfAccountsService:
             await self._recompute_subtree_levels(child, new_level + 1)
 
 
+class CostCenterService:
+    """Standard SME ERP Phase 1 -- Cost Centers. Archive, never delete
+    (mirrors ChartOfAccountsService's Account.is_active pattern exactly):
+    a cost center once referenced by a real journal_entry_line must never
+    disappear, so there is deliberately no delete_cost_center method."""
+
+    def __init__(self, cost_center_repo: CostCenterRepository):
+        self.cost_center_repo = cost_center_repo
+
+    async def create_cost_center(
+        self, *, company_id: UUID, name: str, name_ar: str | None = None
+    ) -> CostCenter:
+        name = name.strip()
+        if not name:
+            raise ValueError("Cost center name is required")
+        existing = await self.cost_center_repo.get_by_name(company_id, name)
+        if existing is not None:
+            raise ValueError(f"A cost center named '{name}' already exists")
+        cost_center = CostCenter(id=uuid.uuid4(), company_id=company_id, name=name, name_ar=name_ar)
+        return await self.cost_center_repo.add(cost_center)
+
+    async def update_cost_center(
+        self,
+        *,
+        cost_center_id: UUID,
+        company_id: UUID,
+        name: str | None = None,
+        name_ar: str | None = None,
+        is_active: bool | None = None,
+    ) -> CostCenter:
+        cost_center = await self.cost_center_repo.get_by_id(company_id, cost_center_id)
+        if cost_center is None:
+            raise ValueError("Cost center not found")
+
+        if name is not None:
+            name = name.strip()
+            if not name:
+                raise ValueError("Cost center name is required")
+            if name.lower() != cost_center.name.lower():
+                existing = await self.cost_center_repo.get_by_name(company_id, name)
+                if existing is not None and existing.id != cost_center.id:
+                    raise ValueError(f"A cost center named '{name}' already exists")
+            cost_center.name = name
+        if name_ar is not None:
+            cost_center.name_ar = name_ar
+        if is_active is not None:
+            cost_center.is_active = is_active
+
+        return await self.cost_center_repo.update(cost_center)
+
+
 class JournalEntryService:
     """UC-ACC-01 — create and post journal entries; enforces FR-ACC-002..004
     at the application layer (the DB trigger from Phase 7 §1.6 is the backstop).
@@ -363,11 +416,17 @@ class JournalEntryService:
         journal_repo: JournalRepository,
         account_repo: AccountRepository,
         period_repo: FiscalPeriodRepository,
+        cost_center_repo: CostCenterRepository | None = None,
     ):
         self.entry_repo = entry_repo
         self.journal_repo = journal_repo
         self.account_repo = account_repo
         self.period_repo = period_repo
+        # Optional (default None) purely so every existing call site that
+        # doesn't touch cost centers keeps working unchanged -- a company
+        # with zero cost centers must be able to post journal entries
+        # exactly as before Standard SME ERP Phase 1 shipped.
+        self.cost_center_repo = cost_center_repo
 
     async def create_draft_entry(
         self,
@@ -411,6 +470,20 @@ class JournalEntryService:
                     f"Cannot post to {account.code} — {account.name}: it is a group account "
                     "(has sub-accounts); post to one of its sub-accounts instead"
                 )
+            # Standard SME ERP Phase 1: cost_center_id has been a real FK on
+            # journal_entry_line since the M1 schema, but nothing ever
+            # validated it belonged to this company or was still active
+            # (no CostCenter could even be created before this stage).
+            # cost_center_repo is None for every caller that never touches
+            # cost centers (Sales/Purchasing/Payments/Fixed Assets
+            # auto-posting) -- validation only runs where a caller actually
+            # supplies both the repo and a line-level cost_center_id.
+            if line.cost_center_id is not None and self.cost_center_repo is not None:
+                cost_center = await self.cost_center_repo.get_by_id(company_id, line.cost_center_id)
+                if cost_center is None:
+                    raise ValueError(f"Cost center not found in this company: {line.cost_center_id}")
+                if not cost_center.is_active:
+                    raise ValueError(f"Cost center is archived and cannot be used: {cost_center.name}")
 
         orm_entry = JournalEntry(
             id=domain_entry.id,

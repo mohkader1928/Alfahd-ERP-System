@@ -11,6 +11,7 @@ from sqlalchemy.orm import aliased
 from src.modules.accounting.infrastructure.models import (
     Account,
     AccountType,
+    CostCenter,
     FiscalPeriod,
     Journal,
     JournalEntry,
@@ -79,6 +80,46 @@ class AccountRepository:
     async def has_transactions(self, account_id: UUID) -> bool:
         result = await self.session.execute(
             select(JournalEntryLine.id).where(JournalEntryLine.account_id == account_id).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+
+class CostCenterRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, cost_center: CostCenter) -> CostCenter:
+        self.session.add(cost_center)
+        await self.session.flush()
+        return cost_center
+
+    async def update(self, cost_center: CostCenter) -> CostCenter:
+        await self.session.flush()
+        return cost_center
+
+    async def get_by_id(self, company_id: UUID, cost_center_id: UUID) -> CostCenter | None:
+        result = await self.session.execute(
+            select(CostCenter).where(CostCenter.id == cost_center_id, CostCenter.company_id == company_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_name(self, company_id: UUID, name: str) -> CostCenter | None:
+        result = await self.session.execute(
+            select(CostCenter).where(
+                CostCenter.company_id == company_id, func.lower(CostCenter.name) == name.lower()
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_company(self, company_id: UUID) -> list[CostCenter]:
+        result = await self.session.execute(
+            select(CostCenter).where(CostCenter.company_id == company_id).order_by(CostCenter.name)
+        )
+        return list(result.scalars().all())
+
+    async def has_transactions(self, cost_center_id: UUID) -> bool:
+        result = await self.session.execute(
+            select(JournalEntryLine.id).where(JournalEntryLine.cost_center_id == cost_center_id).limit(1)
         )
         return result.scalar_one_or_none() is not None
 

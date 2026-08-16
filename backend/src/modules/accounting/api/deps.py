@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.modules.accounting.infrastructure.repositories import (
     AccountRepository,
     AccountTypeRepository,
+    CostCenterRepository,
     FiscalPeriodRepository,
     JournalEntryRepository,
     JournalRepository,
@@ -40,3 +41,7 @@ def get_fiscal_period_repo(db: AsyncSession = Depends(get_db)) -> FiscalPeriodRe
 
 def get_journal_entry_repo(db: AsyncSession = Depends(get_db)) -> JournalEntryRepository:
     return JournalEntryRepository(db)
+
+
+def get_cost_center_repo(db: AsyncSession = Depends(get_db)) -> CostCenterRepository:
+    return CostCenterRepository(db)

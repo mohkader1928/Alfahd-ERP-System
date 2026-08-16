@@ -6,6 +6,14 @@ export interface FiscalPeriod {
   is_closed: boolean;
 }
 
+export interface CostCenter {
+  id: string;
+  company_id: string;
+  name: string;
+  name_ar: string | null;
+  is_active: boolean;
+}
+
 export interface TaxRate {
   id: string;
   company_id: string;
@@ -42,6 +50,7 @@ export interface JournalEntryLineIn {
   account_id: string;
   debit: string;
   credit: string;
+  cost_center_id?: string | null;
   description?: string;
 }
 

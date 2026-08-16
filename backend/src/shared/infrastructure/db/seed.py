@@ -78,6 +78,10 @@ PERMISSION_CATALOG = [
     ("accounting.reports.trial_balance.view", "screen"),
     ("accounting.fiscal_period.manage", "action"),
     ("accounting.tax_rate.view", "screen"),
+    # Standard SME ERP Phase 1 — Cost Centers
+    ("accounting.cost_centers.view", "screen"),
+    ("accounting.cost_centers.create", "action"),
+    ("accounting.cost_centers.update", "action"),
     # Phase 17E — Accounting Standardization (Milestone 1a)
     ("accounting.reports.general_ledger.view", "screen"),
     ("accounting.reports.income_statement.view", "screen"),

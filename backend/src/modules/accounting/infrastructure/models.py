@@ -106,6 +106,12 @@ class CostCenter(Base):
     )
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_ar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Standard SME ERP Phase 1: archive, never delete -- a cost center once
+    # referenced by journal_entry_line.cost_center_id must never disappear
+    # (would orphan real accounting history). Mirrors Account.is_active.
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
 
 
 class TaxGroup(Base):

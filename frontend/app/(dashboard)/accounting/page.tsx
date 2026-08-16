@@ -22,7 +22,13 @@ import { ConfirmDialog } from "@/components/erp/states/confirm-dialog";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
-import type { Account, FiscalPeriod, JournalEntry, JournalEntryLineIn } from "@/features/accounting/api/types";
+import type {
+  Account,
+  CostCenter,
+  FiscalPeriod,
+  JournalEntry,
+  JournalEntryLineIn,
+} from "@/features/accounting/api/types";
 import { identityApi } from "@/features/identity/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
 import { reportingApi } from "@/features/reporting/api/client";
@@ -453,6 +459,11 @@ function JournalEntriesTab() {
     queryKey: ["accounts", companyId],
     queryFn: () => accountingApi.listAccounts(companyId),
   });
+  const costCentersQuery = useQuery({
+    queryKey: ["cost-centers", companyId],
+    queryFn: () => accountingApi.listCostCenters(companyId),
+  });
+  const activeCostCenters = costCentersQuery.data?.filter((c) => c.is_active) ?? [];
   const entriesQuery = useQuery({
     queryKey: ["journal-entries", companyId],
     queryFn: () => accountingApi.listJournalEntries(companyId),
@@ -559,7 +570,11 @@ function JournalEntriesTab() {
                 <div key={index} className="flex items-end gap-2">
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs">{t("accounting.je.account")}</Label>
-                    <Select value={line.account_id} onValueChange={(v) => updateLine(index, { account_id: v ?? "" })}>
+                    <Select
+                      key={`account-${index}`}
+                      value={line.account_id}
+                      onValueChange={(v) => updateLine(index, { account_id: v ?? "" })}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder={t("accounting.je.account")}>
                           {(value: string) => {
@@ -580,6 +595,30 @@ function JournalEntriesTab() {
                               {a.code} — {a.name}
                             </SelectItem>
                           ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-48 space-y-1">
+                    <Label className="text-xs">{t("accounting.je.cost_center")}</Label>
+                    <Select
+                      key={`cost-center-${index}`}
+                      value={line.cost_center_id ?? ""}
+                      onValueChange={(v) => updateLine(index, { cost_center_id: v || null })}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={t("accounting.je.cost_center_none")}>
+                          {(value: string) =>
+                            value ? (activeCostCenters.find((c) => c.id === value)?.name ?? value) : t("accounting.je.cost_center_none")
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">{t("accounting.je.cost_center_none")}</SelectItem>
+                        {activeCostCenters.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1990,6 +2029,187 @@ function FiscalPeriodsTab() {
   );
 }
 
+function CostCentersTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const queryClient = useQueryClient();
+
+  const [name, setName] = useState("");
+  const [nameAr, setNameAr] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<CostCenter | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editNameAr, setEditNameAr] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const costCentersQuery = useQuery({
+    queryKey: ["cost-centers", companyId],
+    queryFn: () => accountingApi.listCostCenters(companyId),
+  });
+  const costCenters = costCentersQuery.data ?? [];
+
+  const createMutation = useMutation({
+    mutationFn: () => accountingApi.createCostCenter(companyId, { name, name_ar: nameAr || null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cost-centers", companyId] });
+      toastSuccess(t("toast.success_title"), name);
+      setName("");
+      setNameAr("");
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      accountingApi.updateCostCenter(companyId, editing!.id, { name: editName, name_ar: editNameAr || null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cost-centers", companyId] });
+      toastSuccess(t("toast.success_title"), editName);
+      setEditing(null);
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiError ? err.detail : t("common.error");
+      setEditError(detail);
+      toastError(t("toast.error_title"), detail);
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: (cc: CostCenter) => accountingApi.updateCostCenter(companyId, cc.id, { is_active: !cc.is_active }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cost-centers", companyId] });
+      toastSuccess(t("toast.success_title"), t("accounting.cost_centers.tabs.title"));
+    },
+    onError: (err) => {
+      toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error"));
+    },
+  });
+
+  const columns: ERPColumn<CostCenter>[] = [
+    { key: "name", header: t("accounting.cost_centers.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
+    { key: "name_ar", header: t("accounting.cost_centers.name_ar"), render: (r) => r.name_ar ?? "—" },
+    {
+      key: "is_active",
+      header: t("accounting.cost_centers.status"),
+      render: (r) => (
+        <Badge variant={r.is_active ? "default" : "outline"}>
+          {r.is_active ? t("accounting.cost_centers.active") : t("accounting.cost_centers.archived")}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (r) => (
+        <Can permission="accounting.cost_centers.update">
+          <div className="flex justify-end gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditing(r);
+                setEditName(r.name);
+                setEditNameAr(r.name_ar ?? "");
+                setEditError(null);
+              }}
+            >
+              {t("accounting.cost_centers.edit_action")}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={r.is_active ? "text-destructive" : undefined}
+              onClick={() => toggleActiveMutation.mutate(r)}
+              disabled={toggleActiveMutation.isPending}
+            >
+              {r.is_active ? t("accounting.cost_centers.archive_action") : t("accounting.cost_centers.reactivate_action")}
+            </Button>
+          </div>
+        </Can>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Can permission="accounting.cost_centers.create">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("accounting.cost_centers.new")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.cost_centers.name")}</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} className="w-48" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("accounting.cost_centers.name_ar")}</Label>
+                <Input value={nameAr} onChange={(e) => setNameAr(e.target.value)} dir="rtl" className="w-48" />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  createMutation.mutate();
+                }}
+                disabled={!name.trim() || createMutation.isPending}
+              >
+                <Plus className="h-4 w-4" />
+                {t("accounting.cost_centers.save")}
+              </Button>
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </CardContent>
+        </Card>
+      </Can>
+
+      <ERPListView
+        title={t("accounting.cost_centers.tabs.title")}
+        columns={columns}
+        rows={costCenters}
+        rowKey={(r) => r.id}
+        isLoading={costCentersQuery.isLoading}
+        isError={costCentersQuery.isError}
+        onRetry={() => costCentersQuery.refetch()}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["cost-centers", companyId] })}
+        emptyDescription={t("accounting.cost_centers.empty_description")}
+      />
+
+      <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("accounting.cost_centers.edit_action")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">{t("accounting.cost_centers.name")}</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t("accounting.cost_centers.name_ar")}</Label>
+              <Input value={editNameAr} onChange={(e) => setEditNameAr(e.target.value)} dir="rtl" />
+            </div>
+            {editError && <p className="text-sm text-destructive">{editError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => updateMutation.mutate()} disabled={!editName.trim() || updateMutation.isPending}>
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export default function AccountingPage() {
   const searchParams = useSearchParams();
   // Base UI's Tabs.Panel fails to hide inactive panels once a second panel
@@ -2035,6 +2255,7 @@ export default function AccountingPage() {
       {tab === "ar-aging" && <ArAgingTab />}
       {tab === "ap-aging" && <ApAgingTab />}
       {tab === "fiscal-periods" && <FiscalPeriodsTab />}
+      {tab === "cost-centers" && <CostCentersTab />}
     </div>
   );
 }

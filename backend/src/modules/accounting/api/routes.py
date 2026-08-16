@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.modules.accounting.api.deps import (
     get_account_repo,
     get_account_type_repo,
+    get_cost_center_repo,
     get_fiscal_period_repo,
     get_journal_entry_repo,
     get_journal_repo,
@@ -21,6 +22,9 @@ from src.modules.accounting.api.schemas import (
     AccountOut,
     AccountUpdateRequest,
     BalanceSheetResponse,
+    CostCenterCreateRequest,
+    CostCenterOut,
+    CostCenterUpdateRequest,
     FiscalPeriodCreateRequest,
     FiscalPeriodOut,
     GeneralLedgerResponse,
@@ -34,6 +38,7 @@ from src.modules.accounting.api.schemas import (
 from src.modules.accounting.application.services import (
     _UNSET,
     ChartOfAccountsService,
+    CostCenterService,
     FiscalPeriodService,
     JournalEntryService,
     ReportingService,
@@ -47,6 +52,7 @@ from src.modules.accounting.domain.entities import (
 from src.modules.accounting.infrastructure.repositories import (
     AccountRepository,
     AccountTypeRepository,
+    CostCenterRepository,
     FiscalPeriodRepository,
     JournalEntryRepository,
     JournalRepository,
@@ -86,6 +92,115 @@ async def list_tax_rates(
     exact mechanism a picker must bind to instead of a hardcoded rate.
     Read-only for now; TaxRate CRUD is a separate, later concern."""
     return await tax_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/cost-centers", response_model=list[CostCenterOut])
+async def list_cost_centers(
+    ctx: AuthContext = Depends(require_permission("accounting.cost_centers.view")),
+    cost_center_repo: CostCenterRepository = Depends(get_cost_center_repo),
+):
+    """Standard SME ERP Phase 1. Returns both active and archived cost
+    centers — the caller (e.g. the JE-line picker) filters to is_active on
+    its own, since a historical journal entry still needs to display the
+    name of a since-archived cost center."""
+    return await cost_center_repo.list_by_company(ctx.company_id)
+
+
+@router.post("/cost-centers", response_model=CostCenterOut, status_code=status.HTTP_201_CREATED)
+async def create_cost_center(
+    payload: CostCenterCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("accounting.cost_centers.create")),
+    cost_center_repo: CostCenterRepository = Depends(get_cost_center_repo),
+):
+    service = CostCenterService(cost_center_repo)
+    try:
+        cost_center = await service.create_cost_center(
+            company_id=ctx.company_id, name=payload.name, name_ar=payload.name_ar
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="cost_center",
+        target_id=cost_center.id,
+        field_name="name",
+        old_value=None,
+        new_value=cost_center.name,
+    )
+    await db.commit()
+    return cost_center
+
+
+@router.get("/cost-centers/{cost_center_id}", response_model=CostCenterOut)
+async def get_cost_center(
+    cost_center_id: UUID,
+    ctx: AuthContext = Depends(require_permission("accounting.cost_centers.view")),
+    cost_center_repo: CostCenterRepository = Depends(get_cost_center_repo),
+):
+    cost_center = await cost_center_repo.get_by_id(ctx.company_id, cost_center_id)
+    if cost_center is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cost center not found")
+    return cost_center
+
+
+@router.patch("/cost-centers/{cost_center_id}", response_model=CostCenterOut)
+async def update_cost_center(
+    cost_center_id: UUID,
+    payload: CostCenterUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("accounting.cost_centers.update")),
+    cost_center_repo: CostCenterRepository = Depends(get_cost_center_repo),
+):
+    existing = await cost_center_repo.get_by_id(ctx.company_id, cost_center_id)
+    if existing is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cost center not found")
+    before_name = existing.name
+    before_is_active = existing.is_active
+
+    service = CostCenterService(cost_center_repo)
+    try:
+        cost_center = await service.update_cost_center(
+            cost_center_id=cost_center_id,
+            company_id=ctx.company_id,
+            name=payload.name,
+            name_ar=payload.name_ar,
+            is_active=payload.is_active,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    # Archiving/reactivating is the audit-worthy edit here (it changes
+    # whether the cost center can be picked for new transactions);
+    # cosmetic name churn is not, matching Account's own audit selectivity.
+    if cost_center.is_active != before_is_active:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="cost_center",
+            target_id=cost_center_id,
+            field_name="is_active",
+            old_value=str(before_is_active),
+            new_value=str(cost_center.is_active),
+        )
+    if cost_center.name != before_name:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="cost_center",
+            target_id=cost_center_id,
+            field_name="name",
+            old_value=before_name,
+            new_value=cost_center.name,
+        )
+
+    await db.commit()
+    return cost_center
 
 
 @router.post("/chart-of-accounts", response_model=AccountOut, status_code=status.HTTP_201_CREATED)
@@ -258,8 +373,9 @@ async def create_journal_entry(
     journal_repo: JournalRepository = Depends(get_journal_repo),
     account_repo: AccountRepository = Depends(get_account_repo),
     period_repo: FiscalPeriodRepository = Depends(get_fiscal_period_repo),
+    cost_center_repo: CostCenterRepository = Depends(get_cost_center_repo),
 ):
-    service = JournalEntryService(entry_repo, journal_repo, account_repo, period_repo)
+    service = JournalEntryService(entry_repo, journal_repo, account_repo, period_repo, cost_center_repo)
     try:
         entry = await service.create_draft_entry(
             company_id=ctx.company_id,

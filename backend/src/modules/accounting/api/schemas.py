@@ -21,6 +21,27 @@ class AccountOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CostCenterOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    name: str
+    name_ar: str | None
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class CostCenterCreateRequest(BaseModel):
+    name: str
+    name_ar: str | None = None
+
+
+class CostCenterUpdateRequest(BaseModel):
+    name: str | None = None
+    name_ar: str | None = None
+    is_active: bool | None = None
+
+
 class TaxRateOut(BaseModel):
     id: UUID
     company_id: UUID

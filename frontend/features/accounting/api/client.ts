@@ -3,6 +3,7 @@ import type {
   Account,
   AccountUpdateInput,
   BalanceSheetResponse,
+  CostCenter,
   FiscalPeriod,
   GeneralLedgerResponse,
   IncomeStatementResponse,
@@ -19,6 +20,17 @@ export const accountingApi = {
   listAccounts: (companyId: string) => apiClient.get<Account[]>(`${BASE}/chart-of-accounts`, { companyId }),
 
   listTaxRates: (companyId: string) => apiClient.get<TaxRate[]>(`${BASE}/tax-rates`, { companyId }),
+
+  listCostCenters: (companyId: string) => apiClient.get<CostCenter[]>(`${BASE}/cost-centers`, { companyId }),
+
+  createCostCenter: (companyId: string, payload: { name: string; name_ar?: string | null }) =>
+    apiClient.post<CostCenter>(`${BASE}/cost-centers`, payload, { companyId }),
+
+  updateCostCenter: (
+    companyId: string,
+    id: string,
+    payload: { name?: string; name_ar?: string | null; is_active?: boolean }
+  ) => apiClient.patch<CostCenter>(`${BASE}/cost-centers/${id}`, payload, { companyId }),
 
   listFiscalPeriods: (companyId: string) => apiClient.get<FiscalPeriod[]>(`${BASE}/fiscal-periods`, { companyId }),
 
