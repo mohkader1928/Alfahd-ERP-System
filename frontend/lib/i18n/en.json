@@ -667,6 +667,7 @@
   "common.back": "Back",
   "common.view": "View",
   "common.error": "Something went wrong",
+  "errors.smtp_not_configured": "This system's outgoing email server hasn't been set up yet, so messages can't be sent right now. This isn't a system fault — please ask your system administrator to configure the SMTP server settings.",
   "common.empty": "No records found",
   "common.search_select_placeholder": "Type to search...",
   "common.tax_rate": "Tax Rate",

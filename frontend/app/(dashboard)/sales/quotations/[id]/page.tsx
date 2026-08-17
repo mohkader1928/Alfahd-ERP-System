@@ -18,7 +18,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { salesApi } from "@/features/sales/api/client";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, friendlyApiErrorMessage } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
@@ -81,7 +81,7 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
       setEmailOverride("");
       toastSuccess(t("toast.success_title"), `${t("sales.quotations.email_sent")} ${updated.last_emailed_to ?? ""}`);
     },
-    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => toastError(t("toast.error_title"), friendlyApiErrorMessage(err, t)),
   });
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
@@ -199,9 +199,7 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
             />
           </div>
           {sendEmailMutation.isError && (
-            <p className="text-sm text-destructive">
-              {sendEmailMutation.error instanceof ApiError ? sendEmailMutation.error.detail : t("common.error")}
-            </p>
+            <p className="text-sm text-destructive">{friendlyApiErrorMessage(sendEmailMutation.error, t)}</p>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEmailDialogOpen(false)}>

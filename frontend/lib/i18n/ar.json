@@ -667,6 +667,7 @@
   "common.back": "رجوع",
   "common.view": "عرض",
   "common.error": "حدث خطأ ما",
+  "errors.smtp_not_configured": "لم يتم إعداد خادم البريد الإلكتروني لهذا النظام بعد، لذلك لا يمكن إرسال الرسائل حاليًا. هذا ليس عطلاً في النظام — يرجى التواصل مع مسؤول النظام لإدخال بيانات خادم SMTP.",
   "common.empty": "لا توجد سجلات",
   "common.search_select_placeholder": "اكتب للبحث...",
   "common.tax_rate": "نسبة الضريبة",

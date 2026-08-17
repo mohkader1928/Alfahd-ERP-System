@@ -22,6 +22,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The backend's SMTP-not-configured error (src/shared/email/mailer.py)
+ * is a deployment/config state, not a bug — surfaced here as a translated,
+ * actionable message instead of the raw English backend string.
+ */
+export function friendlyApiErrorMessage(error: unknown, t: (key: string) => string): string {
+  if (error instanceof ApiError) {
+    if (error.detail.includes("SMTP_HOST")) {
+      return t("errors.smtp_not_configured");
+    }
+    return error.detail;
+  }
+  return t("common.error");
+}
+
 interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   companyId?: string | null;
