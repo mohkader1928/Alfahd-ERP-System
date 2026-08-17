@@ -194,6 +194,7 @@
   "sales.quotations.confirm": "Confirm to Sales Order",
   "sales.quotations.create_title": "New Quotation",
   "sales.quotations.select_customer": "Select customer",
+  "sales.cost_center_none": "No cost center",
   "sales.quotations.select_product": "Select product",
   "sales.quotations.qty": "Qty",
   "sales.quotations.unit_price": "Unit price",

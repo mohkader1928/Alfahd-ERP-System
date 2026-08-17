@@ -194,6 +194,7 @@
   "sales.quotations.confirm": "تأكيد كأمر بيع",
   "sales.quotations.create_title": "عرض سعر جديد",
   "sales.quotations.select_customer": "اختر العميل",
+  "sales.cost_center_none": "بدون مركز تكلفة",
   "sales.quotations.select_product": "اختر الصنف",
   "sales.quotations.qty": "الكمية",
   "sales.quotations.unit_price": "سعر الوحدة",

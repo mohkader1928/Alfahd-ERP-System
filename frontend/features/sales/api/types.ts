@@ -14,6 +14,7 @@ export interface Quotation {
   quote_date: string;
   total_amount: string;
   warehouse_id: string | null;
+  cost_center_id: string | null;
   payment_terms: string | null;
   last_emailed_at: string | null;
   last_emailed_to: string | null;
@@ -42,6 +43,7 @@ export interface SalesOrder {
   order_date: string;
   total_amount: string;
   warehouse_id: string | null;
+  cost_center_id: string | null;
   cancellation_reason: string | null;
 }
 
@@ -93,6 +95,7 @@ export interface SalesInvoice {
   subtotal_amount: string;
   tax_amount: string;
   total_amount: string;
+  cost_center_id: string | null;
   journal_entry_id: string | null;
   last_emailed_at: string | null;
   last_emailed_to: string | null;

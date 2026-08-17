@@ -45,6 +45,7 @@ export default function NewQuotationPage() {
   const [quoteDate, setQuoteDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [taxRateId, setTaxRateId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
+  const [costCenterId, setCostCenterId] = useState("");
   const [lines, setLines] = useState<Line[]>([{ product_id: "", qty: "1", unit_price: "0" }]);
   const [paymentTerms, setPaymentTerms] = useState("");
   const [paymentTermsTouched, setPaymentTermsTouched] = useState(false);
@@ -66,6 +67,10 @@ export default function NewQuotationPage() {
     queryKey: ["warehouses", companyId],
     queryFn: () => inventoryApi.listWarehouses(companyId),
   });
+  const costCentersQuery = useQuery({
+    queryKey: ["cost-centers", companyId],
+    queryFn: () => accountingApi.listCostCenters(companyId),
+  });
   // Defaults to the company's own configured Standard rate once loaded,
   // without a separate effect — the user can still override it below.
   const effectiveTaxRateId =
@@ -83,6 +88,7 @@ export default function NewQuotationPage() {
         partner_id: partnerId,
         quote_date: quoteDate,
         warehouse_id: effectiveWarehouseId || null,
+        cost_center_id: costCenterId || null,
         payment_terms: paymentTerms || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
@@ -179,6 +185,27 @@ export default function NewQuotationPage() {
                 {warehousesQuery.data?.map((w) => (
                   <SelectItem key={w.id} value={w.id}>
                     {w.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("accounting.gl.cost_center")}</Label>
+            <Select value={costCenterId} onValueChange={(v) => setCostCenterId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("sales.cost_center_none")}>
+                  {(value: string) => {
+                    if (!value) return t("sales.cost_center_none");
+                    return costCentersQuery.data?.find((c) => c.id === value)?.name ?? value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">{t("sales.cost_center_none")}</SelectItem>
+                {costCentersQuery.data?.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>

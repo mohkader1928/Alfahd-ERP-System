@@ -93,6 +93,7 @@ class QuotationService:
         quote_date: date,
         lines: list[dict],
         warehouse_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
         payment_terms: str | None = None,
     ) -> Quotation:
         if not lines:
@@ -110,6 +111,7 @@ class QuotationService:
             quote_date=quote_date,
             total_amount=total,
             warehouse_id=warehouse_id,
+            cost_center_id=cost_center_id,
             payment_terms=payment_terms,
         )
         orm_lines = [
@@ -137,6 +139,7 @@ class QuotationService:
         quote_date: date,
         lines: list[dict],
         warehouse_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
         payment_terms: str | None = None,
     ) -> Quotation:
         """Product Owner request: allow editing a transaction before it's
@@ -172,6 +175,7 @@ class QuotationService:
         quotation.quote_date = quote_date
         quotation.total_amount = total
         quotation.warehouse_id = warehouse_id
+        quotation.cost_center_id = cost_center_id
         quotation.payment_terms = payment_terms
         return quotation
 
@@ -201,6 +205,7 @@ class QuotationService:
             order_date=quotation.quote_date,
             total_amount=quotation.total_amount,
             warehouse_id=quotation.warehouse_id,
+            cost_center_id=quotation.cost_center_id,
         )
         order_lines = [
             SalesOrderLine(
@@ -231,6 +236,7 @@ class QuotationService:
         order_date: date,
         lines: list[dict],
         warehouse_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
     ) -> SalesOrder:
         """Product Owner-reported blocker (SO-000035): a confirmed order
         for more than what's currently in stock had no way to be
@@ -272,6 +278,7 @@ class QuotationService:
         order.order_date = order_date
         order.total_amount = total
         order.warehouse_id = warehouse_id
+        order.cost_center_id = cost_center_id
         return order
 
     async def cancel_order(self, *, order_id: UUID, company_id: UUID, reason: str) -> SalesOrder:
@@ -602,6 +609,7 @@ class SalesInvoiceService:
             tax_amount=tax_total,
             total_amount=subtotal + tax_total,
             warehouse_id=order.warehouse_id,
+            cost_center_id=order.cost_center_id,
         )
         try:
             await self.invoice_repo.add(invoice, invoice_lines)
@@ -1177,7 +1185,12 @@ class SalesInvoiceService:
             # Opposite direction of a normal sales invoice: reduces revenue/
             # VAT payable and the customer's receivable balance.
             lines = [
-                {"account_id": revenue_account.id, "debit": invoice.subtotal_amount, "credit": 0},
+                {
+                    "account_id": revenue_account.id,
+                    "debit": invoice.subtotal_amount,
+                    "credit": 0,
+                    "cost_center_id": invoice.cost_center_id,
+                },
                 {"account_id": ar_account.id, "debit": 0, "credit": invoice.total_amount},
             ]
             if invoice.tax_amount > 0:
@@ -1185,7 +1198,12 @@ class SalesInvoiceService:
         else:
             lines = [
                 {"account_id": ar_account.id, "debit": invoice.total_amount, "credit": 0},
-                {"account_id": revenue_account.id, "debit": 0, "credit": invoice.subtotal_amount},
+                {
+                    "account_id": revenue_account.id,
+                    "debit": 0,
+                    "credit": invoice.subtotal_amount,
+                    "cost_center_id": invoice.cost_center_id,
+                },
             ]
             if invoice.tax_amount > 0:
                 lines.append({"account_id": vat_account.id, "debit": 0, "credit": invoice.tax_amount})

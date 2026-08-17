@@ -45,6 +45,11 @@ class Quotation(Base):
     # only needs choosing once. Nullable for pre-existing rows (see
     # migration f0a1b2c3d4e5); the create/update schemas require it.
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # Owner request: which cost center this quotation's revenue belongs to
+    # — carried forward unchanged the same way warehouse_id is, onto the
+    # SalesOrder and then the SalesInvoice, ending up on the revenue line
+    # of the auto-posted journal entry. Nullable (migration b2c3d4e5f6a7).
+    cost_center_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     # Owner request (Document Delivery for Quotations): defaults from
     # Partner.payment_terms at creation time but is a free edit from there
     # — the customer's own record is just the starting value, not enforced.
@@ -93,6 +98,8 @@ class SalesOrder(Base):
     # Copied from the originating Quotation at confirm_to_sales_order time;
     # still editable via update_order as long as nothing's been invoiced.
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # Same copy-forward/editable-until-invoiced treatment as warehouse_id.
+    cost_center_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -150,6 +157,9 @@ class SalesInvoice(Base):
     # what a Sales Return's restock resolves back to instead of always the
     # company default.
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # Copied from the SalesOrder at issue_invoice_from_order time — set on
+    # the revenue line of the journal entry _post_journal_entry posts.
+    cost_center_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import (
     AccountRepository,
+    CostCenterRepository,
     FiscalPeriodRepository,
     JournalEntryRepository,
     JournalRepository,
@@ -109,7 +110,11 @@ async def get_sales_invoice_service(
     account_repo = AccountRepository(db)
     tax_repo = TaxRepository(db)
     journal_entry_service = JournalEntryService(
-        JournalEntryRepository(db), JournalRepository(db), AccountRepository(db), FiscalPeriodRepository(db)
+        JournalEntryRepository(db),
+        JournalRepository(db),
+        AccountRepository(db),
+        FiscalPeriodRepository(db),
+        CostCenterRepository(db),
     )
     zatca_processor = ZatcaInvoiceProcessor(gateway=SandboxZatcaGateway(), signing_service=DevSigningService())
 

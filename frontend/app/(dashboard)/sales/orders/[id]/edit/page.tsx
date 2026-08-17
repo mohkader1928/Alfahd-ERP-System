@@ -44,6 +44,7 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
   const [orderDate, setOrderDate] = useState("");
   const [taxRateId, setTaxRateId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
+  const [costCenterId, setCostCenterId] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Not a useEffect: React's own guidance for "adjust state when data
@@ -71,6 +72,10 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
     queryKey: ["warehouses", companyId],
     queryFn: () => inventoryApi.listWarehouses(companyId),
   });
+  const costCentersQuery = useQuery({
+    queryKey: ["cost-centers", companyId],
+    queryFn: () => accountingApi.listCostCenters(companyId),
+  });
   const effectiveTaxRateId =
     taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
 
@@ -78,6 +83,7 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
     setPartnerId(data.order.partner_id);
     setOrderDate(data.order.order_date);
     setWarehouseId(data.order.warehouse_id ?? "");
+    setCostCenterId(data.order.cost_center_id ?? "");
     setLines(
       data.lines.length > 0
         ? data.lines.map((l) => ({ product_id: l.product_id, qty: l.qty, unit_price: l.unit_price }))
@@ -93,6 +99,7 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
         partner_id: partnerId,
         order_date: orderDate,
         warehouse_id: warehouseId || null,
+        cost_center_id: costCenterId || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: () => {
@@ -188,6 +195,27 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
                 {warehousesQuery.data?.map((w) => (
                   <SelectItem key={w.id} value={w.id}>
                     {w.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("accounting.gl.cost_center")}</Label>
+            <Select value={costCenterId} onValueChange={(v) => setCostCenterId(v ?? "")}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("sales.cost_center_none")}>
+                  {(value: string) => {
+                    if (!value) return t("sales.cost_center_none");
+                    return costCentersQuery.data?.find((c) => c.id === value)?.name ?? value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">{t("sales.cost_center_none")}</SelectItem>
+                {costCentersQuery.data?.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>
