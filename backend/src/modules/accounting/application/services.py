@@ -615,11 +615,20 @@ class ReportingService:
     # it is not a new convention invented for this report.
     _COGS_ROOT_CODE = "5100"
 
+    # Credit-normal account types: a positive "balance" means more credit
+    # than debit. Everything else (asset, expense) is debit-normal. Mirrors
+    # the sign convention already used ad hoc in income_statement/balance_sheet.
+    _CREDIT_NORMAL_TYPES = {"revenue", "liability", "equity"}
+
     def __init__(
-        self, entry_repo: JournalEntryRepository, account_repo: AccountRepository | None = None
+        self,
+        entry_repo: JournalEntryRepository,
+        account_repo: AccountRepository | None = None,
+        cost_center_repo: CostCenterRepository | None = None,
     ):
         self.entry_repo = entry_repo
         self.account_repo = account_repo
+        self.cost_center_repo = cost_center_repo
 
     async def trial_balance(
         self,
@@ -645,16 +654,19 @@ class ReportingService:
         date_from: date,
         date_to: date,
         branch_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
     ) -> dict:
         """Milestone 1 — one account's ledger: opening balance (everything
         posted before `date_from`), every movement in range with a running
         balance, and a closing balance — with each line traceable to the
-        Journal Entry that produced it (FR: drill-down to source)."""
+        Journal Entry that produced it (FR: drill-down to source).
+        `cost_center_id`, when given, narrows both the opening balance and
+        the movements to that one cost center."""
         opening = await self.entry_repo.account_balance_by_id(
-            company_id, account_id, date_from, branch_id
+            company_id, account_id, date_from, branch_id, cost_center_id
         )
         lines = await self.entry_repo.general_ledger_lines(
-            company_id, account_id, date_from, date_to, branch_id
+            company_id, account_id, date_from, date_to, branch_id, cost_center_id
         )
 
         running = opening
@@ -673,13 +685,16 @@ class ReportingService:
         date_to: date,
         branch_id: UUID | None = None,
         detail_level: int | None = None,
+        cost_center_id: UUID | None = None,
     ) -> dict:
         """Milestone 1 — Revenue / COGS / Gross Profit / Operating Expenses
         / Net Income for the period, built entirely from posted Journal
         Entry activity within [date_from, date_to] — a period report, not a
-        cumulative one, matching standard P&L semantics."""
+        cumulative one, matching standard P&L semantics. `cost_center_id`
+        scopes the whole statement to one cost center, to answer "how much
+        did this cost center earn/spend" with the exact same P&L shape."""
         rows = await self.entry_repo.balances_by_type(
-            company_id, date_from, date_to, ["revenue", "expense"], branch_id
+            company_id, date_from, date_to, ["revenue", "expense"], branch_id, cost_center_id
         )
         cogs_subtree = await self._cogs_account_ids(company_id) if self.account_repo else set()
 
@@ -724,6 +739,49 @@ class ReportingService:
             # company adds such accounts later, this is the one place that
             # would need a real "other" classification rule, not a silent gap.
             "net_income": operating_income,
+        }
+
+    async def cost_center_report(
+        self,
+        *,
+        company_id: UUID,
+        cost_center_id: UUID,
+        date_from: date,
+        date_to: date,
+        branch_id: UUID | None = None,
+    ) -> dict:
+        """Cost Center Report — the main reason a cost center exists: every
+        account this cost center actually touched in the period, with its
+        net balance, so an owner can see exactly which revenue/expense (or
+        any other) account belongs to which cost center. Zero-balance
+        accounts are dropped — this shows real activity, not a full Chart
+        of Accounts listing."""
+        cost_center = await self.cost_center_repo.get_by_id(company_id, cost_center_id)
+        rows = await self.entry_repo.balances_by_cost_center(
+            company_id, cost_center_id, date_from, date_to, branch_id
+        )
+
+        accounts = []
+        revenue_total = expense_total = Decimal("0.0000")
+        for row in rows:
+            if row["type_code"] in self._CREDIT_NORMAL_TYPES:
+                balance = row["total_credit"] - row["total_debit"]
+            else:
+                balance = row["total_debit"] - row["total_credit"]
+            if balance == Decimal("0.0000"):
+                continue
+            accounts.append({**row, "balance": balance})
+            if row["type_code"] == "revenue":
+                revenue_total += balance
+            elif row["type_code"] == "expense":
+                expense_total += balance
+
+        return {
+            "cost_center": cost_center,
+            "accounts": accounts,
+            "revenue_total": revenue_total,
+            "expense_total": expense_total,
+            "net_result": revenue_total - expense_total,
         }
 
     async def balance_sheet(

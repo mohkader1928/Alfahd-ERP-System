@@ -366,6 +366,7 @@ class JournalEntryRepository:
         date_to: date,
         account_type_codes: list[str],
         branch_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
     ) -> list[dict]:
         """Milestone 1 — Accounting Standardization: per-account debit/credit
         totals restricted to one or more account types (e.g. only
@@ -373,7 +374,12 @@ class JournalEntryRepository:
         'asset'+'liability'+'equity' for the Balance Sheet), including the
         account's own type code and parent id so the caller can group
         further (e.g. splitting Cost of Goods Sold out of Expenses by
-        walking the parent chain) without a second round trip."""
+        walking the parent chain) without a second round trip.
+
+        `cost_center_id`, when given, restricts the totals to journal entry
+        lines tagged with that cost center — used to answer "how much
+        revenue/expense did this cost center generate" without a separate
+        query shape."""
         stmt = (
             select(
                 Account.id,
@@ -400,6 +406,8 @@ class JournalEntryRepository:
         )
         if branch_id is not None:
             stmt = stmt.where(JournalEntry.branch_id == branch_id)
+        if cost_center_id is not None:
+            stmt = stmt.where(JournalEntryLine.cost_center_id == cost_center_id)
 
         result = await self.session.execute(stmt)
         return [
@@ -416,6 +424,57 @@ class JournalEntryRepository:
             for row in result.all()
         ]
 
+    async def balances_by_cost_center(
+        self,
+        company_id: UUID,
+        cost_center_id: UUID,
+        date_from: date,
+        date_to: date,
+        branch_id: UUID | None = None,
+    ) -> list[dict]:
+        """Cost Center Report — every account with posted activity tagged to
+        this cost center in the period, across all account types (a cost
+        center can carry any kind of line, though revenue/expense is the
+        primary use case), with its net debit/credit for the period. The
+        caller filters out zero-balance accounts."""
+        stmt = (
+            select(
+                Account.id,
+                Account.code,
+                Account.name,
+                AccountType.code.label("type_code"),
+                func.coalesce(func.sum(JournalEntryLine.debit), 0).label("total_debit"),
+                func.coalesce(func.sum(JournalEntryLine.credit), 0).label("total_credit"),
+            )
+            .join(JournalEntryLine, JournalEntryLine.account_id == Account.id)
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(AccountType, AccountType.id == Account.account_type_id)
+            .where(
+                JournalEntry.company_id == company_id,
+                JournalEntry.status.in_(["posted", "reversed"]),
+                JournalEntry.entry_date >= date_from,
+                JournalEntry.entry_date <= date_to,
+                JournalEntryLine.cost_center_id == cost_center_id,
+            )
+            .group_by(Account.id, Account.code, Account.name, AccountType.code)
+            .order_by(Account.code)
+        )
+        if branch_id is not None:
+            stmt = stmt.where(JournalEntry.branch_id == branch_id)
+
+        result = await self.session.execute(stmt)
+        return [
+            {
+                "account_id": row.id,
+                "account_code": row.code,
+                "account_name": row.name,
+                "type_code": row.type_code,
+                "total_debit": Decimal(row.total_debit),
+                "total_credit": Decimal(row.total_credit),
+            }
+            for row in result.all()
+        ]
+
     async def general_ledger_lines(
         self,
         company_id: UUID,
@@ -423,11 +482,14 @@ class JournalEntryRepository:
         date_from: date,
         date_to: date,
         branch_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
     ) -> list[dict]:
         """Milestone 1 — one account's posted movements within a date range,
         oldest first, each carrying its journal entry id so the frontend can
         drill down to the source Journal Entry (and from there to whatever
-        business document created it, via its `reference`)."""
+        business document created it, via its `reference`). Each line also
+        carries its own cost center (if any), and `cost_center_id` narrows
+        the result to movements tagged with one specific cost center."""
         stmt = (
             select(
                 JournalEntry.id.label("journal_entry_id"),
@@ -439,8 +501,11 @@ class JournalEntryRepository:
                 JournalEntryLine.debit,
                 JournalEntryLine.credit,
                 JournalEntryLine.description,
+                JournalEntryLine.cost_center_id,
+                CostCenter.name.label("cost_center_name"),
             )
             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .outerjoin(CostCenter, CostCenter.id == JournalEntryLine.cost_center_id)
             .where(
                 JournalEntry.company_id == company_id,
                 JournalEntryLine.account_id == account_id,
@@ -452,6 +517,8 @@ class JournalEntryRepository:
         )
         if branch_id is not None:
             stmt = stmt.where(JournalEntry.branch_id == branch_id)
+        if cost_center_id is not None:
+            stmt = stmt.where(JournalEntryLine.cost_center_id == cost_center_id)
 
         result = await self.session.execute(stmt)
         return [
@@ -465,18 +532,27 @@ class JournalEntryRepository:
                 "description": row.description,
                 "source_table": row.source_table,
                 "source_id": row.source_id,
+                "cost_center_id": row.cost_center_id,
+                "cost_center_name": row.cost_center_name,
             }
             for row in result.all()
         ]
 
     async def account_balance_by_id(
-        self, company_id: UUID, account_id: UUID, as_of_date: date, branch_id: UUID | None = None
+        self,
+        company_id: UUID,
+        account_id: UUID,
+        as_of_date: date,
+        branch_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
     ) -> Decimal:
         """Same shape as `account_balance` (debit-credit, caller flips sign
         for a credit-normal account) but keyed by id rather than a hardcoded
         code — used for General Ledger's opening balance and the Balance
         Sheet, neither of which is limited to the two hardcoded AR/AP codes
-        the original FR-RPT-003 method was written for."""
+        the original FR-RPT-003 method was written for. `cost_center_id`
+        keeps the opening balance consistent with a cost-center-filtered
+        General Ledger view."""
         stmt = (
             select(
                 func.coalesce(func.sum(JournalEntryLine.debit), 0),
@@ -492,6 +568,8 @@ class JournalEntryRepository:
         )
         if branch_id is not None:
             stmt = stmt.where(JournalEntry.branch_id == branch_id)
+        if cost_center_id is not None:
+            stmt = stmt.where(JournalEntryLine.cost_center_id == cost_center_id)
         result = await self.session.execute(stmt)
         total_debit, total_credit = result.one()
         return (Decimal(total_debit) - Decimal(total_credit)).quantize(Decimal("0.0001"))

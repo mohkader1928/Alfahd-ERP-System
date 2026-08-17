@@ -852,15 +852,56 @@ function TrialBalanceTab() {
   );
 }
 
+/** Shared filter: "All cost centers" (empty value) plus every active cost
+ * center, reused by General Ledger, Income Statement, and the dedicated
+ * Cost Center Report tab. */
+function CostCenterFilterSelect({
+  value,
+  onChange,
+  costCenters,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  costCenters: CostCenter[];
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="w-56 space-y-1">
+      <Label className="text-xs">{t("accounting.gl.cost_center")}</Label>
+      <Select value={value} onValueChange={(v) => onChange(v ?? "")}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder={t("accounting.gl.cost_center_all")}>
+            {(v: string) => {
+              if (!v) return t("accounting.gl.cost_center_all");
+              return costCenters.find((c) => c.id === v)?.name ?? v;
+            }}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">{t("accounting.gl.cost_center_all")}</SelectItem>
+          {costCenters.map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              {c.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
   const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
   const [accountId, setAccountId] = useState(initialAccountId ?? "");
+  const [costCenterId, setCostCenterId] = useState("");
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [ranAt, setRanAt] = useState<{ account: string; from: string; to: string } | null>(() =>
-    initialAccountId ? { account: initialAccountId, from: new Date().toISOString().slice(0, 8) + "01", to: new Date().toISOString().slice(0, 10) } : null
+  const [ranAt, setRanAt] = useState<{ account: string; from: string; to: string; costCenter: string } | null>(() =>
+    initialAccountId
+      ? { account: initialAccountId, from: new Date().toISOString().slice(0, 8) + "01", to: new Date().toISOString().slice(0, 10), costCenter: "" }
+      : null
   );
   // Same class of bug as Customer/Vendor Subledger below: drilling into a
   // different account from the Chart of Accounts while this tab is
@@ -870,7 +911,7 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
   const [syncedAccountId, setSyncedAccountId] = useState(initialAccountId);
   if (initialAccountId !== syncedAccountId) {
     setAccountId(initialAccountId ?? "");
-    setRanAt(initialAccountId ? { account: initialAccountId, from: dateFrom, to: dateTo } : null);
+    setRanAt(initialAccountId ? { account: initialAccountId, from: dateFrom, to: dateTo, costCenter: "" } : null);
     setSyncedAccountId(initialAccountId);
   }
 
@@ -878,9 +919,14 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
     queryKey: ["accounts", companyId],
     queryFn: () => accountingApi.listAccounts(companyId),
   });
+  const costCentersQuery = useQuery({
+    queryKey: ["cost-centers", companyId],
+    queryFn: () => accountingApi.listCostCenters(companyId),
+  });
   const reportQuery = useQuery({
-    queryKey: ["general-ledger", companyId, ranAt?.account, ranAt?.from, ranAt?.to],
-    queryFn: () => accountingApi.generalLedger(companyId, ranAt!.account, ranAt!.from, ranAt!.to),
+    queryKey: ["general-ledger", companyId, ranAt?.account, ranAt?.from, ranAt?.to, ranAt?.costCenter],
+    queryFn: () =>
+      accountingApi.generalLedger(companyId, ranAt!.account, ranAt!.from, ranAt!.to, ranAt!.costCenter || undefined),
     enabled: !!ranAt,
   });
 
@@ -917,14 +963,27 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
             <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
+          <CostCenterFilterSelect
+            value={costCenterId}
+            onChange={setCostCenterId}
+            costCenters={costCentersQuery.data ?? []}
+          />
         </>
       }
-      onApply={accountId ? () => setRanAt({ account: accountId, from: dateFrom, to: dateTo }) : undefined}
+      onApply={
+        accountId ? () => setRanAt({ account: accountId, from: dateFrom, to: dateTo, costCenter: costCenterId }) : undefined
+      }
       onPrint={ranAt && reportQuery.data ? () => window.print() : undefined}
       {...(ranAt
         ? reportExportHandlers(
             "/api/v1/accounting/reports/general-ledger",
-            { account_id: ranAt.account, date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            {
+              account_id: ranAt.account,
+              date_from: ranAt.from,
+              date_to: ranAt.to,
+              cost_center_id: ranAt.costCenter || undefined,
+              lang: locale,
+            },
             companyId
           )
         : {})}
@@ -951,6 +1010,7 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
               <TableHead>{t("accounting.gl.date")}</TableHead>
               <TableHead>{t("accounting.gl.reference")}</TableHead>
               <TableHead>{t("accounting.sub.source")}</TableHead>
+              <TableHead>{t("accounting.gl.cost_center")}</TableHead>
               <TableHead className="text-end">{t("accounting.je.debit")}</TableHead>
               <TableHead className="text-end">{t("accounting.je.credit")}</TableHead>
               <TableHead className="text-end">{t("accounting.gl.running_balance")}</TableHead>
@@ -984,6 +1044,7 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  <TableCell className="text-muted-foreground">{line.cost_center_name ?? "—"}</TableCell>
                   <TableCell className="text-end font-mono">{formatCurrency(line.debit)}</TableCell>
                   <TableCell className="text-end font-mono">{formatCurrency(line.credit)}</TableCell>
                   <TableCell className="text-end font-mono">{formatCurrency(line.running_balance)}</TableCell>
@@ -1086,11 +1147,17 @@ function IncomeStatementTab() {
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [detailLevel, setDetailLevel] = useState(MAX_ACCOUNT_LEVEL);
-  const [ranAt, setRanAt] = useState<{ from: string; to: string; level: number } | null>(null);
+  const [costCenterId, setCostCenterId] = useState("");
+  const [ranAt, setRanAt] = useState<{ from: string; to: string; level: number; costCenter: string } | null>(null);
 
+  const costCentersQuery = useQuery({
+    queryKey: ["cost-centers", companyId],
+    queryFn: () => accountingApi.listCostCenters(companyId),
+  });
   const reportQuery = useQuery({
-    queryKey: ["income-statement", companyId, ranAt?.from, ranAt?.to, ranAt?.level],
-    queryFn: () => accountingApi.incomeStatement(companyId, ranAt!.from, ranAt!.to, ranAt!.level),
+    queryKey: ["income-statement", companyId, ranAt?.from, ranAt?.to, ranAt?.level, ranAt?.costCenter],
+    queryFn: () =>
+      accountingApi.incomeStatement(companyId, ranAt!.from, ranAt!.to, ranAt!.level, ranAt!.costCenter || undefined),
     enabled: !!ranAt,
   });
   const r = reportQuery.data;
@@ -1110,14 +1177,25 @@ function IncomeStatementTab() {
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
           <DetailLevelSelect value={detailLevel} onChange={setDetailLevel} />
+          <CostCenterFilterSelect
+            value={costCenterId}
+            onChange={setCostCenterId}
+            costCenters={costCentersQuery.data ?? []}
+          />
         </>
       }
-      onApply={() => setRanAt({ from: dateFrom, to: dateTo, level: detailLevel })}
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo, level: detailLevel, costCenter: costCenterId })}
       onPrint={r ? () => window.print() : undefined}
       {...(ranAt
         ? reportExportHandlers(
             "/api/v1/accounting/reports/income-statement",
-            { date_from: ranAt.from, date_to: ranAt.to, detail_level: String(ranAt.level), lang: locale },
+            {
+              date_from: ranAt.from,
+              date_to: ranAt.to,
+              detail_level: String(ranAt.level),
+              cost_center_id: ranAt.costCenter || undefined,
+              lang: locale,
+            },
             companyId
           )
         : {})}
@@ -2210,6 +2288,121 @@ function CostCentersTab() {
   );
 }
 
+/** The reason Cost Centers exist: for one cost center, every account it
+ * actually touched in the period with a non-zero balance — revenue and
+ * expense first, since that is the primary use case, but any account type
+ * can appear (a cost center can carry any kind of line). */
+function CostCenterReportTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [costCenterId, setCostCenterId] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ costCenter: string; from: string; to: string } | null>(null);
+
+  const costCentersQuery = useQuery({
+    queryKey: ["cost-centers", companyId],
+    queryFn: () => accountingApi.listCostCenters(companyId),
+  });
+  const reportQuery = useQuery({
+    queryKey: ["cost-center-report", companyId, ranAt?.costCenter, ranAt?.from, ranAt?.to],
+    queryFn: () => accountingApi.costCenterReport(companyId, ranAt!.costCenter, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+  const r = reportQuery.data;
+
+  return (
+    <ReportView
+      title={t("accounting.ccr.title")}
+      filterArea={
+        <>
+          <CostCenterFilterSelect
+            value={costCenterId}
+            onChange={setCostCenterId}
+            costCenters={costCentersQuery.data ?? []}
+          />
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.tb.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+        </>
+      }
+      onApply={
+        costCenterId ? () => setRanAt({ costCenter: costCenterId, from: dateFrom, to: dateTo }) : undefined
+      }
+      onPrint={r ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            `/api/v1/accounting/reports/cost-center/${ranAt.costCenter}`,
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      isEmpty={!!r && r.accounts.length === 0}
+      kpis={
+        r
+          ? [
+              { label: t("accounting.is.total_revenue"), value: formatCurrency(r.revenue_total) },
+              { label: t("accounting.ccr.total_expense"), value: formatCurrency(r.expense_total) },
+              { label: t("accounting.ccr.net_result"), value: formatCurrency(r.net_result) },
+            ]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("accounting.ccr.select_hint")}</p>}
+      {r && (
+        <>
+          <ReportPrintHeader
+            reportTitle={`${t("accounting.ccr.title")} — ${r.cost_center.name}`}
+            dateRangeLabel={`${r.date_from} – ${r.date_to}`}
+          />
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("accounting.ccr.account_code")}</TableHead>
+                <TableHead>{t("accounting.ccr.account")}</TableHead>
+                <TableHead>{t("accounting.ccr.type")}</TableHead>
+                <TableHead className="text-end">{t("accounting.ccr.balance")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {r.accounts.map((row) => (
+                <TableRow key={row.account_id}>
+                  <TableCell className="font-mono text-xs">{row.account_code}</TableCell>
+                  <TableCell>
+                    <Link
+                      href={`/accounting?tab=general-ledger&account=${row.account_id}`}
+                      className="underline-offset-4 hover:underline"
+                    >
+                      {row.account_name}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{t(`accounting.account_type.${row.type_code}`)}</TableCell>
+                  <TableCell className="text-end font-mono">{formatCurrency(row.balance)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell colSpan={3}>{t("accounting.ccr.net_result")}</TableCell>
+                <TableCell className="text-end font-mono">{formatCurrency(r.net_result)}</TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
+        </>
+      )}
+    </ReportView>
+  );
+}
+
 export default function AccountingPage() {
   const searchParams = useSearchParams();
   // Base UI's Tabs.Panel fails to hide inactive panels once a second panel
@@ -2256,6 +2449,7 @@ export default function AccountingPage() {
       {tab === "ap-aging" && <ApAgingTab />}
       {tab === "fiscal-periods" && <FiscalPeriodsTab />}
       {tab === "cost-centers" && <CostCentersTab />}
+      {tab === "cost-center-report" && <CostCenterReportTab />}
     </div>
   );
 }

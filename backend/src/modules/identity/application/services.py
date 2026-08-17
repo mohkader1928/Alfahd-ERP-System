@@ -280,6 +280,7 @@ class UserManagementService:
                     "accounting.cost_centers.view",
                     "accounting.cost_centers.create",
                     "accounting.cost_centers.update",
+                    "accounting.reports.cost_center.view",
                     "payment.view",
                     "payment.create",
                     "payment.subledger.view",

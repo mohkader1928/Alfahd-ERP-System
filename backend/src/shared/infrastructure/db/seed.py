@@ -82,6 +82,7 @@ PERMISSION_CATALOG = [
     ("accounting.cost_centers.view", "screen"),
     ("accounting.cost_centers.create", "action"),
     ("accounting.cost_centers.update", "action"),
+    ("accounting.reports.cost_center.view", "screen"),
     # Phase 17E — Accounting Standardization (Milestone 1a)
     ("accounting.reports.general_ledger.view", "screen"),
     ("accounting.reports.income_statement.view", "screen"),

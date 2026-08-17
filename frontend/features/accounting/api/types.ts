@@ -106,6 +106,8 @@ export interface GeneralLedgerLine {
   running_balance: string;
   source_table: string | null;
   source_id: string | null;
+  cost_center_id: string | null;
+  cost_center_name: string | null;
 }
 
 export interface GeneralLedgerResponse {
@@ -136,6 +138,26 @@ export interface IncomeStatementResponse {
   opex_total: string;
   operating_income: string;
   net_income: string;
+}
+
+export interface CostCenterReportAccountRow {
+  account_id: string;
+  account_code: string;
+  account_name: string;
+  type_code: "asset" | "liability" | "equity" | "revenue" | "expense";
+  total_debit: string;
+  total_credit: string;
+  balance: string;
+}
+
+export interface CostCenterReportResponse {
+  cost_center: CostCenter;
+  date_from: string;
+  date_to: string;
+  accounts: CostCenterReportAccountRow[];
+  revenue_total: string;
+  expense_total: string;
+  net_result: string;
 }
 
 export interface BalanceSheetResponse {

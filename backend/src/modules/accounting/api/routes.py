@@ -24,6 +24,7 @@ from src.modules.accounting.api.schemas import (
     BalanceSheetResponse,
     CostCenterCreateRequest,
     CostCenterOut,
+    CostCenterReportResponse,
     CostCenterUpdateRequest,
     FiscalPeriodCreateRequest,
     FiscalPeriodOut,
@@ -583,6 +584,7 @@ async def general_ledger(
     account_id: str,
     date_from: date,
     date_to: date,
+    cost_center_id: UUID | None = None,
     format: ExportFormatParam = "json",
     lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.general_ledger.view")),
@@ -603,6 +605,7 @@ async def general_ledger(
         date_from=date_from,
         date_to=date_to,
         branch_id=ctx.branch_id,
+        cost_center_id=cost_center_id,
     )
     if format == "json":
         return GeneralLedgerResponse(
@@ -614,6 +617,7 @@ async def general_ledger(
             format_date_str(line["entry_date"]),
             line["reference"] or "",
             line["description"] or "",
+            line["cost_center_name"] or "",
             format_amount(line["debit"]),
             format_amount(line["credit"]),
             format_amount(line["running_balance"]),
@@ -628,6 +632,7 @@ async def general_ledger(
             ReportColumn(label(lang, "date")),
             ReportColumn(label(lang, "reference")),
             ReportColumn(label(lang, "description")),
+            ReportColumn(label(lang, "cost_center")),
             ReportColumn(label(lang, "debit"), "end"),
             ReportColumn(label(lang, "credit"), "end"),
             ReportColumn(label(lang, "running_balance"), "end"),
@@ -639,11 +644,12 @@ async def general_ledger(
                 label(lang, "opening_balance"),
                 "",
                 "",
+                "",
                 format_amount(result["opening_balance"]),
             ],
             *table_rows,
         ],
-        totals=["", "", label(lang, "closing_balance"), "", "", format_amount(result["closing_balance"])],
+        totals=["", "", label(lang, "closing_balance"), "", "", "", format_amount(result["closing_balance"])],
         rtl=lang == "ar",
     )
     return build_export_response(format, f"general-ledger-{account.code}", table)
@@ -654,6 +660,7 @@ async def income_statement(
     date_from: date,
     date_to: date,
     detail_level: int | None = None,
+    cost_center_id: UUID | None = None,
     format: ExportFormatParam = "json",
     lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("accounting.reports.income_statement.view")),
@@ -668,6 +675,7 @@ async def income_statement(
         date_to=date_to,
         branch_id=ctx.branch_id,
         detail_level=detail_level,
+        cost_center_id=cost_center_id,
     )
     if format == "json":
         return IncomeStatementResponse(date_from=date_from, date_to=date_to, **result)
@@ -697,6 +705,59 @@ async def income_statement(
         rtl=lang == "ar",
     )
     return build_export_response(format, "income-statement", table)
+
+
+@router.get("/reports/cost-center/{cost_center_id}", response_model=CostCenterReportResponse)
+async def cost_center_report(
+    cost_center_id: UUID,
+    date_from: date,
+    date_to: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("accounting.reports.cost_center.view")),
+    entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    cost_center_repo: CostCenterRepository = Depends(get_cost_center_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    cost_center = await cost_center_repo.get_by_id(ctx.company_id, cost_center_id)
+    if cost_center is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cost center not found")
+
+    service = ReportingService(entry_repo, cost_center_repo=cost_center_repo)
+    result = await service.cost_center_report(
+        company_id=ctx.company_id,
+        cost_center_id=cost_center_id,
+        date_from=date_from,
+        date_to=date_to,
+        branch_id=ctx.branch_id,
+    )
+    if format == "json":
+        return CostCenterReportResponse(date_from=date_from, date_to=date_to, **result)
+
+    table_rows = [
+        [
+            row["account_code"],
+            row["account_name"],
+            label(lang, row["type_code"]),
+            format_amount(row["balance"]),
+        ]
+        for row in result["accounts"]
+    ]
+    table = ReportTable(
+        title=f'{title(lang, "cost_center_report")} — {cost_center.name}',
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f"{date_from} — {date_to}",
+        columns=[
+            ReportColumn(label(lang, "account_code")),
+            ReportColumn(label(lang, "account")),
+            ReportColumn(label(lang, "type")),
+            ReportColumn(label(lang, "balance"), "end"),
+        ],
+        rows=table_rows,
+        totals=["", "", label(lang, "net_result"), format_amount(result["net_result"])],
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, f"cost-center-report-{cost_center.name}", table)
 
 
 @router.get("/reports/balance-sheet", response_model=BalanceSheetResponse)

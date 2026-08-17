@@ -4,6 +4,7 @@ import type {
   AccountUpdateInput,
   BalanceSheetResponse,
   CostCenter,
+  CostCenterReportResponse,
   FiscalPeriod,
   GeneralLedgerResponse,
   IncomeStatementResponse,
@@ -84,21 +85,39 @@ export const accountingApi = {
       { companyId }
     ),
 
-  generalLedger: (companyId: string, accountId: string, dateFrom: string, dateTo: string) =>
+  generalLedger: (
+    companyId: string,
+    accountId: string,
+    dateFrom: string,
+    dateTo: string,
+    costCenterId?: string
+  ) =>
     apiClient.get<GeneralLedgerResponse>(
-      `${BASE}/reports/general-ledger?account_id=${accountId}&date_from=${dateFrom}&date_to=${dateTo}`,
+      `${BASE}/reports/general-ledger?account_id=${accountId}&date_from=${dateFrom}&date_to=${dateTo}${costCenterId ? `&cost_center_id=${costCenterId}` : ""}`,
       { companyId }
     ),
 
-  incomeStatement: (companyId: string, dateFrom: string, dateTo: string, detailLevel?: number) =>
+  incomeStatement: (
+    companyId: string,
+    dateFrom: string,
+    dateTo: string,
+    detailLevel?: number,
+    costCenterId?: string
+  ) =>
     apiClient.get<IncomeStatementResponse>(
-      `${BASE}/reports/income-statement?date_from=${dateFrom}&date_to=${dateTo}${detailLevel ? `&detail_level=${detailLevel}` : ""}`,
+      `${BASE}/reports/income-statement?date_from=${dateFrom}&date_to=${dateTo}${detailLevel ? `&detail_level=${detailLevel}` : ""}${costCenterId ? `&cost_center_id=${costCenterId}` : ""}`,
       { companyId }
     ),
 
   balanceSheet: (companyId: string, asOfDate: string, detailLevel?: number) =>
     apiClient.get<BalanceSheetResponse>(
       `${BASE}/reports/balance-sheet?as_of_date=${asOfDate}${detailLevel ? `&detail_level=${detailLevel}` : ""}`,
+      { companyId }
+    ),
+
+  costCenterReport: (companyId: string, costCenterId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<CostCenterReportResponse>(
+      `${BASE}/reports/cost-center/${costCenterId}?date_from=${dateFrom}&date_to=${dateTo}`,
       { companyId }
     ),
 };

@@ -54,6 +54,12 @@ _LABELS: dict[str, dict[str, str]] = {
         "asset_name": "اسم الأصل",
         "category": "التصنيف",
         "useful_life_months": "العمر الإنتاجي (أشهر)",
+        "cost_center": "مركز التكلفة",
+        "net_result": "صافي الأثر",
+        "asset": "أصول",
+        "liability": "التزامات",
+        "equity": "حقوق الملكية",
+        "expense": "مصروفات",
     },
     "en": {
         "account": "Account",
@@ -105,6 +111,12 @@ _LABELS: dict[str, dict[str, str]] = {
         "asset_name": "Asset Name",
         "category": "Category",
         "useful_life_months": "Useful Life (months)",
+        "cost_center": "Cost Center",
+        "net_result": "Net Result",
+        "asset": "Assets",
+        "liability": "Liabilities",
+        "equity": "Equity",
+        "expense": "Expenses",
     },
 }
 
@@ -129,6 +141,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "fixed_assets_reconciliation": "تسوية الأصول الثابتة مع الأستاذ العام",
         "fixed_assets_register": "سجل الأصول الثابتة",
         "fixed_assets_depreciation_schedule": "جدول إهلاك الأصول الثابتة",
+        "cost_center_report": "تقرير مركز التكلفة",
     },
     "en": {
         "trial_balance": "Trial Balance",
@@ -150,6 +163,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "fixed_assets_reconciliation": "Fixed Assets Reconciliation to GL",
         "fixed_assets_register": "Fixed Assets Register",
         "fixed_assets_depreciation_schedule": "Fixed Assets Depreciation Schedule",
+        "cost_center_report": "Cost Center Report",
     },
 }
 

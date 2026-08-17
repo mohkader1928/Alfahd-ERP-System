@@ -161,6 +161,12 @@ export const NAV_CONFIG: NavEntry[] = [
         labelKey: "accounting.tabs.cost_centers",
         icon: PieChart,
       },
+      {
+        type: "link",
+        href: "/accounting?tab=cost-center-report",
+        labelKey: "accounting.tabs.cost_center_report",
+        icon: PieChart,
+      },
     ],
   },
   {

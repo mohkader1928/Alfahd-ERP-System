@@ -151,6 +151,8 @@ class GeneralLedgerLine(BaseModel):
     running_balance: Decimal
     source_table: str | None
     source_id: UUID | None
+    cost_center_id: UUID | None = None
+    cost_center_name: str | None = None
 
 
 class GeneralLedgerResponse(BaseModel):
@@ -181,6 +183,26 @@ class IncomeStatementResponse(BaseModel):
     opex_total: Decimal
     operating_income: Decimal
     net_income: Decimal
+
+
+class CostCenterReportAccountRow(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    type_code: str
+    total_debit: Decimal
+    total_credit: Decimal
+    balance: Decimal
+
+
+class CostCenterReportResponse(BaseModel):
+    cost_center: CostCenterOut
+    date_from: date
+    date_to: date
+    accounts: list[CostCenterReportAccountRow]
+    revenue_total: Decimal
+    expense_total: Decimal
+    net_result: Decimal
 
 
 class BalanceSheetAccountRow(BaseModel):
