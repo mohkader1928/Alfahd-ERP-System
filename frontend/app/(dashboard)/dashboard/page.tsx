@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, FileText, ShoppingCart, Wallet } from "lucide-react";
+import { AlertTriangle, FileText, Landmark, ShoppingCart, TrendingUp, Wallet } from "lucide-react";
 import { DashboardGrid } from "@/components/erp/dashboard/dashboard-grid";
 import { KpiCard } from "@/components/erp/dashboard/kpi-card";
 import { SalesTrendChart } from "@/components/erp/dashboard/sales-trend-chart";
+import { QuarterlySalesChart } from "@/components/erp/dashboard/quarterly-sales-chart";
 import { RecentActivityFeed } from "@/components/erp/dashboard/recent-activity-feed";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,12 +51,44 @@ export default function DashboardPage() {
     enabled: !companyLoading,
   });
 
+  // Hardening Sub-stage 1 redesign: each KPI gets a fixed categorical
+  // accent (dataviz skill slots 1-5, colorblind-safe) so the five cards
+  // are scannable at a glance instead of five identical gray rectangles —
+  // never cycled/random, the same KPI always reads the same color+icon.
   const cards = [
-    { key: "dashboard.period_sales", value: data?.period_sales_total },
-    { key: "dashboard.period_purchases", value: data?.period_purchases_total },
-    { key: "dashboard.receivables", value: data?.receivables_balance, href: "/accounting?tab=ar-aging" },
-    { key: "dashboard.payables", value: data?.payables_balance, href: "/accounting?tab=ap-aging" },
-    { key: "dashboard.cash_balance", value: data?.cash_balance, href: "/accounting?tab=trial-balance" },
+    {
+      key: "dashboard.period_sales",
+      value: data?.period_sales_total,
+      icon: TrendingUp,
+      accent: "bg-[#2a78d6]/15 text-[#2a78d6] dark:bg-[#3987e5]/20 dark:text-[#3987e5]",
+    },
+    {
+      key: "dashboard.period_purchases",
+      value: data?.period_purchases_total,
+      icon: ShoppingCart,
+      accent: "bg-[#eb6834]/15 text-[#eb6834] dark:bg-[#d95926]/20 dark:text-[#d95926]",
+    },
+    {
+      key: "dashboard.receivables",
+      value: data?.receivables_balance,
+      href: "/accounting?tab=ar-aging",
+      icon: FileText,
+      accent: "bg-[#1baf7a]/15 text-[#1baf7a] dark:bg-[#199e70]/20 dark:text-[#199e70]",
+    },
+    {
+      key: "dashboard.payables",
+      value: data?.payables_balance,
+      href: "/accounting?tab=ap-aging",
+      icon: Landmark,
+      accent: "bg-[#eda100]/15 text-[#eda100] dark:bg-[#c98500]/20 dark:text-[#c98500]",
+    },
+    {
+      key: "dashboard.cash_balance",
+      value: data?.cash_balance,
+      href: "/accounting?tab=trial-balance",
+      icon: Wallet,
+      accent: "bg-[#e87ba4]/15 text-[#e87ba4] dark:bg-[#d55181]/20 dark:text-[#d55181]",
+    },
   ];
 
   const pendingApprovals = data?.pending_approvals_count ?? 0;
@@ -79,6 +112,8 @@ export default function DashboardPage() {
             isLoading={isLoading}
             isError={isError}
             href={card.href}
+            icon={card.icon}
+            accentClassName={card.accent}
           />
         ))}
       </DashboardGrid>
@@ -98,7 +133,7 @@ export default function DashboardPage() {
         </Link>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">{t("dashboard.sales_trend.title")}</CardTitle>
@@ -111,6 +146,24 @@ export default function DashboardPage() {
               <div className="h-40 animate-pulse rounded-md bg-muted" />
             ) : data && data.sales_trend.length > 0 ? (
               <SalesTrendChart points={data.sales_trend} />
+            ) : (
+              <p className="py-12 text-center text-sm text-muted-foreground">{t("common.empty")}</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("dashboard.quarterly_sales.title")}</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {formatDate(start, locale)} – {formatDate(end, locale)}
+            </p>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="h-40 animate-pulse rounded-md bg-muted" />
+            ) : data ? (
+              <QuarterlySalesChart points={data.sales_trend} />
             ) : (
               <p className="py-12 text-center text-sm text-muted-foreground">{t("common.empty")}</p>
             )}

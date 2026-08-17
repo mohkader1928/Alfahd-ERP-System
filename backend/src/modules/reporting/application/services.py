@@ -112,11 +112,20 @@ class DashboardService:
         sales_total = await self.invoice_repo.sum_total_in_range(company_id, period_start, period_end)
         purchases_total = await self.bill_repo.sum_total_in_range(company_id, period_start, period_end)
         # AR is a normal-debit account (asset): positive balance = amount owed to us.
-        ar_balance = await self.journal_entry_repo.account_balance(company_id, ACCOUNT_CODE_AR, period_end)
+        # Hardening fix: sums the whole 1200 subtree (root_code lookup), not just an
+        # exact "1200" match — see account_balance_by_root_code's own docstring for why
+        # an exact-code match silently misses activity once a company splits an account.
+        ar_balance = await self.journal_entry_repo.account_balance_by_root_code(
+            company_id, ACCOUNT_CODE_AR, period_end
+        )
         # AP is a normal-credit account (liability): flip sign for a positive "amount we owe" figure.
-        ap_balance = -(await self.journal_entry_repo.account_balance(company_id, ACCOUNT_CODE_AP, period_end))
+        ap_balance = -(
+            await self.journal_entry_repo.account_balance_by_root_code(company_id, ACCOUNT_CODE_AP, period_end)
+        )
         # Cash and Bank is a normal-debit account (asset), same sign convention as AR.
-        cash_balance = await self.journal_entry_repo.account_balance(company_id, ACCOUNT_CODE_CASH, period_end)
+        cash_balance = await self.journal_entry_repo.account_balance_by_root_code(
+            company_id, ACCOUNT_CODE_CASH, period_end
+        )
 
         return DashboardSummary(
             period_start=period_start,

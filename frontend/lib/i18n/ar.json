@@ -161,6 +161,8 @@
   "dashboard.pending_approvals.one": "أمر شراء واحد بانتظار موافقتك",
   "dashboard.pending_approvals.many": "أوامر شراء بانتظار الموافقة",
   "dashboard.sales_trend.title": "اتجاه المبيعات — السنة المالية حتى تاريخه",
+  "dashboard.quarterly_sales.title": "المبيعات حسب الربع",
+  "dashboard.quarterly_sales.total": "الإجمالي",
   "dashboard.quick_actions.title": "إجراءات سريعة",
   "dashboard.quick_actions.new_quotation": "عرض سعر جديد",
   "dashboard.quick_actions.new_purchase_order": "أمر شراء جديد",

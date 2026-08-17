@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -574,30 +574,45 @@ class JournalEntryRepository:
         total_debit, total_credit = result.one()
         return (Decimal(total_debit) - Decimal(total_credit)).quantize(Decimal("0.0001"))
 
-    async def account_balance(
-        self, company_id: UUID, account_code: str, as_of_date: date
+    async def account_balance_by_root_code(
+        self, company_id: UUID, root_account_code: str, as_of_date: date
     ) -> Decimal:
-        """FR-RPT-003 — point-in-time balance for a single balance-sheet
-        account (e.g. AR/AP), unlike `trial_balance` which is period-bound
-        and meant for a full report. Returns debit-credit (positive for a
-        normal-debit account like AR; caller flips sign for AP if a
-        positive "amount owed" figure is wanted)."""
+        """Hardening fix — Dashboard cash/AR/AP KPIs were reading
+        `account_balance(..., "1100"/"1200"/"2100", ...)`, an EXACT code
+        match. The moment a company creates a second real account under
+        one of these (e.g. a second bank account under "1100 Cash and
+        Bank" via Chart of Accounts management), that parent is
+        auto-promoted to a non-postable group account
+        (ChartOfAccountsService.create_account) and every subsequent
+        posting lands on the new child code instead — an exact-code
+        lookup then silently stops seeing that activity, understating the
+        dashboard KPI while the Trial Balance (which the same KPI links
+        to) still shows the true total. This sums the account's ENTIRE
+        subtree (itself + every descendant, however many levels of
+        splitting occurred), the same shape ReportingService._cogs_account_ids
+        already uses for the Income Statement's COGS bucket — reused here
+        rather than reinvented. Company-scoped explicitly (not just via
+        RLS) as this codebase's own belt-and-suspenders convention."""
         result = await self.session.execute(
-            select(
-                func.coalesce(func.sum(JournalEntryLine.debit), 0),
-                func.coalesce(func.sum(JournalEntryLine.credit), 0),
+            text("""
+            WITH RECURSIVE subtree AS (
+                SELECT id FROM account WHERE company_id = :company_id AND code = :root_code
+                UNION ALL
+                SELECT a.id FROM account a
+                JOIN subtree s ON a.parent_id = s.id
+                WHERE a.company_id = :company_id
             )
-            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
-            .join(Account, Account.id == JournalEntryLine.account_id)
-            .where(
-                JournalEntry.company_id == company_id,
-                Account.code == account_code,
-                JournalEntry.status.in_(["posted", "reversed"]),
-                JournalEntry.entry_date <= as_of_date,
-            )
+            SELECT
+                COALESCE(SUM(jel.debit), 0) AS total_debit,
+                COALESCE(SUM(jel.credit), 0) AS total_credit
+            FROM journal_entry_line jel
+            JOIN journal_entry je ON je.id = jel.journal_entry_id
+            WHERE jel.account_id IN (SELECT id FROM subtree)
+              AND je.company_id = :company_id
+              AND je.status IN ('posted', 'reversed')
+              AND je.entry_date <= :as_of_date
+            """),
+            {"company_id": company_id, "root_code": root_account_code, "as_of_date": as_of_date},
         )
         total_debit, total_credit = result.one()
-        # Same COALESCE-scale quirk noted in Sales/Purchasing's
-        # sum_total_in_range — quantize explicitly for a consistent result
-        # whether or not any rows matched.
         return (Decimal(total_debit) - Decimal(total_credit)).quantize(Decimal("0.0001"))

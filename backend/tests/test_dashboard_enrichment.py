@@ -146,6 +146,103 @@ async def test_dashboard_reports_sales_trend_pending_approvals_and_recent_activi
     assert ("purchase_order", pending_po["id"]) in activity_types
 
 
+async def test_dashboard_cash_balance_includes_split_bank_subaccounts(client):
+    """Hardening Sub-stage 1, Issue #1A (Owner: "رصيد النقدية... اعتقد انه
+    غير صحيح" while testing the dashboard). Root cause: the dashboard used
+    to read the balance of account code "1100" (Cash and Bank) via an
+    EXACT code match. The moment a company creates a second real account
+    under "1100" (a completely normal action, e.g. a second bank account),
+    ChartOfAccountsService auto-promotes "1100" to a non-postable group
+    account -- so every posting from then on lands on the new child code,
+    and an exact-code lookup silently stops seeing it. This reproduces
+    exactly that: post to "1100" directly first (proving the baseline
+    still works), then create "1101" as a child and post there too --
+    the dashboard's cash_balance must include BOTH, not just the first."""
+    company_id, headers = await _bootstrap_and_login(client)
+
+    accounts = (await client.get("/api/v1/accounting/chart-of-accounts", headers=headers)).json()
+    cash_1100 = next(a for a in accounts if a["code"] == "1100")
+    capital = next(a for a in accounts if a["code"] == "3100")
+
+    # 1) Post 1,000 directly to 1100 -- the pre-split baseline.
+    je1 = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": date.today().isoformat(),
+            "lines": [
+                {"account_id": cash_1100["id"], "debit": "1000", "credit": "0"},
+                {"account_id": capital["id"], "debit": "0", "credit": "1000"},
+            ],
+        },
+    )
+    assert je1.status_code == 201, je1.text
+    await client.post(f"/api/v1/accounting/journal-entries/{je1.json()['id']}:post", headers=headers)
+
+    # 2) Split: create "1101 Second Bank Account" as a real child of 1100 --
+    # this is what auto-promotes 1100 to a non-postable group account.
+    child_resp = await client.post(
+        "/api/v1/accounting/chart-of-accounts",
+        headers=headers,
+        json={
+            "code": "1101",
+            "name": "Second Bank Account",
+            "account_type_code": "asset",
+            "parent_id": cash_1100["id"],
+        },
+    )
+    assert child_resp.status_code == 201, child_resp.text
+    cash_1101 = child_resp.json()
+
+    # 1100 is now a group account -- confirms the split actually happened
+    # and posting to it directly is now rejected (the real-world mechanism
+    # that causes the bug).
+    reject_resp = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": date.today().isoformat(),
+            "lines": [
+                {"account_id": cash_1100["id"], "debit": "1", "credit": "0"},
+                {"account_id": capital["id"], "debit": "0", "credit": "1"},
+            ],
+        },
+    )
+    assert reject_resp.status_code == 422
+
+    # 3) Post 500 to the new child 1101 -- everything real now happens here.
+    je2 = await client.post(
+        "/api/v1/accounting/journal-entries",
+        headers=headers,
+        json={
+            "journal_code": "GEN",
+            "entry_date": date.today().isoformat(),
+            "lines": [
+                {"account_id": cash_1101["id"], "debit": "500", "credit": "0"},
+                {"account_id": capital["id"], "debit": "0", "credit": "500"},
+            ],
+        },
+    )
+    assert je2.status_code == 201, je2.text
+    await client.post(f"/api/v1/accounting/journal-entries/{je2.json()['id']}:post", headers=headers)
+
+    today = date.today()
+    resp = await client.get(
+        "/api/v1/reporting/dashboard",
+        headers=headers,
+        params={"period_start": f"{today.year}-01-01", "period_end": f"{today.year}-12-31"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    # The bug: cash_balance would report only 1000 (or even 0, depending on
+    # timing) since it can no longer see anything posted to 1101. Correct:
+    # 1000 (pre-split, still on 1100) + 500 (post-split, on 1101) = 1500.
+    assert Decimal(body["cash_balance"]) == Decimal("1500.0000")
+
+
 async def test_dashboard_with_no_activity_reports_zero_not_error(client):
     _, headers = await _bootstrap_and_login(client)
     today = date.today()

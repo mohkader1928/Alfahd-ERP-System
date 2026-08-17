@@ -161,6 +161,8 @@
   "dashboard.pending_approvals.one": "1 purchase order is waiting for your approval",
   "dashboard.pending_approvals.many": "purchase orders are waiting for approval",
   "dashboard.sales_trend.title": "Sales Trend — Fiscal Year to Date",
+  "dashboard.quarterly_sales.title": "Sales by Quarter",
+  "dashboard.quarterly_sales.total": "Total",
   "dashboard.quick_actions.title": "Quick Actions",
   "dashboard.quick_actions.new_quotation": "New Quotation",
   "dashboard.quick_actions.new_purchase_order": "New Purchase Order",
