@@ -122,6 +122,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
                 <TableHead>{t("accounting.je.account")}</TableHead>
                 <TableHead className="text-end">{t("accounting.je.debit")}</TableHead>
                 <TableHead className="text-end">{t("accounting.je.credit")}</TableHead>
+                <TableHead>{t("accounting.je.line_notes")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -130,6 +131,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
                   <TableCell>{accountLabel(line.account_id)}</TableCell>
                   <TableCell className="text-end">{formatCurrency(line.debit)}</TableCell>
                   <TableCell className="text-end">{formatCurrency(line.credit)}</TableCell>
+                  <TableCell className="text-muted-foreground">{line.description ?? ""}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

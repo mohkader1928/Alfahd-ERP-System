@@ -420,6 +420,8 @@
   "accounting.je.cost_center_none": "No cost center",
   "accounting.je.debit": "Debit",
   "accounting.je.credit": "Credit",
+  "accounting.je.line_notes": "Line Notes",
+  "accounting.je.line_notes_placeholder": "Optional note for this line",
   "accounting.je.description": "Description",
   "accounting.je.add_line": "Add line",
   "accounting.je.create_title": "New Journal Entry",

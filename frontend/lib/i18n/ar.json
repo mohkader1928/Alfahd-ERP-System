@@ -420,6 +420,8 @@
   "accounting.je.cost_center_none": "بلا مركز تكلفة",
   "accounting.je.debit": "مدين",
   "accounting.je.credit": "دائن",
+  "accounting.je.line_notes": "ملاحظات السطر",
+  "accounting.je.line_notes_placeholder": "ملاحظة اختيارية على هذا السطر",
   "accounting.je.description": "الوصف",
   "accounting.je.add_line": "إضافة سطر",
   "accounting.je.create_title": "قيد يومية جديد",

@@ -565,9 +565,10 @@ function JournalEntriesTab() {
                 placeholder={t("accounting.je.description_placeholder")}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {lines.map((line, index) => (
-                <div key={index} className="flex items-end gap-2">
+                <div key={index} className="space-y-1.5 border-b pb-3 last:border-b-0 last:pb-0">
+                <div className="flex items-end gap-2">
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs">{t("accounting.je.account")}</Label>
                     <Select
@@ -630,6 +631,15 @@ function JournalEntriesTab() {
                     <Label className="text-xs">{t("accounting.je.credit")}</Label>
                     <Input value={line.credit} onChange={(e) => updateLine(index, { credit: e.target.value })} />
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">{t("accounting.je.line_notes")}</Label>
+                  <Input
+                    value={line.description ?? ""}
+                    onChange={(e) => updateLine(index, { description: e.target.value || undefined })}
+                    placeholder={t("accounting.je.line_notes_placeholder")}
+                  />
+                </div>
                 </div>
               ))}
               <Button
