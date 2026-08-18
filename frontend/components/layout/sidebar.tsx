@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { NAV_CONFIG, type NavGroup, type NavLink } from "@/lib/nav-config";
 import { useI18n } from "@/lib/i18n/config";
+import { useMyPermissions } from "@/hooks/use-permissions";
 import { cn } from "@/lib/utils";
 
 function isLinkActive(pathname: string, href: string) {
@@ -74,18 +75,34 @@ function NavGroupItem({ group, pathname }: { group: NavGroup; pathname: string }
 export function Sidebar() {
   const { t } = useI18n();
   const pathname = usePathname();
+  // Hardening Issue #5: the sidebar previously showed every nav item to
+  // every user regardless of RBAC permissions, unlike the rest of the app
+  // which already hides unauthorized actions via <Can> rather than merely
+  // disabling them. Filtering here (not disabling) matches that established
+  // convention and keeps items the user isn't authorized for out of the
+  // menu entirely, hiding groups that end up with no visible children.
+  const { can, canAny, isLoading } = useMyPermissions();
+
+  function isVisible(item: NavLink): boolean {
+    if (!item.permission) return true;
+    if (isLoading) return false;
+    return Array.isArray(item.permission) ? canAny(item.permission) : can(item.permission);
+  }
 
   return (
     <aside className="hidden w-60 shrink-0 border-e bg-sidebar text-sidebar-foreground md:block">
       <div className="flex h-14 items-center border-b px-4 font-semibold">{t("app.name")}</div>
       <nav className="space-y-1 p-2">
-        {NAV_CONFIG.map((entry) =>
-          entry.type === "link" ? (
-            <NavLinkItem key={entry.href} item={entry} pathname={pathname} />
-          ) : (
-            <NavGroupItem key={entry.labelKey} group={entry} pathname={pathname} />
-          )
-        )}
+        {NAV_CONFIG.map((entry) => {
+          if (entry.type === "link") {
+            return isVisible(entry) ? <NavLinkItem key={entry.href} item={entry} pathname={pathname} /> : null;
+          }
+          const visibleChildren = entry.children.filter(isVisible);
+          if (visibleChildren.length === 0) return null;
+          return (
+            <NavGroupItem key={entry.labelKey} group={{ ...entry, children: visibleChildren }} pathname={pathname} />
+          );
+        })}
       </nav>
     </aside>
   );
