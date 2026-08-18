@@ -66,6 +66,12 @@ class CompanyRepository:
         )
         return result.scalar_one_or_none()
 
+    async def code_exists(self, code: str) -> bool:
+        result = await self.session.execute(
+            select(Company.id).where(Company.code == code, Company.deleted_at.is_(None))
+        )
+        return result.scalar_one_or_none() is not None
+
 
 class BranchRepository:
     def __init__(self, session: AsyncSession):
@@ -126,6 +132,24 @@ class UserRepository:
             select(UserCompanyAccess).where(UserCompanyAccess.user_id == user_id)
         )
         return list(result.scalars().all())
+
+    async def is_company_code_authorized(self, user_id: UUID, company_code: str) -> bool:
+        """Hardening Issue #4: the login-time company-code check. Runs
+        after `authenticate_step1` has already called `set_tenant_context`
+        for this user's tenant, so the normal `tenant_isolation` policy on
+        `company` is enough here -- no login-lookup RLS escape hatch
+        needed (unlike the by-email user lookup, which runs before any
+        tenant is known at all)."""
+        result = await self.session.execute(
+            select(UserCompanyAccess.id)
+            .join(Company, Company.id == UserCompanyAccess.company_id)
+            .where(
+                UserCompanyAccess.user_id == user_id,
+                Company.code == company_code.strip().upper(),
+                Company.deleted_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none() is not None
 
     async def list_by_company_access(self, company_id: UUID) -> list[AppUser]:
         """Users management (Bundle 2 — Identity/Access/Governance): "who

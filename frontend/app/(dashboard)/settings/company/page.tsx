@@ -133,6 +133,12 @@ function CompanySettingsForm({ company, companyId }: { company: Company; company
         </Can>
       </div>
 
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">{t("settings.company.code")}</Label>
+        <p className="font-mono text-sm tabular-nums">{company.code}</p>
+        <p className="text-xs text-muted-foreground">{t("settings.company.code_hint")}</p>
+      </div>
+
       <Can
         permission="company.manage"
         fallback={

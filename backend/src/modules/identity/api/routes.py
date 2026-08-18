@@ -201,6 +201,7 @@ async def bootstrap(
     return BootstrapResponse(
         tenant_id=tenant.id,
         company_id=company.id,
+        company_code=company.code,
         branch_id=branch.id,
         admin_user_id=admin_user.id,
         admin_role_id=admin_role.id,
@@ -215,7 +216,9 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db), user_
         # by-email lookup finds the user — see app_user_login_lookup policy
         # (migration f7004fe055a4) and set_login_lookup()'s docstring.
         await set_login_lookup(db)
-        user = await auth_service.authenticate_step1(email=payload.email, plain_password=payload.password)
+        user = await auth_service.authenticate_step1(
+            email=payload.email, plain_password=payload.password, company_code=payload.company_code
+        )
     except TwoFactorRequiredError:
         # P0-B: authenticate_step1 already reset failed_login_count on this
         # correct-password branch — persist it even though 2FA isn't done.
@@ -249,7 +252,10 @@ async def verify_2fa(
         # Phase 17C-RLS Step 3A: same rationale as the login endpoint above.
         await set_login_lookup(db)
         user = await auth_service.authenticate_step2_totp(
-            email=payload.email, plain_password=payload.password, totp_code=payload.totp_code
+            email=payload.email,
+            plain_password=payload.password,
+            totp_code=payload.totp_code,
+            company_code=payload.company_code,
         )
     except AuthenticationError as e:
         # P0-B: persist the failed-attempt increment/lockout set by

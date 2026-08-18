@@ -56,6 +56,12 @@ class Company(Base):
     )
     legal_name: Mapped[str] = mapped_column(Text, nullable=False)
     legal_name_ar: Mapped[str] = mapped_column(Text, nullable=False)
+    # Hardening Issue #4 (Owner directive): required at login alongside
+    # email/password, so a remote client always confirms which company
+    # they're connecting to. System-assigned (never user-typed), globally
+    # unique across all tenants — looked up before tenant context exists,
+    # same shape as app_user.email (see ux_app_user_email_lower).
+    code: Mapped[str] = mapped_column(String(6), nullable=False)
     vat_number: Mapped[str] = mapped_column(String(15), nullable=False)
     cr_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     base_currency_id: Mapped[uuid.UUID] = mapped_column(
@@ -88,6 +94,7 @@ class Company(Base):
             "fiscal_year_start_month BETWEEN 1 AND 12", name="ck_company_fiscal_year_start_month"
         ),
         Index("ux_company_vat", "vat_number", unique=True, postgresql_where=text("deleted_at IS NULL")),
+        Index("ux_company_code", "code", unique=True, postgresql_where=text("deleted_at IS NULL")),
     )
 
 

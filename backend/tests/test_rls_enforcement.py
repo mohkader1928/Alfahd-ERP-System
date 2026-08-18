@@ -71,17 +71,29 @@ async def _make_tenant_and_company(conn, label: str) -> dict:
 
     await _set_tenant(conn, tenant_id)
     vat = str(uuid.uuid4().int)[:15]
+    # Hardening Issue #4: company.code is NOT NULL + globally unique now
+    # (see migration 5461ff610806) -- this raw INSERT bypasses
+    # CompanyRegistrationService's auto-generation, so it has to supply one
+    # itself, same as the CASH-/GJ- codes already generated below.
+    code = uuid.uuid4().hex[:6].upper()
     company_id = (
         await conn.execute(
             text(
                 """
                 INSERT INTO company
-                    (tenant_id, legal_name, legal_name_ar, vat_number, base_currency_id, valuation_method)
-                VALUES (:tenant_id, :name, :name_ar, :vat, :currency_id, 'fifo')
+                    (tenant_id, legal_name, legal_name_ar, code, vat_number, base_currency_id, valuation_method)
+                VALUES (:tenant_id, :name, :name_ar, :code, :vat, :currency_id, 'fifo')
                 RETURNING id
                 """
             ),
-            {"tenant_id": str(tenant_id), "name": f"{label} Co", "name_ar": f"{label} Co AR", "vat": vat, "currency_id": str(currency_id)},
+            {
+                "tenant_id": str(tenant_id),
+                "name": f"{label} Co",
+                "name_ar": f"{label} Co AR",
+                "code": code,
+                "vat": vat,
+                "currency_id": str(currency_id),
+            },
         )
     ).scalar_one()
     await _clear_tenant(conn)

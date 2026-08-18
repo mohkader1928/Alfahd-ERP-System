@@ -15,6 +15,7 @@ export interface BootstrapRequest {
 export interface BootstrapResponse {
   tenant_id: string;
   company_id: string;
+  company_code: string;
   branch_id: string;
   admin_user_id: string;
   admin_role_id: string;
@@ -23,6 +24,7 @@ export interface BootstrapResponse {
 export interface LoginRequest {
   email: string;
   password: string;
+  company_code?: string;
 }
 
 export interface TokenResponse {
@@ -65,6 +67,7 @@ export interface Company {
   id: string;
   legal_name: string;
   legal_name_ar: string;
+  code: string;
   vat_number: string;
   cr_number: string | null;
   valuation_method: string;

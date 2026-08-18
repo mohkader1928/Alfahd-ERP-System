@@ -22,12 +22,13 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [companyCode, setCompanyCode] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [requires2fa, setRequires2fa] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loginMutation = useMutation({
-    mutationFn: () => identityApi.login({ email, password }),
+    mutationFn: () => identityApi.login({ email, password, company_code: companyCode }),
     onSuccess: (result) => {
       if ("requires_2fa" in result) {
         setRequires2fa(true);
@@ -39,7 +40,8 @@ export default function LoginPage() {
   });
 
   const verify2faMutation = useMutation({
-    mutationFn: () => identityApi.verify2fa({ email, password, totp_code: totpCode }),
+    mutationFn: () =>
+      identityApi.verify2fa({ email, password, totp_code: totpCode, company_code: companyCode }),
     onSuccess: (result) => applyTokens(result.access_token, result.refresh_token),
     onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
   });
@@ -78,6 +80,19 @@ export default function LoginPage() {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="companyCode">{t("auth.login.company_code")}</Label>
+            <Input
+              id="companyCode"
+              value={companyCode}
+              onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+              placeholder={t("auth.login.company_code_placeholder")}
+              disabled={requires2fa}
+              maxLength={6}
+              autoCapitalize="characters"
+              required
+            />
+          </div>
           <div className="space-y-2">
             <Label htmlFor="email">{t("auth.login.email")}</Label>
             <Input

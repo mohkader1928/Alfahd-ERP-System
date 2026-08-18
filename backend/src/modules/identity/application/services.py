@@ -90,11 +90,13 @@ class CompanyRegistrationService:
         if currency is None:
             raise ValueError(f"Unknown currency code: {base_currency_code}")
 
+        code = await self._generate_unique_company_code()
         company = Company(
             id=uuid.uuid4(),
             tenant_id=tenant_id,
             legal_name=legal_name,
             legal_name_ar=legal_name_ar,
+            code=code,
             vat_number=vat_number,
             base_currency_id=currency.id,
             valuation_method=valuation_method,
@@ -112,6 +114,20 @@ class CompanyRegistrationService:
         await self.branch_repo.add(branch)
 
         return company, branch
+
+    async def _generate_unique_company_code(self) -> str:
+        """6-char uppercase hex, globally unique (see migration
+        5461ff610806's docstring for why hex and why global, not
+        per-company like SKU/partner-code). Random rather than
+        sequential -- unlike SKU/partner-code, this table has no
+        company_id to scope a count() by (company IS the tenant
+        boundary), and a sequential global code would leak company
+        count to anyone probing the login form."""
+        for _ in range(10):
+            candidate = secrets.token_hex(3).upper()
+            if not await self.company_repo.code_exists(candidate):
+                return candidate
+        raise RuntimeError("Could not generate a unique company code after 10 attempts")
 
 
 class CompanyService:
@@ -414,7 +430,9 @@ class AuthenticationService:
     def __init__(self, user_repo: UserRepository):
         self.user_repo = user_repo
 
-    async def authenticate_step1(self, *, email: str, plain_password: str) -> AppUser:
+    async def authenticate_step1(
+        self, *, email: str, plain_password: str, company_code: str | None = None
+    ) -> AppUser:
         user = await self.user_repo.get_by_email(email)
         if user is None:
             raise AuthenticationError("Invalid email or password")
@@ -435,12 +453,28 @@ class AuthenticationService:
         except InactiveUserError as e:
             raise AuthenticationError(str(e)) from e
 
+        # Hardening Issue #4: Owner-requested login discipline -- a remote
+        # client must also confirm which company they're connecting to.
+        # Optional at this layer (see LoginRequest.company_code) so
+        # existing callers that never send it are unaffected; the real
+        # login screen always sends it, so it's effectively required
+        # there. Not a lockout-counted attempt (email+password were
+        # already correct; this is an authorization gate, not credential
+        # guessing), and deliberately doesn't say which of the three
+        # fields was wrong.
+        if company_code is not None and not await self.user_repo.is_company_code_authorized(
+            user.id, company_code
+        ):
+            raise AuthenticationError("Invalid email, password, or company code")
+
         if user.is_2fa_enabled:
             raise TwoFactorRequiredError()
 
         return user
 
-    async def authenticate_step2_totp(self, *, email: str, plain_password: str, totp_code: str) -> AppUser:
+    async def authenticate_step2_totp(
+        self, *, email: str, plain_password: str, totp_code: str, company_code: str | None = None
+    ) -> AppUser:
         user = await self.user_repo.get_by_email(email)
         if user is None:
             raise AuthenticationError("Invalid email or password")
@@ -455,6 +489,10 @@ class AuthenticationService:
         if not verify_totp_code(user.totp_secret, totp_code):
             self._register_failed_attempt(user)
             raise AuthenticationError("Invalid 2FA code")
+        if company_code is not None and not await self.user_repo.is_company_code_authorized(
+            user.id, company_code
+        ):
+            raise AuthenticationError("Invalid email, password, or company code")
 
         self._register_successful_attempt(user)
         return user

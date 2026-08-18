@@ -13,6 +13,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { identityApi } from "@/features/identity/api/client";
 import { useAuthStore } from "@/stores/auth-store";
 import { ApiError } from "@/lib/api-client";
+import { toastSuccess } from "@/lib/toast";
 import type { BootstrapRequest, BootstrapResponse } from "@/features/identity/api/types";
 
 const initialForm: BootstrapRequest = {
@@ -54,6 +55,10 @@ export default function SetupPage() {
   // authorized_companies live from the DB at login time, so this freshly
   // minted token already includes the company bootstrap() just created.
   async function finishOnboarding(response: BootstrapResponse) {
+    // Hardening Issue #4: this is the one and only moment the new admin
+    // is shown their company code before it's needed at every future
+    // login -- also visible permanently afterward on Settings > Company.
+    toastSuccess(t("setup.company_code_title"), `${t("setup.company_code_body")} ${response.company_code}`);
     try {
       const loginResult = await identityApi.login({ email: form.admin_email, password: form.admin_password });
       if ("requires_2fa" in loginResult) {

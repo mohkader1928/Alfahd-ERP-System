@@ -24,6 +24,7 @@ class BootstrapRequest(BaseModel):
 class BootstrapResponse(BaseModel):
     tenant_id: UUID
     company_id: UUID
+    company_code: str
     branch_id: UUID
     admin_user_id: UUID
     admin_role_id: UUID
@@ -32,12 +33,19 @@ class BootstrapResponse(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # Hardening Issue #4: optional at the API contract level so existing
+    # integrations/tests keep working -- the real web login screen makes
+    # this a required field client-side, since that's the only surface a
+    # human actually uses. Validated (and rejected if wrong) whenever
+    # provided; simply skipped when omitted.
+    company_code: str | None = None
 
 
 class TwoFactorLoginRequest(BaseModel):
     email: EmailStr
     password: str
     totp_code: str
+    company_code: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -114,6 +122,7 @@ class CompanyOut(BaseModel):
     id: UUID
     legal_name: str
     legal_name_ar: str
+    code: str
     vat_number: str
     cr_number: str | None = None
     valuation_method: str
