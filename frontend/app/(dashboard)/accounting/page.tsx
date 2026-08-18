@@ -83,6 +83,8 @@ function AccountFormFields({
   setParentId,
   isGroup,
   setIsGroup,
+  isCashEquivalent,
+  setIsCashEquivalent,
   parentOptions,
   excludeId,
   showType = true,
@@ -97,6 +99,8 @@ function AccountFormFields({
   setParentId: (v: string) => void;
   isGroup: boolean;
   setIsGroup: (v: boolean) => void;
+  isCashEquivalent: boolean;
+  setIsCashEquivalent: (v: boolean) => void;
   parentOptions: Account[];
   excludeId?: string;
   /** Account type is fixed at creation (changing it after transactions
@@ -164,6 +168,14 @@ function AccountFormFields({
         <input type="checkbox" checked={isGroup} onChange={(e) => setIsGroup(e.target.checked)} />
         {t("accounting.accounts.is_group")}
       </label>
+      <label className="flex items-center gap-2 pb-1.5 text-sm">
+        <input
+          type="checkbox"
+          checked={isCashEquivalent}
+          onChange={(e) => setIsCashEquivalent(e.target.checked)}
+        />
+        {t("accounting.accounts.is_cash_equivalent")}
+      </label>
     </div>
   );
 }
@@ -178,6 +190,7 @@ function ChartOfAccountsTab() {
   const [accountTypeCode, setAccountTypeCode] = useState<string>("asset");
   const [parentId, setParentId] = useState("");
   const [isGroup, setIsGroup] = useState(false);
+  const [isCashEquivalent, setIsCashEquivalent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<Account | null>(null);
@@ -186,6 +199,7 @@ function ChartOfAccountsTab() {
   const [editTypeCode, setEditTypeCode] = useState("asset");
   const [editParentId, setEditParentId] = useState("");
   const [editIsGroup, setEditIsGroup] = useState(false);
+  const [editIsCashEquivalent, setEditIsCashEquivalent] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
   const [deleting, setDeleting] = useState<Account | null>(null);
@@ -209,6 +223,7 @@ function ChartOfAccountsTab() {
         account_type_code: accountTypeCode,
         parent_id: parentId || null,
         is_group: isGroup,
+        is_cash_equivalent: isCashEquivalent,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accounts", companyId] });
@@ -217,6 +232,7 @@ function ChartOfAccountsTab() {
       setName("");
       setParentId("");
       setIsGroup(false);
+      setIsCashEquivalent(false);
     },
     onError: (err) => {
       const detail = err instanceof ApiError ? err.detail : t("common.error");
@@ -233,6 +249,7 @@ function ChartOfAccountsTab() {
         parent_id: editParentId || null,
         parent_id_set: true,
         is_group: editIsGroup,
+        is_cash_equivalent: editIsCashEquivalent,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accounts", companyId] });
@@ -267,6 +284,7 @@ function ChartOfAccountsTab() {
     setEditTypeCode("asset"); // type isn't surfaced on AccountOut yet; left as-is unless changed
     setEditParentId(account.parent_id ?? "");
     setEditIsGroup(account.is_group);
+    setEditIsCashEquivalent(account.is_cash_equivalent);
     setEditError(null);
   }
 
@@ -301,6 +319,11 @@ function ChartOfAccountsTab() {
       key: "is_active",
       header: t("accounting.accounts.active"),
       render: (r) => <Badge variant={r.is_active ? "default" : "secondary"}>{r.is_active ? t("common.active") : t("common.inactive")}</Badge>,
+    },
+    {
+      key: "is_cash_equivalent",
+      header: t("accounting.accounts.is_cash_equivalent"),
+      render: (r) => (r.is_cash_equivalent ? <Badge variant="default">{t("common.yes")}</Badge> : "—"),
     },
     {
       key: "actions",
@@ -347,6 +370,8 @@ function ChartOfAccountsTab() {
               setParentId={setParentId}
               isGroup={isGroup}
               setIsGroup={setIsGroup}
+              isCashEquivalent={isCashEquivalent}
+              setIsCashEquivalent={setIsCashEquivalent}
               parentOptions={accounts}
             />
             <Button
@@ -394,6 +419,8 @@ function ChartOfAccountsTab() {
             setParentId={setEditParentId}
             isGroup={editIsGroup}
             setIsGroup={setEditIsGroup}
+            isCashEquivalent={editIsCashEquivalent}
+            setIsCashEquivalent={setEditIsCashEquivalent}
             parentOptions={accounts}
             excludeId={editing?.id}
             showType={false}
@@ -1275,6 +1302,141 @@ function IncomeStatementTab() {
                 <td className="py-2 w-20" />
                 <td className="py-2 font-sans">{t("accounting.is.net_income")}</td>
                 <td className="py-2 text-end font-mono tabular-nums">{formatCurrency(r.net_income)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ReportView>
+  );
+}
+
+function CashFlowTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["cash-flow", companyId, ranAt?.from, ranAt?.to],
+    queryFn: () => accountingApi.cashFlowStatement(companyId, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+  const r = reportQuery.data;
+  const hasGap = r && Number(r.reconciliation_difference) !== 0;
+
+  return (
+    <ReportView
+      title={t("accounting.tabs.cash_flow")}
+      filterArea={
+        <>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.is.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.is.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+        </>
+      }
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onPrint={r ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      kpis={
+        r
+          ? [
+              { label: t("accounting.cf.net_change"), value: formatCurrency(r.net_change_in_cash) },
+              { label: t("accounting.cf.closing_cash"), value: formatCurrency(r.closing_cash) },
+            ]
+          : undefined
+      }
+    >
+      {!r && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
+      {r && (
+        <div className="max-w-lg">
+          <ReportPrintHeader
+            reportTitle={t("accounting.tabs.cash_flow")}
+            dateRangeLabel={ranAt ? `${ranAt.from} – ${ranAt.to}` : undefined}
+          />
+          {hasGap && (
+            <p className="mb-3 rounded-md bg-amber-500/15 px-3 py-2 text-sm text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 print:hidden">
+              {t("accounting.cf.reconciliation_gap")}: {formatCurrency(r.reconciliation_difference)}
+            </p>
+          )}
+          <table className="w-full border-collapse">
+            {/* Operating Activities */}
+            <tbody>
+              <tr>
+                <td colSpan={3} className="pt-4 pb-1 font-semibold text-sm font-sans">
+                  {t("accounting.cf.operating")}
+                </td>
+              </tr>
+              <tr>
+                <td className="ps-4 py-0.5 w-20" />
+                <td className="ps-2 py-0.5 text-sm text-muted-foreground">{t("accounting.cf.net_income")}</td>
+                <td className="py-0.5 text-end font-mono text-sm tabular-nums text-muted-foreground">
+                  {formatCurrency(r.net_income)}
+                </td>
+              </tr>
+              <tr>
+                <td className="ps-4 py-0.5 w-20" />
+                <td className="ps-2 py-0.5 text-sm text-muted-foreground">{t("accounting.cf.depreciation")}</td>
+                <td className="py-0.5 text-end font-mono text-sm tabular-nums text-muted-foreground">
+                  {formatCurrency(r.depreciation_addback)}
+                </td>
+              </tr>
+            </tbody>
+            <FinancialSection
+              label={t("accounting.cf.working_capital")}
+              rows={r.working_capital_lines}
+              total={r.working_capital_total}
+              totalLabel={t("accounting.cf.working_capital_total")}
+              linkAccounts
+            />
+            <tbody>
+              <tr className="border-t font-semibold">
+                <td className="py-1.5 w-20" />
+                <td className="py-1.5 font-sans">{t("accounting.cf.operating_total")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.operating_total)}</td>
+              </tr>
+            </tbody>
+            {/* Investing Activities */}
+            <FinancialSection
+              label={t("accounting.cf.investing")}
+              rows={r.investing_lines}
+              total={r.investing_total}
+              totalLabel={t("accounting.cf.investing_total")}
+              linkAccounts
+            />
+            {/* Financing Activities */}
+            <FinancialSection
+              label={t("accounting.cf.financing")}
+              rows={r.financing_lines}
+              total={r.financing_total}
+              totalLabel={t("accounting.cf.financing_total")}
+              linkAccounts
+            />
+            {/* Net change + opening + closing */}
+            <tbody>
+              <tr className="border-t-2 font-bold">
+                <td className="py-1.5 w-20" />
+                <td className="py-1.5 font-sans">{t("accounting.cf.net_change")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.net_change_in_cash)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 w-20" />
+                <td className="py-1.5 font-sans">{t("accounting.cf.opening_cash")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.opening_cash)}</td>
+              </tr>
+              <tr className="border-t-2 border-double font-bold text-base">
+                <td className="py-2 w-20" />
+                <td className="py-2 font-sans">{t("accounting.cf.closing_cash")}</td>
+                <td className="py-2 text-end font-mono tabular-nums">{formatCurrency(r.closing_cash)}</td>
               </tr>
             </tbody>
           </table>
@@ -2452,6 +2614,7 @@ export default function AccountingPage() {
       {tab === "general-ledger" && <GeneralLedgerTab initialAccountId={deepLinkAccountId} />}
       {tab === "income-statement" && <IncomeStatementTab />}
       {tab === "balance-sheet" && <BalanceSheetTab />}
+      {tab === "cash-flow" && <CashFlowTab />}
       {tab === "vat-summary" && <VatSummaryTab />}
       {tab === "customer-subledger" && <CustomerSubledgerTab initialPartnerId={deepLinkPartnerId} />}
       {tab === "vendor-subledger" && <VendorSubledgerTab initialPartnerId={deepLinkPartnerId} />}

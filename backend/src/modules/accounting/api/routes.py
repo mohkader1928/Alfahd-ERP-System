@@ -22,6 +22,7 @@ from src.modules.accounting.api.schemas import (
     AccountOut,
     AccountUpdateRequest,
     BalanceSheetResponse,
+    CashFlowResponse,
     CostCenterCreateRequest,
     CostCenterOut,
     CostCenterReportResponse,
@@ -227,6 +228,7 @@ async def create_account(
             account_type_code=payload.account_type_code,
             parent_id=payload.parent_id,
             is_group=payload.is_group,
+            is_cash_equivalent=payload.is_cash_equivalent,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -264,6 +266,7 @@ async def update_account(
             parent_id=payload.parent_id if payload.parent_id_set else _UNSET,
             is_group=payload.is_group,
             is_active=payload.is_active,
+            is_cash_equivalent=payload.is_cash_equivalent,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -805,6 +808,27 @@ async def balance_sheet(
         rtl=lang == "ar",
     )
     return build_export_response(format, "balance-sheet", table)
+
+
+@router.get("/reports/cash-flow", response_model=CashFlowResponse)
+async def cash_flow_statement(
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("accounting.reports.cash_flow.view")),
+    entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    account_repo: AccountRepository = Depends(get_account_repo),
+):
+    """Standard SME ERP — Cash Flow Statement (IAS 7, indirect method).
+    docs/23-cash-flow-equity-phase-a.md documents the Owner-approved design
+    and decisions this implements."""
+    service = ReportingService(entry_repo, account_repo)
+    result = await service.cash_flow_statement(
+        company_id=ctx.company_id,
+        date_from=date_from,
+        date_to=date_to,
+        branch_id=ctx.branch_id,
+    )
+    return CashFlowResponse(**result)
 
 
 @router.get("/fiscal-periods", response_model=list[FiscalPeriodOut])

@@ -3,6 +3,7 @@ import type {
   Account,
   AccountUpdateInput,
   BalanceSheetResponse,
+  CashFlowResponse,
   CostCenter,
   CostCenterReportResponse,
   FiscalPeriod,
@@ -50,6 +51,7 @@ export const accountingApi = {
       account_type_code: string;
       parent_id?: string | null;
       is_group?: boolean;
+      is_cash_equivalent?: boolean;
     }
   ) => apiClient.post<Account>(`${BASE}/chart-of-accounts`, payload, { companyId }),
 
@@ -118,6 +120,12 @@ export const accountingApi = {
   costCenterReport: (companyId: string, costCenterId: string, dateFrom: string, dateTo: string) =>
     apiClient.get<CostCenterReportResponse>(
       `${BASE}/reports/cost-center/${costCenterId}?date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  cashFlowStatement: (companyId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<CashFlowResponse>(
+      `${BASE}/reports/cash-flow?date_from=${dateFrom}&date_to=${dateTo}`,
       { companyId }
     ),
 };

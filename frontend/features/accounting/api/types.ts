@@ -33,6 +33,7 @@ export interface Account {
   level: number;
   is_group: boolean;
   is_active: boolean;
+  is_cash_equivalent: boolean;
 }
 
 export interface AccountUpdateInput {
@@ -44,6 +45,7 @@ export interface AccountUpdateInput {
   parent_id_set?: boolean;
   is_group?: boolean;
   is_active?: boolean;
+  is_cash_equivalent?: boolean;
 }
 
 export interface JournalEntryLineIn {
@@ -170,4 +172,22 @@ export interface BalanceSheetResponse {
   equity_total: string;
   current_earnings: string;
   total_liabilities_and_equity: string;
+}
+
+export interface CashFlowResponse {
+  period_start: string;
+  period_end: string;
+  opening_cash: string;
+  net_income: string;
+  depreciation_addback: string;
+  working_capital_lines: AccountAmountRow[];
+  working_capital_total: string;
+  operating_total: string;
+  investing_lines: AccountAmountRow[];
+  investing_total: string;
+  financing_lines: AccountAmountRow[];
+  financing_total: string;
+  net_change_in_cash: string;
+  closing_cash: string;
+  reconciliation_difference: string;
 }

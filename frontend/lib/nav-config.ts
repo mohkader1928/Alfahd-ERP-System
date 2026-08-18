@@ -129,6 +129,13 @@ export const NAV_CONFIG: NavEntry[] = [
       },
       {
         type: "link",
+        href: "/accounting?tab=cash-flow",
+        labelKey: "accounting.tabs.cash_flow",
+        icon: Banknote,
+        permission: "accounting.reports.cash_flow.view",
+      },
+      {
+        type: "link",
         href: "/accounting?tab=general-ledger",
         labelKey: "accounting.tabs.general_ledger",
         icon: FileText,

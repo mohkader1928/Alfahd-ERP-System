@@ -66,6 +66,12 @@ DEFAULT_SAUDI_COA: list[tuple[str, str, str, str, str | None]] = [
     ("5950", "Depreciation Expense", "مصروف الإهلاك", "expense", "5000"),
 ]
 
+# Standard SME ERP — Cash Flow Statement (IAS 7): accounts in the default
+# template that represent "Cash and Cash Equivalents". Kept as an explicit
+# set (not inferred from the account tree at seed time) so it stays correct
+# even if DEFAULT_SAUDI_COA's shape changes later.
+DEFAULT_CASH_EQUIVALENT_CODES = frozenset({"1100"})
+
 
 # P0-4 (3-Day Brief): a Chart of Accounts may not go deeper than 4 levels.
 MAX_ACCOUNT_LEVEL = 4
@@ -142,6 +148,7 @@ class ChartOfAccountsService:
                 account_type_id=account_type.id,
                 parent_id=parent.id if parent else None,
                 level=parent.level + 1 if parent else 1,
+                is_cash_equivalent=code in DEFAULT_CASH_EQUIVALENT_CODES,
             )
             await self.account_repo.add(account)
             if parent is not None and not parent.is_group:
@@ -196,6 +203,7 @@ class ChartOfAccountsService:
         account_type_code: str,
         parent_id: UUID | None = None,
         is_group: bool = False,
+        is_cash_equivalent: bool = False,
     ) -> Account:
         if account_type_code not in ACCOUNT_TYPES:
             raise ValueError(f"Unknown account type: {account_type_code}")
@@ -227,6 +235,7 @@ class ChartOfAccountsService:
             parent_id=parent_id,
             level=level,
             is_group=is_group,
+            is_cash_equivalent=is_cash_equivalent,
         )
         await self.account_repo.add(account)
 
@@ -252,6 +261,7 @@ class ChartOfAccountsService:
         parent_id: UUID | None | _Unset = _UNSET,
         is_group: bool | None = None,
         is_active: bool | None = None,
+        is_cash_equivalent: bool | None = None,
     ) -> Account:
         account = await self.account_repo.get_by_id(account_id)
         if account is None or account.company_id != company_id:
@@ -274,6 +284,8 @@ class ChartOfAccountsService:
             account.account_type_id = account_type.id
         if is_active is not None:
             account.is_active = is_active
+        if is_cash_equivalent is not None:
+            account.is_cash_equivalent = is_cash_equivalent
 
         has_children = await self.account_repo.has_children(account.id)
         if is_group is not None:
@@ -615,6 +627,15 @@ class ReportingService:
     # it is not a new convention invented for this report.
     _COGS_ROOT_CODE = "5100"
 
+    # Standard SME ERP — Cash Flow Statement (IAS 7 indirect method,
+    # docs/23-cash-flow-equity-phase-a.md). Same "root code + its subtree"
+    # convention as COGS above, reused rather than reinvented: any account
+    # that is 1400 itself or nests under it (PP&E, Accumulated
+    # Depreciation, ...) is an Investing-activity asset; 5950 or its
+    # subtree is the Depreciation Expense add-back source.
+    _FIXED_ASSET_ROOT_CODE = "1400"
+    _DEPRECIATION_ROOT_CODE = "5950"
+
     # Credit-normal account types: a positive "balance" means more credit
     # than debit. Everything else (asset, expense) is debit-normal. Mirrors
     # the sign convention already used ad hoc in income_statement/balance_sheet.
@@ -845,13 +866,156 @@ class ReportingService:
             "total_liabilities_and_equity": liabilities_total + equity_total,
         }
 
+    async def cash_flow_statement(
+        self,
+        *,
+        company_id: UUID,
+        date_from: date,
+        date_to: date,
+        branch_id: UUID | None = None,
+    ) -> dict:
+        """Standard SME ERP — Cash Flow Statement (IAS 7, indirect method).
+        Owner-approved design and decisions: docs/23-cash-flow-equity-phase-a.md
+        (2026-08-18).
+
+        Operating Activities is the textbook indirect-method reconciliation
+        — Net Income (the exact figure `income_statement()` itself reports,
+        not a parallel calculation) + Depreciation add-back +/- changes in
+        working capital (period activity on every asset/liability account
+        that is neither cash-equivalent nor part of the Fixed Assets
+        subtree — a balance-delta, since period debit/credit activity on an
+        account IS its balance change for that period).
+
+        Investing and Financing are each actual cash movements (IAS 7
+        requires these shown gross by class of cash receipt/payment
+        regardless of method): every non-cash-equivalent Journal Entry line
+        that shares an Entry with a cash-equivalent line, classified by the
+        *other* leg's account — Fixed Assets subtree -> Investing, equity
+        -> Financing. A pure non-cash investing/financing transaction (e.g.
+        a fixed asset acquired entirely on credit, never yet paid) has no
+        cash leg at all and is correctly excluded here, exactly as IAS 7
+        requires — it becomes visible once actually paid, at which point
+        the payment's cash leg makes it visible on its own terms.
+
+        Reconciliation: Opening Cash + Operating + Investing + Financing
+        must equal Closing Cash exactly. It always will for the JE shapes
+        every current auto-posting path produces (2-line entries). The one
+        way it can legitimately differ is a hand-built multi-line Journal
+        Entry that mixes a working-capital/P&L account with an
+        equity/Fixed-Assets account and has NO cash leg at all (so
+        Investing/Financing correctly ignore it per IAS 7, but the
+        Operating reconciliation's balance-delta still picks up its
+        non-cash side) — any such difference is surfaced explicitly as
+        `reconciliation_difference` rather than silently forced to zero or
+        hidden, per the "log it, don't guess" instruction."""
+        from datetime import timedelta
+
+        day_before = date_from - timedelta(days=1)
+        opening_cash = await self.entry_repo.cash_equivalent_balance(company_id, day_before, branch_id)
+        closing_cash = await self.entry_repo.cash_equivalent_balance(company_id, date_to, branch_id)
+
+        income = await self.income_statement(
+            company_id=company_id, date_from=date_from, date_to=date_to, branch_id=branch_id
+        )
+        net_income = income["net_income"]
+
+        accounts_by_id = await self._accounts_by_id(company_id)
+        fixed_asset_subtree = await self._account_subtree_ids(company_id, self._FIXED_ASSET_ROOT_CODE)
+        depreciation_subtree = await self._account_subtree_ids(company_id, self._DEPRECIATION_ROOT_CODE)
+
+        # --- Depreciation add-back (non-cash expense already inside net_income) ---
+        expense_rows = await self.entry_repo.balances_by_type(
+            company_id, date_from, date_to, ["expense"], branch_id
+        )
+        depreciation_addback = sum(
+            (row["total_debit"] - row["total_credit"] for row in expense_rows if row["account_id"] in depreciation_subtree),
+            Decimal("0.0000"),
+        )
+
+        # --- Working capital: period activity on every non-cash,
+        # non-fixed-asset asset/liability account -- period debit/credit
+        # activity on an account IS its balance change for that period. ---
+        wc_rows = await self.entry_repo.balances_by_type(
+            company_id, date_from, date_to, ["asset", "liability"], branch_id
+        )
+        working_capital_lines = []
+        working_capital_total = Decimal("0.0000")
+        for row in wc_rows:
+            account = accounts_by_id.get(row["account_id"])
+            if account is None or account.is_cash_equivalent or row["account_id"] in fixed_asset_subtree:
+                continue
+            # (credit - debit) is the correct signed adjustment for BOTH
+            # sides here, though for opposite reasons: a non-cash asset is
+            # debit-normal, so an increase (more debit than credit) is a
+            # use of cash -- (credit-debit) correctly comes out negative. A
+            # liability is credit-normal, so an increase (more credit than
+            # debit, i.e. not yet paid) is a source of cash -- (credit-debit)
+            # correctly comes out positive. Same expression, opposite
+            # accounts, both give the textbook-correct sign.
+            amount = row["total_credit"] - row["total_debit"]
+            if amount == Decimal("0.0000"):
+                continue
+            working_capital_lines.append({**row, "amount": amount})
+            working_capital_total += amount
+
+        operating_total = net_income + depreciation_addback + working_capital_total
+
+        # --- Investing & Financing: actual cash movements ---
+        movements = await self.entry_repo.cash_flow_line_movements(company_id, date_from, date_to, branch_id)
+        investing_lines, financing_lines = [], []
+        investing_total = financing_total = Decimal("0.0000")
+        for row in movements:
+            amount = row["credit"] - row["debit"]
+            if row["type_code"] == "equity":
+                financing_lines.append({**row, "amount": amount})
+                financing_total += amount
+            elif row["account_id"] in fixed_asset_subtree:
+                investing_lines.append({**row, "amount": amount})
+                investing_total += amount
+            # Operating-classified movements (AR/AP/revenue/expense lines
+            # touching cash) are NOT re-added here -- they are already
+            # fully represented via Net Income + working-capital deltas
+            # above; adding them again would double-count.
+
+        net_change_in_cash = operating_total + investing_total + financing_total
+        computed_closing_cash = opening_cash + net_change_in_cash
+        reconciliation_difference = closing_cash - computed_closing_cash
+
+        return {
+            "period_start": date_from,
+            "period_end": date_to,
+            "opening_cash": opening_cash,
+            "net_income": net_income,
+            "depreciation_addback": depreciation_addback,
+            "working_capital_lines": working_capital_lines,
+            "working_capital_total": working_capital_total,
+            "operating_total": operating_total,
+            "investing_lines": investing_lines,
+            "investing_total": investing_total,
+            "financing_lines": financing_lines,
+            "financing_total": financing_total,
+            "net_change_in_cash": net_change_in_cash,
+            "closing_cash": closing_cash,
+            # Non-zero only for the hand-built multi-line non-cash edge case
+            # described above -- surfaced explicitly rather than hidden.
+            "reconciliation_difference": reconciliation_difference,
+        }
+
     async def _cogs_account_ids(self, company_id: UUID) -> set[UUID]:
+        return await self._account_subtree_ids(company_id, self._COGS_ROOT_CODE)
+
+    async def _account_subtree_ids(self, company_id: UUID, root_code: str) -> set[UUID]:
+        """Every account that is `root_code` itself, or nests under it —
+        the general form of the "walk the Chart of Accounts subtree from a
+        known root code" convention `_cogs_account_ids` established, reused
+        for the Cash Flow Statement's Fixed Assets (Investing) and
+        Depreciation Expense add-back lookups."""
         accounts = await self.account_repo.list_by_company(company_id)
-        cogs_root = next((a for a in accounts if a.code == self._COGS_ROOT_CODE), None)
-        if cogs_root is None:
+        root = next((a for a in accounts if a.code == root_code), None)
+        if root is None:
             return set()
 
-        result: set[UUID] = {cogs_root.id}
+        result: set[UUID] = {root.id}
         changed = True
         while changed:
             changed = False

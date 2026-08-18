@@ -616,3 +616,114 @@ class JournalEntryRepository:
         )
         total_debit, total_credit = result.one()
         return (Decimal(total_debit) - Decimal(total_credit)).quantize(Decimal("0.0001"))
+
+    async def cash_equivalent_balance(
+        self, company_id: UUID, as_of_date: date, branch_id: UUID | None = None
+    ) -> Decimal:
+        """Standard SME ERP — Cash Flow Statement (IAS 7): cumulative
+        debit-minus-credit across every account flagged
+        `Account.is_cash_equivalent`, from inception through `as_of_date`.
+        Used for both the report's Opening and Closing Cash lines (two
+        calls with different dates) and is the same balance Balance Sheet
+        would show for those accounts, since both read the same posted
+        Journal Entry Lines."""
+        stmt = (
+            select(
+                func.coalesce(func.sum(JournalEntryLine.debit), 0),
+                func.coalesce(func.sum(JournalEntryLine.credit), 0),
+            )
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(Account, Account.id == JournalEntryLine.account_id)
+            .where(
+                JournalEntry.company_id == company_id,
+                JournalEntry.status.in_(["posted", "reversed"]),
+                JournalEntry.entry_date <= as_of_date,
+                Account.is_cash_equivalent.is_(True),
+            )
+        )
+        if branch_id is not None:
+            stmt = stmt.where(JournalEntry.branch_id == branch_id)
+        result = await self.session.execute(stmt)
+        total_debit, total_credit = result.one()
+        return (Decimal(total_debit) - Decimal(total_credit)).quantize(Decimal("0.0001"))
+
+    async def cash_flow_line_movements(
+        self, company_id: UUID, date_from: date, date_to: date, branch_id: UUID | None = None
+    ) -> list[dict]:
+        """Standard SME ERP — Cash Flow Statement (IAS 7 indirect method).
+        Returns every NON-cash-equivalent line belonging to a posted
+        Journal Entry that ALSO has at least one cash-equivalent line,
+        within [date_from, date_to].
+
+        Why this is sufficient on its own (no separate reconciliation
+        query needed): within one balanced Journal Entry, total debits
+        equal total credits, so the cash leg's net movement
+        (debit-credit, summed over that entry's cash-equivalent lines)
+        always equals the non-cash legs' net movement in the opposite
+        sign (credit-debit, summed over that entry's non-cash lines).
+        Each returned row's own (credit - debit) IS therefore that line's
+        exact contribution to the period's net cash movement — summing
+        every row here reproduces the period's total cash-equivalent
+        balance change exactly, by construction, not by a separate
+        balancing step.
+
+        A pure cash-to-cash transfer (e.g. Cash -> Bank) has no non-cash
+        leg at all and is naturally excluded, matching IAS 7's exclusion
+        of such movements from the statement."""
+        NonCashLine = aliased(JournalEntryLine)
+        NonCashAccount = aliased(Account)
+        CashLine = aliased(JournalEntryLine)
+        CashAccount = aliased(Account)
+
+        has_cash_leg = (
+            select(CashLine.id)
+            .join(CashAccount, CashAccount.id == CashLine.account_id)
+            .where(
+                CashLine.journal_entry_id == JournalEntry.id,
+                CashAccount.is_cash_equivalent.is_(True),
+            )
+            .exists()
+        )
+
+        stmt = (
+            select(
+                NonCashAccount.id.label("account_id"),
+                NonCashAccount.code.label("account_code"),
+                NonCashAccount.name.label("account_name"),
+                NonCashAccount.parent_id.label("account_parent_id"),
+                AccountType.code.label("type_code"),
+                JournalEntry.id.label("journal_entry_id"),
+                JournalEntry.source_table,
+                NonCashLine.debit,
+                NonCashLine.credit,
+            )
+            .join(JournalEntry, JournalEntry.id == NonCashLine.journal_entry_id)
+            .join(NonCashAccount, NonCashAccount.id == NonCashLine.account_id)
+            .join(AccountType, AccountType.id == NonCashAccount.account_type_id)
+            .where(
+                JournalEntry.company_id == company_id,
+                JournalEntry.status.in_(["posted", "reversed"]),
+                JournalEntry.entry_date >= date_from,
+                JournalEntry.entry_date <= date_to,
+                NonCashAccount.is_cash_equivalent.is_(False),
+                has_cash_leg,
+            )
+        )
+        if branch_id is not None:
+            stmt = stmt.where(JournalEntry.branch_id == branch_id)
+
+        result = await self.session.execute(stmt)
+        return [
+            {
+                "account_id": row.account_id,
+                "account_code": row.account_code,
+                "account_name": row.account_name,
+                "account_parent_id": row.account_parent_id,
+                "type_code": row.type_code,
+                "journal_entry_id": row.journal_entry_id,
+                "source_table": row.source_table,
+                "debit": Decimal(row.debit),
+                "credit": Decimal(row.credit),
+            }
+            for row in result.all()
+        ]

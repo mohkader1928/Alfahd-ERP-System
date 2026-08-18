@@ -17,6 +17,7 @@ class AccountOut(BaseModel):
     level: int
     is_group: bool
     is_active: bool
+    is_cash_equivalent: bool
 
     model_config = {"from_attributes": True}
 
@@ -60,6 +61,7 @@ class AccountCreateRequest(BaseModel):
     account_type_code: str = Field(pattern="^(asset|liability|equity|revenue|expense)$")
     parent_id: UUID | None = None
     is_group: bool = False
+    is_cash_equivalent: bool = False
 
 
 class AccountUpdateRequest(BaseModel):
@@ -71,6 +73,7 @@ class AccountUpdateRequest(BaseModel):
     parent_id_set: bool = False  # false = "parent_id not provided, leave unchanged"
     is_group: bool | None = None
     is_active: bool | None = None
+    is_cash_equivalent: bool | None = None
 
 
 class JournalEntryLineIn(BaseModel):
@@ -222,6 +225,34 @@ class BalanceSheetResponse(BaseModel):
     equity_total: Decimal
     current_earnings: Decimal
     total_liabilities_and_equity: Decimal
+
+
+class CashFlowAccountRow(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    amount: Decimal
+
+
+class CashFlowResponse(BaseModel):
+    period_start: date
+    period_end: date
+    opening_cash: Decimal
+    net_income: Decimal
+    depreciation_addback: Decimal
+    working_capital_lines: list[CashFlowAccountRow]
+    working_capital_total: Decimal
+    operating_total: Decimal
+    investing_lines: list[CashFlowAccountRow]
+    investing_total: Decimal
+    financing_lines: list[CashFlowAccountRow]
+    financing_total: Decimal
+    net_change_in_cash: Decimal
+    closing_cash: Decimal
+    # Should always be zero -- see ReportingService.cash_flow_statement's
+    # docstring for the one hand-built-JE edge case where it legitimately
+    # would not be. Surfaced explicitly rather than hidden or forced to 0.
+    reconciliation_difference: Decimal
 
 
 class FiscalPeriodCreateRequest(BaseModel):

@@ -64,6 +64,11 @@ class Account(Base):
     # child is created rather than leaving that invariant to the caller.
     is_group: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     is_active: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
+    # Standard SME ERP — Cash Flow Statement (IAS 7): the durable definition
+    # of "Cash and Cash Equivalents" for that report. Set manually per
+    # account (Chart of Accounts screen), auto-true for the default seed
+    # template's 1100 Cash and Bank subtree via migration backfill.
+    is_cash_equivalent: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
