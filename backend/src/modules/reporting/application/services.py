@@ -776,6 +776,24 @@ class InventoryValuationReportService:
     understate or zero out the report, so this branches on
     `company.valuation_method` exactly like the transactional engine does,
     rather than picking one structure for every company.
+
+    A second correctness detail, found live against a real company's data
+    (Trial Balance's Inventory account disagreeing with this report by a
+    material amount): `StockQuant.qty_on_hand` for an `average`-method
+    company can legitimately go negative — `InventoryService.issue_stock`
+    is called with `allow_negative=True` for a Vendor Debit Note return
+    (FR-INV-007 override, `purchasing/application/services.py`), and that
+    same call posts a real Journal Entry against account 1300 for the
+    exact same cost. The GL therefore always reflects 100% of that
+    movement. This report previously filtered `qty_on_hand > 0` before
+    summing per product+warehouse, which silently dropped every negative
+    position from the total instead of netting it in — overstating
+    reported inventory value by exactly the value of the excluded
+    negative rows, with no corresponding error or warning. The sum must
+    include negative rows so this report and Trial Balance always
+    reconcile to the same figure, the same way Balance Sheet/Cash Flow/
+    Equity Statement are proven to reconcile with each other elsewhere in
+    this codebase.
     """
 
     def __init__(self, session: AsyncSession):
@@ -805,7 +823,7 @@ class InventoryValuationReportService:
                     func.sum(StockQuant.qty_on_hand * StockQuant.moving_avg_cost).label("value"),
                 )
                 .join(Location, Location.id == StockQuant.location_id)
-                .where(StockQuant.company_id == company_id, StockQuant.qty_on_hand > 0)
+                .where(StockQuant.company_id == company_id)
                 .group_by(StockQuant.product_id, Location.warehouse_id)
             )
         if warehouse_id is not None:

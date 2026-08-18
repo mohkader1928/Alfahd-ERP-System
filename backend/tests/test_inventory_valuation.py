@@ -9,6 +9,8 @@ and a bug reading the wrong one for a company's actual method would
 silently understate the report rather than error.
 """
 
+from decimal import Decimal
+
 from tests.conftest import unique_email, unique_vat
 
 TAX_RATE_PLACEHOLDER = "00000000-0000-0000-0000-000000000001"
@@ -155,3 +157,108 @@ async def test_no_stock_returns_empty_not_error(client):
     resp = await client.get("/api/v1/reporting/inventory-valuation", headers=headers)
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+async def test_valuation_reconciles_with_trial_balance_when_stock_goes_negative(client):
+    """Regression for a real production data-integrity bug, found live
+    against a real company: this report's total silently diverged from
+    Trial Balance's Inventory (1300) balance. Root cause -- a Vendor
+    Debit Note return calls `InventoryService.issue_stock(...,
+    allow_negative=True)` (FR-INV-007 override in
+    purchasing/application/services.py), which can legitimately drive a
+    product/location's `qty_on_hand` negative while posting the exact
+    same cost to the GL. This report used to filter `qty_on_hand > 0`
+    before summing, which silently dropped that negative position
+    instead of netting it in -- overstating the report by exactly the
+    value of the excluded row. Scenario: receive 100 units @ 20.00 (GL
+    +2000), sell 80 (GL -1600 COGS-side inventory credit, 20 left on
+    hand), then fully return the original 100-unit bill to the vendor --
+    the return can only find 20 physically on hand, so the location goes
+    to -80. Trial Balance and this report must still agree exactly."""
+    _, headers = await _bootstrap_and_login(client, valuation_method="average")
+
+    vendor = await client.post("/api/v1/identity/partners", headers=headers, json={"name": "Neg Vendor", "is_vendor": True})
+    customer = await client.post(
+        "/api/v1/identity/partners", headers=headers, json={"name": "Neg Customer", "is_customer": True}
+    )
+    product = await client.post(
+        "/api/v1/identity/products",
+        headers=headers,
+        json={"sku": f"NEG-{unique_vat()[:8]}", "name": "Negative Stock Product", "cost_price": "20.00", "sales_price": "50.00"},
+    )
+    product_id = product.json()["id"]
+    await client.post("/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True})
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor.json()["id"],
+            "order_date": "2026-06-01",
+            "lines": [{"product_id": product_id, "qty": "100", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_detail = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()
+    po_line_id = po_detail["lines"][0]["id"]
+    await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "100"}]},
+    )
+    bill_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers,
+        json={"vendor_reference": "INV-1", "lines": [{"purchase_order_line_id": po_line_id, "qty": "100", "unit_price": "20.00"}]},
+    )
+    bill_id = bill_resp.json()["id"]
+    approve_resp = await client.post(f"/api/v1/purchasing/vendor-bills/{bill_id}:approve", headers=headers)
+    assert approve_resp.json()["status"] == "posted"
+
+    # Sell 80 of the 100 received units, leaving 20 on hand.
+    quote_resp = await client.post(
+        "/api/v1/sales/quotations",
+        headers=headers,
+        json={
+            "partner_id": customer.json()["id"],
+            "quote_date": "2026-06-05",
+            "lines": [{"product_id": product_id, "qty": "80", "unit_price": "50.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    assert quote_resp.status_code == 201, quote_resp.text
+    confirm_resp = await client.post(f"/api/v1/sales/quotations/{quote_resp.json()['id']}:confirm", headers=headers)
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    sales_order_id = confirm_resp.json()["id"]
+    invoice_resp = await client.post(f"/api/v1/sales/orders/{sales_order_id}:invoice", headers=headers)
+    assert invoice_resp.status_code == 201, invoice_resp.text
+
+    # Full-bill return to vendor -- returns all 100 units even though only
+    # 20 remain on hand, driving that location to -80 (allow_negative=True).
+    debit_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}:debit-note",
+        headers=headers,
+        json={"reason": "Full return after partial sale"},
+    )
+    assert debit_resp.status_code == 201, debit_resp.text
+
+    quants = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    qty_on_hand = next(q["qty_on_hand"] for q in quants if q["product_id"] == product_id)
+    assert qty_on_hand == "-80.000000"
+
+    accounts = (await client.get("/api/v1/accounting/chart-of-accounts", headers=headers)).json()
+    inventory_account_id = next(a["id"] for a in accounts if a["code"] == "1300")
+    tb_resp = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+    )
+    assert tb_resp.status_code == 200, tb_resp.text
+    tb_row = next(r for r in tb_resp.json() if r["account_id"] == inventory_account_id)
+    gl_balance = Decimal(tb_row["closing_balance"])
+
+    valuation_resp = await client.get("/api/v1/reporting/inventory-valuation", headers=headers)
+    assert valuation_resp.status_code == 200, valuation_resp.text
+    valuation_total = sum((Decimal(row["total_value"]) for row in valuation_resp.json()), Decimal("0"))
+
+    assert valuation_total == gl_balance == Decimal("-1600.0000")
