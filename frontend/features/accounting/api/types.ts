@@ -174,6 +174,20 @@ export interface BalanceSheetResponse {
   total_liabilities_and_equity: string;
 }
 
+export interface EquityStatementResponse {
+  period_start: string;
+  period_end: string;
+  opening_equity: string;
+  profit_for_period: string;
+  contributions: string;
+  withdrawals: string;
+  other_equity_lines: AccountAmountRow[];
+  other_equity_total: string;
+  closing_equity: string;
+  reconciliation_difference: string;
+  unsupported_items: string[];
+}
+
 export interface CashFlowResponse {
   period_start: string;
   period_end: string;

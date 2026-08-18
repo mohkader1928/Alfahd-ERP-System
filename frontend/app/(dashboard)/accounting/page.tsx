@@ -1446,6 +1446,114 @@ function CashFlowTab() {
   );
 }
 
+function EquityStatementTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["equity-statement", companyId, ranAt?.from, ranAt?.to],
+    queryFn: () => accountingApi.equityStatement(companyId, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+  const r = reportQuery.data;
+  const hasGap = r && Number(r.reconciliation_difference) !== 0;
+
+  return (
+    <ReportView
+      title={t("accounting.tabs.equity_statement")}
+      filterArea={
+        <>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.is.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.is.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+        </>
+      }
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onPrint={r ? () => window.print() : undefined}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError}
+      onRetry={() => reportQuery.refetch()}
+      kpis={
+        r
+          ? [
+              { label: t("accounting.eq.profit_for_period"), value: formatCurrency(r.profit_for_period) },
+              { label: t("accounting.eq.closing_equity"), value: formatCurrency(r.closing_equity) },
+            ]
+          : undefined
+      }
+    >
+      {!r && <p className="text-sm text-muted-foreground">{t("accounting.gl.select_account_hint")}</p>}
+      {r && (
+        <div className="max-w-lg">
+          <ReportPrintHeader
+            reportTitle={t("accounting.tabs.equity_statement")}
+            dateRangeLabel={ranAt ? `${ranAt.from} – ${ranAt.to}` : undefined}
+          />
+          {hasGap && (
+            <p className="mb-3 rounded-md bg-amber-500/15 px-3 py-2 text-sm text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 print:hidden">
+              {t("accounting.cf.reconciliation_gap")}: {formatCurrency(r.reconciliation_difference)}
+            </p>
+          )}
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr>
+                <td className="py-1.5 w-20" />
+                <td className="py-1.5 font-sans">{t("accounting.eq.opening_equity")}</td>
+                <td className="py-1.5 text-end font-mono tabular-nums">{formatCurrency(r.opening_equity)}</td>
+              </tr>
+              <tr>
+                <td className="py-0.5 w-20" />
+                <td className="py-0.5 text-sm text-muted-foreground">{t("accounting.eq.profit_for_period")}</td>
+                <td className="py-0.5 text-end font-mono text-sm tabular-nums text-muted-foreground">
+                  {formatCurrency(r.profit_for_period)}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-0.5 w-20" />
+                <td className="py-0.5 text-sm text-muted-foreground">{t("accounting.eq.contributions")}</td>
+                <td className="py-0.5 text-end font-mono text-sm tabular-nums text-muted-foreground">
+                  {formatCurrency(r.contributions)}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-0.5 w-20" />
+                <td className="py-0.5 text-sm text-muted-foreground">{t("accounting.eq.withdrawals")}</td>
+                <td className="py-0.5 text-end font-mono text-sm tabular-nums text-muted-foreground">
+                  ({formatCurrency(r.withdrawals)})
+                </td>
+              </tr>
+            </tbody>
+            <FinancialSection
+              label={t("accounting.eq.other_movements")}
+              rows={r.other_equity_lines}
+              total={r.other_equity_total}
+              totalLabel={t("accounting.eq.other_movements_total")}
+              linkAccounts
+            />
+            <tbody>
+              <tr className="border-t-2 border-double font-bold text-base">
+                <td className="py-2 w-20" />
+                <td className="py-2 font-sans">{t("accounting.eq.closing_equity")}</td>
+                <td className="py-2 text-end font-mono tabular-nums">{formatCurrency(r.closing_equity)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="mt-4 text-xs text-muted-foreground print:hidden">{t("accounting.eq.unsupported_note")}</p>
+        </div>
+      )}
+    </ReportView>
+  );
+}
+
 function BalanceSheetTab() {
   const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
@@ -2615,6 +2723,7 @@ export default function AccountingPage() {
       {tab === "income-statement" && <IncomeStatementTab />}
       {tab === "balance-sheet" && <BalanceSheetTab />}
       {tab === "cash-flow" && <CashFlowTab />}
+      {tab === "equity-statement" && <EquityStatementTab />}
       {tab === "vat-summary" && <VatSummaryTab />}
       {tab === "customer-subledger" && <CustomerSubledgerTab initialPartnerId={deepLinkPartnerId} />}
       {tab === "vendor-subledger" && <VendorSubledgerTab initialPartnerId={deepLinkPartnerId} />}

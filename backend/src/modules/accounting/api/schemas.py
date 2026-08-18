@@ -255,6 +255,32 @@ class CashFlowResponse(BaseModel):
     reconciliation_difference: Decimal
 
 
+class EquityLineRow(BaseModel):
+    account_id: UUID
+    account_code: str
+    account_name: str
+    amount: Decimal
+
+
+class EquityStatementResponse(BaseModel):
+    period_start: date
+    period_end: date
+    opening_equity: Decimal
+    profit_for_period: Decimal
+    contributions: Decimal
+    withdrawals: Decimal
+    other_equity_lines: list[EquityLineRow]
+    other_equity_total: Decimal
+    closing_equity: Decimal
+    # Should always be zero -- see ReportingService.statement_of_changes_in_equity's
+    # docstring. Surfaced explicitly rather than hidden.
+    reconciliation_difference: Decimal
+    # Items the Owner's brief asked about that have no dedicated mechanism
+    # in the current Chart of Accounts (e.g. "dividends") -- named here
+    # rather than fabricated as a zero.
+    unsupported_items: list[str]
+
+
 class FiscalPeriodCreateRequest(BaseModel):
     period_start: date
     period_end: date

@@ -90,6 +90,9 @@ PERMISSION_CATALOG = [
     # Standard SME ERP — Accounting Financial Statements Phase (Cash Flow
     # Statement, IAS 7 indirect method)
     ("accounting.reports.cash_flow.view", "screen"),
+    # Standard SME ERP — Accounting Financial Statements Phase (Statement
+    # of Changes in Equity)
+    ("accounting.reports.equity_statement.view", "screen"),
     # Milestone 1b — Subledgers + AR/AP Aging
     ("payment.subledger.view", "screen"),
     ("payment.aging.view", "screen"),

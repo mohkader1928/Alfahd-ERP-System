@@ -27,6 +27,7 @@ from src.modules.accounting.api.schemas import (
     CostCenterOut,
     CostCenterReportResponse,
     CostCenterUpdateRequest,
+    EquityStatementResponse,
     FiscalPeriodCreateRequest,
     FiscalPeriodOut,
     GeneralLedgerResponse,
@@ -829,6 +830,27 @@ async def cash_flow_statement(
         branch_id=ctx.branch_id,
     )
     return CashFlowResponse(**result)
+
+
+@router.get("/reports/equity-statement", response_model=EquityStatementResponse)
+async def equity_statement(
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("accounting.reports.equity_statement.view")),
+    entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+    account_repo: AccountRepository = Depends(get_account_repo),
+):
+    """Standard SME ERP — Statement of Changes in Equity.
+    docs/23-cash-flow-equity-phase-a.md documents the Owner-approved design
+    and decisions this implements."""
+    service = ReportingService(entry_repo, account_repo)
+    result = await service.statement_of_changes_in_equity(
+        company_id=ctx.company_id,
+        date_from=date_from,
+        date_to=date_to,
+        branch_id=ctx.branch_id,
+    )
+    return EquityStatementResponse(**result)
 
 
 @router.get("/fiscal-periods", response_model=list[FiscalPeriodOut])

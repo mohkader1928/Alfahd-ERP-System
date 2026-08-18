@@ -4,6 +4,7 @@ import type {
   AccountUpdateInput,
   BalanceSheetResponse,
   CashFlowResponse,
+  EquityStatementResponse,
   CostCenter,
   CostCenterReportResponse,
   FiscalPeriod,
@@ -126,6 +127,12 @@ export const accountingApi = {
   cashFlowStatement: (companyId: string, dateFrom: string, dateTo: string) =>
     apiClient.get<CashFlowResponse>(
       `${BASE}/reports/cash-flow?date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  equityStatement: (companyId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<EquityStatementResponse>(
+      `${BASE}/reports/equity-statement?date_from=${dateFrom}&date_to=${dateTo}`,
       { companyId }
     ),
 };

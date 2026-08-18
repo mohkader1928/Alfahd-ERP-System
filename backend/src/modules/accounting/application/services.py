@@ -636,6 +636,13 @@ class ReportingService:
     _FIXED_ASSET_ROOT_CODE = "1400"
     _DEPRECIATION_ROOT_CODE = "5950"
 
+    # Standard SME ERP — Statement of Changes in Equity. Owner's Capital's
+    # own root code (and subtree, same convention) is where contributions
+    # (credits) and withdrawals (debits) are read from — the only equity
+    # account with a defined meaning for this purpose in the default seed
+    # template (docs/23-cash-flow-equity-phase-a.md decision #5).
+    _OWNER_CAPITAL_ROOT_CODE = "3100"
+
     # Credit-normal account types: a positive "balance" means more credit
     # than debit. Everything else (asset, expense) is debit-normal. Mirrors
     # the sign convention already used ad hoc in income_statement/balance_sheet.
@@ -999,6 +1006,99 @@ class ReportingService:
             # Non-zero only for the hand-built multi-line non-cash edge case
             # described above -- surfaced explicitly rather than hidden.
             "reconciliation_difference": reconciliation_difference,
+        }
+
+    async def statement_of_changes_in_equity(
+        self,
+        *,
+        company_id: UUID,
+        date_from: date,
+        date_to: date,
+        branch_id: UUID | None = None,
+    ) -> dict:
+        """Standard SME ERP — Statement of Changes in Equity.
+        docs/23-cash-flow-equity-phase-a.md documents the Owner-approved
+        design and decisions this implements.
+
+        Opening/Closing Equity are exactly `balance_sheet()`'s own
+        `equity_total` at period_start-1 and period_end (already includes
+        that date's cumulative net income as "current earnings" — the same
+        live-derived figure Balance Sheet itself shows, not a separate
+        calculation). Profit for the period is `income_statement()`'s own
+        `net_income` for [date_from, date_to] -- exact reuse, no parallel
+        math. Contributions/Withdrawals are the credit/debit sides of the
+        Owner's Capital subtree (3100) in the period. Every OTHER equity
+        account's period activity (e.g. a manual posting to 3200 Retained
+        Earnings — nothing auto-posts there since no period-close step
+        exists) is shown as "other recognised equity movements" rather
+        than silently dropped or guessed at, per the Owner's brief §7.
+
+        This reconciles Opening + Profit + Contributions - Withdrawals +
+        Other == Closing *exactly*, by construction: Closing - Opening
+        equals the period's total equity-account activity (all of it,
+        captured either as Contributions/Withdrawals or Other) plus the
+        period's net income (by the additivity of two adjacent
+        income_statement() date ranges) — there is no analogous "excluded
+        non-cash transaction" carve-out here the way Cash Flow has, so
+        unlike that report this one has no legitimate way to end up with a
+        non-zero reconciliation_difference; it is kept only as the same
+        explicit, never-hidden safety net.
+
+        Dividends, OCI, and Treasury Shares have no dedicated mechanism in
+        the current Chart of Accounts (Phase A §8) — reported via
+        `unsupported_items` rather than invented as a fabricated zero."""
+        from datetime import timedelta
+
+        day_before = date_from - timedelta(days=1)
+        opening = await self.balance_sheet(company_id=company_id, as_of_date=day_before, branch_id=branch_id)
+        closing = await self.balance_sheet(company_id=company_id, as_of_date=date_to, branch_id=branch_id)
+        opening_equity = opening["equity_total"]
+        closing_equity = closing["equity_total"]
+
+        income = await self.income_statement(
+            company_id=company_id, date_from=date_from, date_to=date_to, branch_id=branch_id
+        )
+        profit_for_period = income["net_income"]
+
+        capital_subtree = (
+            await self._account_subtree_ids(company_id, self._OWNER_CAPITAL_ROOT_CODE)
+            if self.account_repo
+            else set()
+        )
+        equity_rows = await self.entry_repo.balances_by_type(company_id, date_from, date_to, ["equity"], branch_id)
+
+        contributions = Decimal("0.0000")
+        withdrawals = Decimal("0.0000")
+        other_lines = []
+        other_total = Decimal("0.0000")
+        for row in equity_rows:
+            if row["account_id"] in capital_subtree:
+                contributions += row["total_credit"]
+                withdrawals += row["total_debit"]
+                continue
+            amount = row["total_credit"] - row["total_debit"]
+            if amount == Decimal("0.0000"):
+                continue
+            other_lines.append({**row, "amount": amount})
+            other_total += amount
+
+        computed_closing_equity = opening_equity + profit_for_period + contributions - withdrawals + other_total
+        reconciliation_difference = closing_equity - computed_closing_equity
+
+        return {
+            "period_start": date_from,
+            "period_end": date_to,
+            "opening_equity": opening_equity,
+            "profit_for_period": profit_for_period,
+            "contributions": contributions,
+            "withdrawals": withdrawals,
+            "other_equity_lines": other_lines,
+            "other_equity_total": other_total,
+            "closing_equity": closing_equity,
+            # Should always be zero -- see docstring above for why this
+            # report (unlike Cash Flow) has no legitimate non-zero case.
+            "reconciliation_difference": reconciliation_difference,
+            "unsupported_items": ["dividends", "oci", "treasury_shares"],
         }
 
     async def _cogs_account_ids(self, company_id: UUID) -> set[UUID]:

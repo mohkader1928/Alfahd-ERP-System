@@ -136,6 +136,13 @@ export const NAV_CONFIG: NavEntry[] = [
       },
       {
         type: "link",
+        href: "/accounting?tab=equity-statement",
+        labelKey: "accounting.tabs.equity_statement",
+        icon: PieChart,
+        permission: "accounting.reports.equity_statement.view",
+      },
+      {
+        type: "link",
         href: "/accounting?tab=general-ledger",
         labelKey: "accounting.tabs.general_ledger",
         icon: FileText,
