@@ -84,6 +84,76 @@ async def test_dashboard_reflects_sales_and_purchases(client):
     assert summary["cash_balance"] == "0.0000"
 
 
+async def test_dashboard_purchases_excludes_vendor_debit_notes(client):
+    """Regression for a real reported bug: the Dashboard's "Purchases" KPI
+    summed every posted VendorBill row regardless of `bill_type`, so a
+    Vendor Debit Note (a return to the vendor, stored with the same
+    positive `total_amount` as the bill it reverses) was ADDED on top of
+    the original bill instead of excluded -- roughly doubling the visible
+    impact of every return. A bill for 2300 fully returned via debit note
+    must still show period_purchases_total == 2300.0000 (the original
+    bill only), not 4600."""
+    _, headers, _ = await _bootstrap_and_login(client)
+
+    vendor_resp = await client.post(
+        "/api/v1/identity/partners", headers=headers, json={"name": "Debit Note Vendor", "is_vendor": True}
+    )
+    product_resp = await client.post(
+        "/api/v1/identity/products",
+        headers=headers,
+        json={"sku": f"DASH-{unique_vat()[:8]}", "name": "Dashboard Test Product"},
+    )
+    product_id = product_resp.json()["id"]
+    await client.post("/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True})
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_resp.json()["id"],
+            "order_date": "2026-06-01",
+            "lines": [{"product_id": product_id, "qty": "100", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_detail = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()
+    po_line_id = po_detail["lines"][0]["id"]
+    await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "100"}]},
+    )
+    bill_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers,
+        json={"vendor_reference": "INV-1", "lines": [{"purchase_order_line_id": po_line_id, "qty": "100", "unit_price": "20.00"}]},
+    )
+    bill_id = bill_resp.json()["id"]
+    approve_resp = await client.post(f"/api/v1/purchasing/vendor-bills/{bill_id}:approve", headers=headers)
+    assert approve_resp.status_code == 200, approve_resp.text
+    bill_total = approve_resp.json()["total_amount"]
+
+    dashboard_before = await client.get(
+        "/api/v1/reporting/dashboard", headers=headers, params={"period_start": "2026-01-01", "period_end": "2026-12-31"}
+    )
+    assert dashboard_before.json()["period_purchases_total"] == bill_total
+
+    debit_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}:debit-note",
+        headers=headers,
+        json={"reason": "Full return"},
+    )
+    assert debit_resp.status_code == 201, debit_resp.text
+
+    dashboard_after = await client.get(
+        "/api/v1/reporting/dashboard", headers=headers, params={"period_start": "2026-01-01", "period_end": "2026-12-31"}
+    )
+    # The debit note must not add to the KPI -- purchases stays exactly the
+    # original bill's amount, not bill_total * 2.
+    assert dashboard_after.json()["period_purchases_total"] == bill_total
+
+
 # --- P0-8: Dashboard KPIs + fiscal-year-aware chart -----------------------
 
 

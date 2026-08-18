@@ -148,6 +148,39 @@ async def test_vat_summary_nets_output_and_input_vat(client):
     assert Decimal(body["net_vat_payable"]) > 0
 
 
+async def test_vat_summary_excludes_vendor_debit_notes_from_purchases(client):
+    """Regression for a real reported bug (same defect class as the
+    Dashboard's Purchases KPI): this report's purchases_stmt summed every
+    posted VendorBill regardless of `bill_type`, so a Vendor Debit Note
+    (a return to the vendor, positive `total_amount` mirroring the bill it
+    reverses) inflated purchases_total/input_vat instead of being
+    excluded, exactly like the sales side already excludes credit notes."""
+    today = date.today()
+    _, headers = await _bootstrap_and_login(client)
+    bill = await _post_vendor_bill(client, headers, bill_date=today.isoformat())
+
+    debit_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill['id']}:debit-note",
+        headers=headers,
+        json={"reason": "Full return"},
+    )
+    assert debit_resp.status_code == 201, debit_resp.text
+
+    resp = await client.get(
+        "/api/v1/reporting/vat-summary",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    # Purchases/input VAT reflect only the original standard bill -- the
+    # debit note must not add a second, ghost purchase on top of it.
+    assert Decimal(body["purchases_subtotal"]) == Decimal(bill["subtotal_amount"])
+    assert Decimal(body["input_vat"]) == Decimal(bill["tax_amount"])
+    assert Decimal(body["purchases_total"]) == Decimal(bill["total_amount"])
+
+
 async def test_vat_summary_excludes_out_of_range_and_unposted(client):
     _, headers = await _bootstrap_and_login(client)
     await _issue_sale(client, headers, invoice_date=date.today().isoformat())

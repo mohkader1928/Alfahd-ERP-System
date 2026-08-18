@@ -712,6 +712,15 @@ class VatReportingService:
             SalesInvoice.invoice_date >= date_from,
             SalesInvoice.invoice_date <= date_to,
         )
+        # Dashboard-bug sibling fix: this query used to sum every posted
+        # VendorBill regardless of `bill_type`, so a Vendor Debit Note
+        # (bill_type="debit_note", a return to the vendor stored with the
+        # same positive amount as the bill it reverses) was being ADDED to
+        # input VAT/purchases instead of excluded -- the same defect found
+        # in the Dashboard's purchases KPI (VendorBillRepository.
+        # sum_total_in_range). Mirrors the sales side's own convention
+        # (credit notes excluded from the gross total) and
+        # PurchaseReportingService.by_vendor's existing bill_type filter.
         purchases_stmt = select(
             func.coalesce(func.sum(VendorBill.subtotal_amount), 0).label("subtotal"),
             func.coalesce(func.sum(VendorBill.tax_amount), 0).label("vat"),
@@ -719,6 +728,7 @@ class VatReportingService:
         ).where(
             VendorBill.company_id == company_id,
             VendorBill.journal_entry_id.is_not(None),
+            VendorBill.bill_type == "standard",
             VendorBill.bill_date >= date_from,
             VendorBill.bill_date <= date_to,
         )

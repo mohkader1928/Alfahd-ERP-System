@@ -262,13 +262,26 @@ class VendorBillRepository:
 
     async def sum_total_in_range(self, company_id: UUID, date_from: date, date_to: date) -> Decimal:
         """FR-RPT-003 — period purchases KPI. Only posted bills count as a
-        real purchase commitment (draft/mismatched bills aren't yet approved)."""
+        real purchase commitment (draft/mismatched bills aren't yet approved).
+
+        Dashboard bug fix: this used to sum every posted VendorBill row
+        regardless of `bill_type`, so a Vendor Debit Note (a return to the
+        vendor, `bill_type="debit_note"`, stored with the same positive
+        `total_amount` as a normal bill) was being ADDED on top of the
+        original bill it reverses instead of being excluded — inflating
+        the KPI by roughly double the value of every return. Mirrors the
+        gross-total convention Sales' own `sum_total_in_range` already
+        uses (excluding credit/debit notes) and the one
+        `PurchaseReportingService.by_vendor` already applies for the same
+        reason — this was the one purchases aggregate that had drifted
+        from that convention."""
         result = await self.session.execute(
             select(func.coalesce(func.sum(VendorBill.total_amount), 0)).where(
                 VendorBill.company_id == company_id,
                 VendorBill.bill_date >= date_from,
                 VendorBill.bill_date <= date_to,
                 VendorBill.status == "posted",
+                VendorBill.bill_type == "standard",
             )
         )
         # Same COALESCE-scale quirk as Sales' sum_total_in_range — see that
