@@ -14,6 +14,8 @@ import { identityApi } from "@/features/identity/api/client";
 import { decodeAccessToken, firstAuthorizedCompany } from "@/lib/jwt";
 import { ApiError } from "@/lib/api-client";
 
+const SYSTEM_ADMIN_EMAIL = "moh.kader1928@gmail.com";
+
 export default function LoginPage() {
   const { t } = useI18n();
   const router = useRouter();
@@ -141,11 +143,13 @@ export default function LoginPage() {
             {t("auth.login.link_forgot_password")}
           </Link>
         </p>
-        <p className="mt-4 text-center text-sm">
-          <Link href="/setup" className="text-muted-foreground underline underline-offset-4">
-            {t("auth.login.link_setup")}
-          </Link>
-        </p>
+        {email.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL && (
+          <p className="mt-4 text-center text-sm">
+            <Link href="/setup" className="text-muted-foreground underline underline-offset-4">
+              {t("auth.login.link_setup")}
+            </Link>
+          </p>
+        )}
       </CardContent>
     </Card>
   );
