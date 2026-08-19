@@ -90,7 +90,10 @@ class FixedAssetService:
         salvage_value: Decimal,
         useful_life_months: int,
         created_by: UUID,
+        status: str = "active",
     ) -> FixedAsset:
+        if status not in ("active", "idle", "under_maintenance"):
+            raise ValueError("Invalid asset status")
         if category_id is not None:
             assert self.category_repo is not None
             category = await self.category_repo.get_by_id(company_id, category_id)
@@ -125,6 +128,7 @@ class FixedAssetService:
             salvage_value=salvage_value,
             useful_life_months=useful_life_months,
             created_by=created_by,
+            status=status,
         )
         try:
             await self.asset_repo.add(asset)
@@ -155,6 +159,75 @@ class FixedAssetService:
         if asset is None or asset.company_id != company_id:
             return None
         return await self._to_dict(asset)
+
+    async def update_asset_status(self, *, company_id: UUID, asset_id: UUID, status: str) -> FixedAsset:
+        """Owner decision (2026-08-19): Operational Status only, informational
+        -- never touches depreciation eligibility (`run_depreciation` still
+        keys solely on `disposed_at`). Disposal is its own irreversible
+        action (`dispose_asset`) and stays the only way to actually stop an
+        asset's operational life; this endpoint cannot set or clear it."""
+        if status not in ("active", "idle", "under_maintenance"):
+            raise ValueError("Invalid asset status")
+        asset = await self.asset_repo.get_by_id(asset_id)
+        if asset is None or asset.company_id != company_id:
+            raise ValueError("Fixed asset not found")
+        if asset.disposed_at is not None:
+            raise ValueError("Cannot change the operational status of a disposed asset")
+        asset.status = status
+        return asset
+
+    async def get_projected_schedule(self, *, company_id: UUID, asset_id: UUID) -> dict:
+        """Forward-looking Depreciation Schedule (Owner brief §8) -- the
+        FULL straight-line schedule from acquisition to full depreciation,
+        one row per month. Already-posted months use their actual posted
+        amount (so the final, rounding-capped period matches the GL
+        exactly); not-yet-run months are projected with the same formula
+        `run_depreciation` itself would use, purely for display -- this
+        method posts nothing."""
+        asset = await self.asset_repo.get_by_id(asset_id)
+        if asset is None or asset.company_id != company_id:
+            raise ValueError("Fixed asset not found")
+        entries = await self.depreciation_repo.list_for_asset(asset_id)
+        posted_by_period = {e.period_month: e.amount for e in entries}
+
+        depreciable_base = asset.cost - asset.salvage_value
+        monthly_amount = (depreciable_base / asset.useful_life_months).quantize(FOUR_DP, rounding=ROUND_HALF_UP)
+
+        lines = []
+        accumulated = Decimal("0")
+        period = _month_start(asset.acquisition_date)
+        # Bounded by useful_life_months (+2 buffer for a rounding-residue
+        # final period) -- the same natural stopping point run_depreciation
+        # itself reaches via `remaining <= 0`, just walked forward here
+        # instead of triggered by a batch run.
+        for _ in range(asset.useful_life_months + 2):
+            if accumulated >= depreciable_base:
+                break
+            remaining = depreciable_base - accumulated
+            posted_amount = posted_by_period.get(period)
+            amount = posted_amount if posted_amount is not None else min(monthly_amount, remaining)
+            accumulated += amount
+            lines.append(
+                {
+                    "period_month": period,
+                    "depreciation": amount,
+                    "accumulated_depreciation": accumulated,
+                    "net_book_value": asset.cost - accumulated,
+                    "posted": posted_amount is not None,
+                }
+            )
+            period = date(period.year + 1, 1, 1) if period.month == 12 else date(period.year, period.month + 1, 1)
+
+        return {
+            "asset_id": asset.id,
+            "asset_code": asset.asset_code,
+            "asset_name": asset.name,
+            "cost": asset.cost,
+            "salvage_value": asset.salvage_value,
+            "useful_life_months": asset.useful_life_months,
+            "monthly_depreciation": monthly_amount,
+            "lines": lines,
+        }
 
     async def list_assets(
         self, company_id: UUID, *, category_id: UUID | None = None, status: str | None = None
@@ -313,6 +386,15 @@ class FixedAssetService:
 
         register_by_asset_account: dict[UUID, Decimal] = {}
         register_by_accum_account: dict[UUID, Decimal] = {}
+        # Depreciation Expense (Owner brief §15 -- explicitly required, not
+        # covered before this phase): the SAME `accumulated` figure booked
+        # here again, since every depreciation JE debits Depreciation
+        # Expense for the exact amount it credits Accumulated Depreciation
+        # for -- reusing it isn't a shortcut, it's the correct cumulative
+        # expense-to-date by construction. A standalone manual JE hitting
+        # this account independently of `run_depreciation` is exactly the
+        # kind of drift this third group exists to catch.
+        register_by_expense_account: dict[UUID, Decimal] = {}
         for asset in assets:
             if asset.acquisition_date > as_of_date:
                 continue
@@ -325,6 +407,10 @@ class FixedAssetService:
             )
             register_by_accum_account[asset.accumulated_depreciation_account_id] = (
                 register_by_accum_account.get(asset.accumulated_depreciation_account_id, Decimal("0"))
+                + accumulated
+            )
+            register_by_expense_account[asset.depreciation_expense_account_id] = (
+                register_by_expense_account.get(asset.depreciation_expense_account_id, Decimal("0"))
                 + accumulated
             )
 
@@ -370,16 +456,34 @@ class FixedAssetService:
                     "matches": register_total == gl_balance,
                 }
             )
+        # Depreciation Expense is debit-normal, same polarity as the Asset
+        # Cost group -- no sign flip needed, unlike Accumulated Depreciation.
+        for account_id, register_total in register_by_expense_account.items():
+            account = await self.account_repo.get_by_id(account_id)
+            gl_balance = await entry_repo.account_balance_by_id(company_id, account_id, balance_cutoff)
+            rows.append(
+                {
+                    "account_id": account_id,
+                    "account_code": account.code if account else "?",
+                    "account_name": account.name if account else "?",
+                    "register_total": register_total,
+                    "gl_balance": gl_balance,
+                    "difference": register_total - gl_balance,
+                    "matches": register_total == gl_balance,
+                }
+            )
         rows.sort(key=lambda r: r["account_code"])
 
         total_register_cost = sum(register_by_asset_account.values(), Decimal("0"))
         total_register_accumulated = sum(register_by_accum_account.values(), Decimal("0"))
+        total_register_expense = sum(register_by_expense_account.values(), Decimal("0"))
         return {
             "as_of_date": as_of_date,
             "accounts": rows,
             "total_register_cost": total_register_cost,
             "total_register_accumulated_depreciation": total_register_accumulated,
             "total_register_net_book_value": total_register_cost - total_register_accumulated,
+            "total_register_depreciation_expense": total_register_expense,
             "fully_matched": all(r["matches"] for r in rows),
         }
 
@@ -586,10 +690,17 @@ class FixedAssetService:
             "cost": asset.cost,
             "salvage_value": asset.salvage_value,
             "useful_life_months": asset.useful_life_months,
+            # Derived display-only annual rate -- useful_life_months stays
+            # the sole source of truth (Owner decision, 2026-08-19): never
+            # a stored, independently-editable field, so it can never
+            # contradict useful_life_months by construction.
+            "depreciation_rate_percent": (Decimal("1200") / asset.useful_life_months).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            ),
             "accumulated_depreciation": accumulated,
             "net_book_value": net_book_value,
             "fully_depreciated": accumulated >= depreciable_base,
-            "status": "disposed" if asset.disposed_at is not None else "active",
+            "status": "disposed" if asset.disposed_at is not None else asset.status,
             "disposed_at": asset.disposed_at,
             "disposal_proceeds": asset.disposal_proceeds,
         }
@@ -628,20 +739,48 @@ class FixedAssetCategoryService:
                 break
 
     async def create_category(
-        self, *, company_id: UUID, name: str, parent_id: UUID | None = None
+        self,
+        *,
+        company_id: UUID,
+        name: str,
+        parent_id: UUID | None = None,
+        default_useful_life_months: int | None = None,
+        default_fixed_asset_account_id: UUID | None = None,
+        default_accumulated_depreciation_account_id: UUID | None = None,
+        default_depreciation_expense_account_id: UUID | None = None,
     ) -> FixedAssetCategory:
         name = name.strip()
         if not name:
             raise ValueError("Category name is required")
+        if default_useful_life_months is not None and default_useful_life_months <= 0:
+            raise ValueError("Default useful life must be at least 1 month")
         await self._validate_parent(company_id=company_id, parent_id=parent_id)
         duplicate = await self.category_repo.find_sibling_by_name(company_id, parent_id, name)
         if duplicate is not None:
             raise ValueError(f"A category named '{name}' already exists at this level")
-        category = FixedAssetCategory(id=uuid.uuid4(), company_id=company_id, name=name, parent_id=parent_id)
+        category = FixedAssetCategory(
+            id=uuid.uuid4(),
+            company_id=company_id,
+            name=name,
+            parent_id=parent_id,
+            default_useful_life_months=default_useful_life_months,
+            default_fixed_asset_account_id=default_fixed_asset_account_id,
+            default_accumulated_depreciation_account_id=default_accumulated_depreciation_account_id,
+            default_depreciation_expense_account_id=default_depreciation_expense_account_id,
+        )
         return await self.category_repo.add(category)
 
     async def update_category(
-        self, *, company_id: UUID, category_id: UUID, name: str, parent_id: UUID | None
+        self,
+        *,
+        company_id: UUID,
+        category_id: UUID,
+        name: str,
+        parent_id: UUID | None,
+        default_useful_life_months: int | None = None,
+        default_fixed_asset_account_id: UUID | None = None,
+        default_accumulated_depreciation_account_id: UUID | None = None,
+        default_depreciation_expense_account_id: UUID | None = None,
     ) -> FixedAssetCategory:
         category = await self.category_repo.get_by_id(company_id, category_id)
         if category is None:
@@ -649,6 +788,8 @@ class FixedAssetCategoryService:
         name = name.strip()
         if not name:
             raise ValueError("Category name is required")
+        if default_useful_life_months is not None and default_useful_life_months <= 0:
+            raise ValueError("Default useful life must be at least 1 month")
         await self._validate_parent(company_id=company_id, parent_id=parent_id, editing_id=category_id)
         duplicate = await self.category_repo.find_sibling_by_name(
             company_id, parent_id, name, exclude_id=category_id
@@ -657,6 +798,10 @@ class FixedAssetCategoryService:
             raise ValueError(f"A category named '{name}' already exists at this level")
         category.name = name
         category.parent_id = parent_id
+        category.default_useful_life_months = default_useful_life_months
+        category.default_fixed_asset_account_id = default_fixed_asset_account_id
+        category.default_accumulated_depreciation_account_id = default_accumulated_depreciation_account_id
+        category.default_depreciation_expense_account_id = default_depreciation_expense_account_id
         return category
 
     async def delete_category(self, *, company_id: UUID, category_id: UUID) -> None:

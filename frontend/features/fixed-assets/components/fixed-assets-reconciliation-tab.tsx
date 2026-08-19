@@ -59,6 +59,10 @@ export function FixedAssetsReconciliationTab() {
                 value: formatCurrency(r.total_register_accumulated_depreciation),
               },
               { label: t("fixed_assets.net_book_value"), value: formatCurrency(r.total_register_net_book_value) },
+              {
+                label: t("fixed_assets.depreciation_expense"),
+                value: formatCurrency(r.total_register_depreciation_expense),
+              },
             ]
           : undefined
       }

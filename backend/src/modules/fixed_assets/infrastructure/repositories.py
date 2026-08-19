@@ -52,10 +52,13 @@ class FixedAssetRepository:
             query = query.where(FixedAsset.disposed_at.is_(None))
         if category_id is not None:
             query = query.where(FixedAsset.category_id == category_id)
-        if status == "active":
-            query = query.where(FixedAsset.disposed_at.is_(None))
-        elif status == "disposed":
+        if status == "disposed":
             query = query.where(FixedAsset.disposed_at.isnot(None))
+        elif status in ("active", "idle", "under_maintenance"):
+            # Operational status is only meaningful for a not-yet-disposed
+            # asset -- a disposed asset never matches an operational filter,
+            # regardless of whatever status it carried at disposal time.
+            query = query.where(FixedAsset.disposed_at.is_(None), FixedAsset.status == status)
         result = await self.session.execute(query.order_by(FixedAsset.acquisition_date.desc()))
         return list(result.scalars().all())
 

@@ -1,19 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { fixedAssetsApi } from "@/features/fixed-assets/api/client";
+import type { AssetOperationalStatus } from "@/features/fixed-assets/api/types";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { reportExportHandlers } from "@/lib/report-export";
+import { toastError, toastSuccess } from "@/lib/toast";
+import { ApiError } from "@/lib/api-client";
 
 /** بطاقة الأصل الثابت — same opening/running/closing shape as the
  * Customer/Vendor Subledger and Product Cardex, but tracking three
@@ -23,6 +28,7 @@ import { reportExportHandlers } from "@/lib/report-export";
 export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string }) {
   const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const queryClient = useQueryClient();
 
   const [dateFrom, setDateFrom] = useState(() => `${new Date().getFullYear()}-01-01`);
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
@@ -53,6 +59,31 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
     enabled: !!ranAt,
   });
   const r = cardQuery.data;
+
+  // Asset Master + Depreciation Policy (Owner brief §13: opening an asset
+  // must show why it's at its current value) -- the card above answers
+  // the movement/accounting-entries half; this answers the policy half.
+  const assetQuery = useQuery({
+    queryKey: ["fixed-asset", companyId, ranAt?.asset],
+    queryFn: () => fixedAssetsApi.getAsset(companyId, ranAt!.asset),
+    enabled: !!ranAt,
+  });
+  const scheduleQuery = useQuery({
+    queryKey: ["fixed-asset-projected-schedule", companyId, ranAt?.asset],
+    queryFn: () => fixedAssetsApi.getProjectedSchedule(companyId, ranAt!.asset),
+    enabled: !!ranAt,
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: (newStatus: AssetOperationalStatus) =>
+      fixedAssetsApi.updateAssetStatus(companyId, ranAt!.asset, newStatus),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fixed-asset", companyId, ranAt?.asset] });
+      queryClient.invalidateQueries({ queryKey: ["fixed-assets", companyId] });
+      toastSuccess(t("toast.success_title"), t("fixed_assets.status"));
+    },
+    onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
+  });
 
   return (
     <ReportView
@@ -108,6 +139,46 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
             subtitle={`${r.asset_code} — ${r.asset_name}`}
             dateRangeLabel={`${r.date_from} – ${r.date_to}`}
           />
+          {assetQuery.data && (
+            <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 rounded-md border p-3 text-sm sm:grid-cols-4">
+              <div>
+                <p className="text-xs text-muted-foreground">{t("fixed_assets.cost")}</p>
+                <p className="font-mono">{formatCurrency(assetQuery.data.cost)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("fixed_assets.salvage_value")}</p>
+                <p className="font-mono">{formatCurrency(assetQuery.data.salvage_value)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("fixed_assets.useful_life_months")}</p>
+                <p className="font-mono">{assetQuery.data.useful_life_months}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("fixed_assets.depreciation_rate_percent")}</p>
+                <p className="font-mono">{assetQuery.data.depreciation_rate_percent}%</p>
+              </div>
+              <div className="col-span-2 flex items-center gap-2 sm:col-span-4">
+                <p className="text-xs text-muted-foreground">{t("fixed_assets.status")}:</p>
+                {assetQuery.data.status === "disposed" ? (
+                  <Badge variant="secondary">{t("fixed_assets.status_disposed")}</Badge>
+                ) : (
+                  <Select
+                    value={assetQuery.data.status}
+                    onValueChange={(v) => statusMutation.mutate(v as AssetOperationalStatus)}
+                  >
+                    <SelectTrigger className="w-48">
+                      <SelectValue>{(v: string) => t(`fixed_assets.status_${v}`)}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">{t("fixed_assets.status_active")}</SelectItem>
+                      <SelectItem value="idle">{t("fixed_assets.status_idle")}</SelectItem>
+                      <SelectItem value="under_maintenance">{t("fixed_assets.status_under_maintenance")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -155,6 +226,43 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
               </TableRow>
             </TableFooter>
           </Table>
+
+          {scheduleQuery.data && (
+            <div className="mt-6 print:hidden">
+              <h3 className="mb-2 text-sm font-semibold">{t("fixed_assets.card.schedule.title")}</h3>
+              <p className="mb-2 text-xs text-muted-foreground">{t("fixed_assets.card.schedule.hint")}</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("fixed_assets.card.schedule.period")}</TableHead>
+                    <TableHead className="text-end">{t("fixed_assets.card.schedule.depreciation")}</TableHead>
+                    <TableHead className="text-end">{t("fixed_assets.accumulated_depreciation")}</TableHead>
+                    <TableHead className="text-end">{t("fixed_assets.net_book_value")}</TableHead>
+                    <TableHead>{t("fixed_assets.card.schedule.status")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {scheduleQuery.data.lines.map((line) => (
+                    <TableRow key={line.period_month} className={line.posted ? undefined : "text-muted-foreground"}>
+                      <TableCell>{line.period_month.slice(0, 7)}</TableCell>
+                      <TableCell className="text-end font-mono">{formatCurrency(line.depreciation)}</TableCell>
+                      <TableCell className="text-end font-mono">
+                        {formatCurrency(line.accumulated_depreciation)}
+                      </TableCell>
+                      <TableCell className="text-end font-mono">{formatCurrency(line.net_book_value)}</TableCell>
+                      <TableCell>
+                        {line.posted ? (
+                          <Badge variant="default">{t("fixed_assets.card.schedule.posted")}</Badge>
+                        ) : (
+                          <Badge variant="outline">{t("fixed_assets.card.schedule.projected")}</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </>
       )}
     </ReportView>

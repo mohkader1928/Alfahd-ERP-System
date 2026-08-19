@@ -1,6 +1,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   AssetCard,
+  AssetOperationalStatus,
   DepreciationEntry,
   DepreciationSchedule,
   DisposeAssetInput,
@@ -8,6 +9,7 @@ import type {
   FixedAssetCategory,
   FixedAssetCategoryInput,
   FixedAssetCreateInput,
+  ProjectedSchedule,
   Reconciliation,
   RunDepreciationResult,
 } from "./types";
@@ -15,7 +17,10 @@ import type {
 const BASE = "/api/v1/fixed-assets";
 
 export const fixedAssetsApi = {
-  listAssets: (companyId: string, filters?: { categoryId?: string; status?: "active" | "disposed" }) => {
+  listAssets: (
+    companyId: string,
+    filters?: { categoryId?: string; status?: AssetOperationalStatus | "disposed" }
+  ) => {
     const params = new URLSearchParams();
     if (filters?.categoryId) params.set("category_id", filters.categoryId);
     if (filters?.status) params.set("status_filter", filters.status);
@@ -43,6 +48,12 @@ export const fixedAssetsApi = {
 
   getAssetCard: (companyId: string, id: string, dateFrom: string, dateTo: string) =>
     apiClient.get<AssetCard>(`${BASE}/${id}/card?date_from=${dateFrom}&date_to=${dateTo}`, { companyId }),
+
+  updateAssetStatus: (companyId: string, id: string, statusValue: AssetOperationalStatus) =>
+    apiClient.patch<FixedAsset>(`${BASE}/${id}/status`, { status: statusValue }, { companyId }),
+
+  getProjectedSchedule: (companyId: string, id: string) =>
+    apiClient.get<ProjectedSchedule>(`${BASE}/${id}/projected-schedule`, { companyId }),
 
   getReconciliation: (companyId: string, asOfDate: string) =>
     apiClient.get<Reconciliation>(`${BASE}/reconciliation?as_of_date=${asOfDate}`, { companyId }),

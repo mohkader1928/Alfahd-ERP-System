@@ -18,7 +18,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
 import { fixedAssetsApi } from "@/features/fixed-assets/api/client";
-import type { FixedAsset, RunDepreciationResult } from "@/features/fixed-assets/api/types";
+import type { AssetOperationalStatus, FixedAsset, RunDepreciationResult } from "@/features/fixed-assets/api/types";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { toastError, toastSuccess } from "@/lib/toast";
@@ -42,9 +42,10 @@ export function FixedAssetsTab() {
   const [cost, setCost] = useState("");
   const [salvageValue, setSalvageValue] = useState("0");
   const [usefulLifeMonths, setUsefulLifeMonths] = useState("60");
+  const [assetStatus, setAssetStatus] = useState<AssetOperationalStatus>("active");
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const [filterStatus, setFilterStatus] = useState<"" | "active" | "disposed">("");
+  const [filterStatus, setFilterStatus] = useState<"" | AssetOperationalStatus | "disposed">("");
   const [filterCategoryId, setFilterCategoryId] = useState<string | null>(null);
 
   const [runOpen, setRunOpen] = useState(false);
@@ -90,7 +91,7 @@ export function FixedAssetsTab() {
   // which applies the same active-only rule for the same reason).
   const registerTotals = assetsQuery.data
     ? assetsQuery.data
-        .filter((a) => a.status === "active")
+        .filter((a) => a.status !== "disposed")
         .reduce(
           (acc, a) => ({
             cost: acc.cost + Number(a.cost),
@@ -115,6 +116,7 @@ export function FixedAssetsTab() {
         cost,
         salvage_value: salvageValue,
         useful_life_months: Number(usefulLifeMonths),
+        status: assetStatus,
       }),
     onSuccess: (asset) => {
       queryClient.invalidateQueries({ queryKey: ["fixed-assets", companyId] });
@@ -129,6 +131,7 @@ export function FixedAssetsTab() {
       setCost("");
       setSalvageValue("0");
       setUsefulLifeMonths("60");
+      setAssetStatus("active");
     },
     onError: (err) => {
       const detail = err instanceof ApiError ? err.detail : t("common.error");
@@ -177,6 +180,30 @@ export function FixedAssetsTab() {
       toastError(t("toast.error_title"), detail);
     },
   });
+
+  // Owner decision (2026-08-19): a category may carry a default policy
+  // (useful life + the three GL accounts) that prefills a NEW asset's form
+  // when picked -- every field stays fully editable afterward, this is a
+  // convenience prefill only, never enforced.
+  function handleCategoryChange(newCategoryId: string | null) {
+    setCategoryId(newCategoryId);
+    const category = categoriesQuery.data?.find((c) => c.id === newCategoryId);
+    if (!category) return;
+    if (category.default_useful_life_months != null) {
+      setUsefulLifeMonths(String(category.default_useful_life_months));
+    }
+    if (category.default_fixed_asset_account_id) setFixedAssetAccountId(category.default_fixed_asset_account_id);
+    if (category.default_accumulated_depreciation_account_id) {
+      setAccumAccountId(category.default_accumulated_depreciation_account_id);
+    }
+    if (category.default_depreciation_expense_account_id) {
+      setExpenseAccountId(category.default_depreciation_expense_account_id);
+    }
+  }
+
+  const usefulLifeMonthsNum = Number(usefulLifeMonths);
+  const derivedRatePercent =
+    usefulLifeMonthsNum > 0 ? (1200 / usefulLifeMonthsNum).toFixed(2) : null;
 
   function openDispose(asset: FixedAsset) {
     setDisposing(asset);
@@ -233,12 +260,22 @@ export function FixedAssetsTab() {
       key: "status",
       header: t("fixed_assets.status"),
       render: (r) => (
-        <Badge variant={r.status === "disposed" ? "secondary" : r.fully_depreciated ? "warning" : "default"}>
+        <Badge
+          variant={
+            r.status === "disposed"
+              ? "secondary"
+              : r.fully_depreciated
+                ? "warning"
+                : r.status === "active"
+                  ? "default"
+                  : "outline"
+          }
+        >
           {r.status === "disposed"
             ? t("fixed_assets.status_disposed")
             : r.fully_depreciated
               ? t("fixed_assets.status_fully_depreciated")
-              : t("fixed_assets.status_active")}
+              : t(`fixed_assets.status_${r.status}`)}
         </Badge>
       ),
     },
@@ -246,7 +283,7 @@ export function FixedAssetsTab() {
       key: "actions",
       header: "",
       render: (r) =>
-        r.status === "active" ? (
+        r.status !== "disposed" ? (
           <Can permission="fixed_assets.dispose">
             <div className="flex justify-end">
               <Button size="sm" variant="ghost" onClick={() => openDispose(r)}>
@@ -277,11 +314,29 @@ export function FixedAssetsTab() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("fixed_assets.category")}</Label>
-                <CategorySelect categories={categoriesQuery.data ?? []} value={categoryId} onChange={setCategoryId} />
+                <CategorySelect
+                  categories={categoriesQuery.data ?? []}
+                  value={categoryId}
+                  onChange={handleCategoryChange}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("fixed_assets.status")}</Label>
+                <Select value={assetStatus} onValueChange={(v) => setAssetStatus(v as AssetOperationalStatus)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue>{(v: string) => t(`fixed_assets.status_${v}`)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">{t("fixed_assets.status_active")}</SelectItem>
+                    <SelectItem value="idle">{t("fixed_assets.status_idle")}</SelectItem>
+                    <SelectItem value="under_maintenance">{t("fixed_assets.status_under_maintenance")}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("fixed_assets.acquisition_date")}</Label>
                 <Input type="date" value={acquisitionDate} onChange={(e) => setAcquisitionDate(e.target.value)} />
+                <p className="text-xs text-muted-foreground">{t("fixed_assets.acquisition_date.full_month_hint")}</p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("fixed_assets.cost")}</Label>
@@ -306,6 +361,11 @@ export function FixedAssetsTab() {
                   value={usefulLifeMonths}
                   onChange={(e) => setUsefulLifeMonths(e.target.value)}
                 />
+                {derivedRatePercent && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("fixed_assets.depreciation_rate_percent")}: {derivedRatePercent}%
+                  </p>
+                )}
               </div>
               <AccountSelect
                 label={t("fixed_assets.fixed_asset_account")}
@@ -399,23 +459,24 @@ export function FixedAssetsTab() {
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="w-40 space-y-1">
+          <div className="w-48 space-y-1">
             <Label className="text-xs">{t("fixed_assets.filter.status")}</Label>
-            <Select value={filterStatus || "__all__"} onValueChange={(v) => setFilterStatus(v === "__all__" ? "" : (v as "active" | "disposed"))}>
+            <Select
+              value={filterStatus || "__all__"}
+              onValueChange={(v) =>
+                setFilterStatus(v === "__all__" ? "" : (v as AssetOperationalStatus | "disposed"))
+              }
+            >
               <SelectTrigger className="w-full">
                 <SelectValue>
-                  {(v: string) =>
-                    v === "active"
-                      ? t("fixed_assets.status_active")
-                      : v === "disposed"
-                        ? t("fixed_assets.status_disposed")
-                        : t("fixed_assets.filter.status_all")
-                  }
+                  {(v: string) => (v === "__all__" ? t("fixed_assets.filter.status_all") : t(`fixed_assets.status_${v}`))}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">{t("fixed_assets.filter.status_all")}</SelectItem>
                 <SelectItem value="active">{t("fixed_assets.status_active")}</SelectItem>
+                <SelectItem value="idle">{t("fixed_assets.status_idle")}</SelectItem>
+                <SelectItem value="under_maintenance">{t("fixed_assets.status_under_maintenance")}</SelectItem>
                 <SelectItem value="disposed">{t("fixed_assets.status_disposed")}</SelectItem>
               </SelectContent>
             </Select>

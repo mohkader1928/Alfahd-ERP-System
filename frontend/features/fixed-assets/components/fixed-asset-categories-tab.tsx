@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CategorySelect } from "@/components/erp/category-select/category-select";
 import { ConfirmDialog } from "@/components/erp/states/confirm-dialog";
@@ -16,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { accountingApi } from "@/features/accounting/api/client";
 import { fixedAssetsApi } from "@/features/fixed-assets/api/client";
 import type { FixedAssetCategory } from "@/features/fixed-assets/api/types";
 import { ApiError } from "@/lib/api-client";
@@ -56,18 +58,31 @@ export function FixedAssetCategoriesTab() {
     queryKey: ["fixed-asset-categories", companyId],
     queryFn: () => fixedAssetsApi.listCategories(companyId),
   });
+  const accountsQuery = useQuery({
+    queryKey: ["accounts", companyId],
+    queryFn: () => accountingApi.listAccounts(companyId),
+  });
+  const postingAccounts = (accountsQuery.data ?? []).filter((a) => !a.is_group);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dialogState, setDialogState] = useState<{ mode: "create" | "edit"; category?: FixedAssetCategory; parentId: string | null } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FixedAssetCategory | null>(null);
   const [formName, setFormName] = useState("");
   const [formParentId, setFormParentId] = useState<string | null>(null);
+  const [formDefaultUsefulLife, setFormDefaultUsefulLife] = useState("");
+  const [formDefaultFixedAssetAccount, setFormDefaultFixedAssetAccount] = useState<string | null>(null);
+  const [formDefaultAccumAccount, setFormDefaultAccumAccount] = useState<string | null>(null);
+  const [formDefaultExpenseAccount, setFormDefaultExpenseAccount] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function openCreate(parentId: string | null) {
     setFormName("");
     setFormParentId(parentId);
+    setFormDefaultUsefulLife("");
+    setFormDefaultFixedAssetAccount(null);
+    setFormDefaultAccumAccount(null);
+    setFormDefaultExpenseAccount(null);
     setFormError(null);
     setDialogState({ mode: "create", parentId });
   }
@@ -75,6 +90,12 @@ export function FixedAssetCategoriesTab() {
   function openEdit(category: FixedAssetCategory) {
     setFormName(category.name);
     setFormParentId(category.parent_id);
+    setFormDefaultUsefulLife(
+      category.default_useful_life_months != null ? String(category.default_useful_life_months) : ""
+    );
+    setFormDefaultFixedAssetAccount(category.default_fixed_asset_account_id);
+    setFormDefaultAccumAccount(category.default_accumulated_depreciation_account_id);
+    setFormDefaultExpenseAccount(category.default_depreciation_expense_account_id);
     setFormError(null);
     setDialogState({ mode: "edit", category, parentId: category.parent_id });
   }
@@ -82,13 +103,18 @@ export function FixedAssetCategoriesTab() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!dialogState) return;
-      if (dialogState.mode === "create") {
-        return fixedAssetsApi.createCategory(companyId, { name: formName, parent_id: formParentId });
-      }
-      return fixedAssetsApi.updateCategory(companyId, dialogState.category!.id, {
+      const payload = {
         name: formName,
         parent_id: formParentId,
-      });
+        default_useful_life_months: formDefaultUsefulLife ? Number(formDefaultUsefulLife) : null,
+        default_fixed_asset_account_id: formDefaultFixedAssetAccount,
+        default_accumulated_depreciation_account_id: formDefaultAccumAccount,
+        default_depreciation_expense_account_id: formDefaultExpenseAccount,
+      };
+      if (dialogState.mode === "create") {
+        return fixedAssetsApi.createCategory(companyId, payload);
+      }
+      return fixedAssetsApi.updateCategory(companyId, dialogState.category!.id, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["fixed-asset-categories", companyId] });
@@ -212,6 +238,40 @@ export function FixedAssetCategoriesTab() {
                 excludeId={dialogState?.mode === "edit" ? dialogState.category?.id : undefined}
               />
             </div>
+            <div className="space-y-1 border-t pt-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t("fixed_assets.categories.default_policy")}
+              </p>
+              <p className="text-xs text-muted-foreground">{t("fixed_assets.categories.default_policy_hint")}</p>
+            </div>
+            <div className="space-y-1">
+              <Label>{t("fixed_assets.useful_life_months")}</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={formDefaultUsefulLife}
+                onChange={(e) => setFormDefaultUsefulLife(e.target.value)}
+              />
+            </div>
+            <CategoryAccountSelect
+              label={t("fixed_assets.fixed_asset_account")}
+              value={formDefaultFixedAssetAccount}
+              onChange={setFormDefaultFixedAssetAccount}
+              options={postingAccounts}
+            />
+            <CategoryAccountSelect
+              label={t("fixed_assets.accumulated_depreciation_account")}
+              value={formDefaultAccumAccount}
+              onChange={setFormDefaultAccumAccount}
+              options={postingAccounts}
+            />
+            <CategoryAccountSelect
+              label={t("fixed_assets.depreciation_expense_account")}
+              value={formDefaultExpenseAccount}
+              onChange={setFormDefaultExpenseAccount}
+              options={postingAccounts}
+            />
             {formError && <p className="text-sm text-destructive">{formError}</p>}
           </div>
           <DialogFooter>
@@ -241,6 +301,46 @@ export function FixedAssetCategoriesTab() {
         onConfirm={() => deleteMutation.mutate()}
         isPending={deleteMutation.isPending}
       />
+    </div>
+  );
+}
+
+/** Optional per-category default -- same shape as fixed-assets-tab.tsx's
+ * local AccountSelect, kept as its own small copy here rather than shared
+ * since one is required (asset creation) and this one is always optional
+ * (a category default), with a distinct placeholder/empty-choice need. */
+function CategoryAccountSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (v: string | null) => void;
+  options: { id: string; code: string; name: string }[];
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Select value={value ?? "__none__"} onValueChange={(v) => onChange(v === "__none__" ? null : v)}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="—">
+            {(v: string) => {
+              const acc = options.find((a) => a.id === v);
+              return acc ? `${acc.code} — ${acc.name}` : "—";
+            }}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">—</SelectItem>
+          {options.map((a) => (
+            <SelectItem key={a.id} value={a.id}>
+              {a.code} — {a.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

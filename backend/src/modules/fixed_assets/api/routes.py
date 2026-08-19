@@ -24,9 +24,11 @@ from src.modules.fixed_assets.api.schemas import (
     FixedAssetCategoryUpdateRequest,
     FixedAssetCreateRequest,
     FixedAssetOut,
+    ProjectedScheduleResponse,
     ReconciliationResponse,
     RunDepreciationRequest,
     RunDepreciationResponse,
+    UpdateAssetStatusRequest,
 )
 from src.modules.fixed_assets.application.services import (
     FixedAssetCategoryService,
@@ -94,7 +96,7 @@ def _register_table(*, company_name: str, assets: list[dict], lang: str) -> Repo
 @router.get("", response_model=list[FixedAssetOut])
 async def list_fixed_assets(
     category_id: UUID | None = None,
-    status_filter: Literal["active", "disposed"] | None = None,
+    status_filter: Literal["active", "idle", "under_maintenance", "disposed"] | None = None,
     format: ExportFormatParam = "json",
     lang: Literal["ar", "en"] = "ar",
     ctx: AuthContext = Depends(require_permission("fixed_assets.view")),
@@ -173,7 +175,13 @@ async def create_fixed_asset_category(
 ):
     try:
         category = await category_service.create_category(
-            company_id=ctx.company_id, name=payload.name, parent_id=payload.parent_id
+            company_id=ctx.company_id,
+            name=payload.name,
+            parent_id=payload.parent_id,
+            default_useful_life_months=payload.default_useful_life_months,
+            default_fixed_asset_account_id=payload.default_fixed_asset_account_id,
+            default_accumulated_depreciation_account_id=payload.default_accumulated_depreciation_account_id,
+            default_depreciation_expense_account_id=payload.default_depreciation_expense_account_id,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -192,7 +200,14 @@ async def update_fixed_asset_category(
 ):
     try:
         category = await category_service.update_category(
-            company_id=ctx.company_id, category_id=category_id, name=payload.name, parent_id=payload.parent_id
+            company_id=ctx.company_id,
+            category_id=category_id,
+            name=payload.name,
+            parent_id=payload.parent_id,
+            default_useful_life_months=payload.default_useful_life_months,
+            default_fixed_asset_account_id=payload.default_fixed_asset_account_id,
+            default_accumulated_depreciation_account_id=payload.default_accumulated_depreciation_account_id,
+            default_depreciation_expense_account_id=payload.default_depreciation_expense_account_id,
         )
     except LookupError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
@@ -255,6 +270,12 @@ def _reconciliation_table(*, company_name: str, result: dict, lang: str) -> Repo
 
 
 @router.get("/reconciliation", response_model=ReconciliationResponse)
+# NOTE: `total_register_depreciation_expense` is surfaced in the JSON
+# response and the frontend summary cards; the printable table above
+# intentionally keeps its existing 3-total footer (Cost/–/NBV) rather than
+# growing a 4th total column here, matching the Owner's "one basic report,
+# not ten" brief -- the per-account rows already include the Depreciation
+# Expense account's own line with its own difference.
 async def get_reconciliation(
     as_of_date: date,
     format: ExportFormatParam = "json",
@@ -396,6 +417,7 @@ async def create_fixed_asset(
             salvage_value=payload.salvage_value,
             useful_life_months=payload.useful_life_months,
             created_by=ctx.user_id,
+            status=payload.status,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -471,8 +493,8 @@ async def dispose_fixed_asset(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
     # P0-C: disposal had no audit trail at all — disposed_at is the field
-    # that actually marks the transition (see models.py's docstring on why
-    # FixedAsset has no separate status column).
+    # that actually marks the disposed/active transition (the separate
+    # `status` column is purely operational and untouched by disposal).
     await AuditLogRepository(db).record(
         tenant_id=ctx.tenant_id,
         company_id=ctx.company_id,
@@ -487,3 +509,47 @@ async def dispose_fixed_asset(
     result = await service.get_asset(ctx.company_id, asset_id)  # see comment in create_fixed_asset
     await db.commit()
     return result
+
+
+@router.patch("/{asset_id}/status", response_model=FixedAssetOut)
+async def update_fixed_asset_status(
+    asset_id: UUID,
+    payload: UpdateAssetStatusRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("fixed_assets.create")),
+    service: FixedAssetService = Depends(get_fixed_asset_service),
+):
+    """Operational status only (Active/Idle/Under Maintenance) — never
+    disposal, which stays its own irreversible `:dispose` action."""
+    try:
+        await service.update_asset_status(company_id=ctx.company_id, asset_id=asset_id, status=payload.status)
+    except ValueError as e:
+        code = status.HTTP_404_NOT_FOUND if "not found" in str(e) else status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise HTTPException(code, str(e)) from e
+
+    await AuditLogRepository(db).record(
+        tenant_id=ctx.tenant_id,
+        company_id=ctx.company_id,
+        user_id=ctx.user_id,
+        target_table="fixed_asset",
+        target_id=asset_id,
+        field_name="status",
+        old_value=None,
+        new_value=payload.status,
+    )
+
+    result = await service.get_asset(ctx.company_id, asset_id)  # see comment in create_fixed_asset
+    await db.commit()
+    return result
+
+
+@router.get("/{asset_id}/projected-schedule", response_model=ProjectedScheduleResponse)
+async def get_projected_schedule(
+    asset_id: UUID,
+    ctx: AuthContext = Depends(require_permission("fixed_assets.view")),
+    service: FixedAssetService = Depends(get_fixed_asset_service),
+):
+    try:
+        return await service.get_projected_schedule(company_id=ctx.company_id, asset_id=asset_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e

@@ -1,13 +1,23 @@
+export type AssetOperationalStatus = "active" | "idle" | "under_maintenance";
+
 export interface FixedAssetCategory {
   id: string;
   company_id: string;
   name: string;
   parent_id: string | null;
+  default_useful_life_months: number | null;
+  default_fixed_asset_account_id: string | null;
+  default_accumulated_depreciation_account_id: string | null;
+  default_depreciation_expense_account_id: string | null;
 }
 
 export interface FixedAssetCategoryInput {
   name: string;
   parent_id: string | null;
+  default_useful_life_months?: number | null;
+  default_fixed_asset_account_id?: string | null;
+  default_accumulated_depreciation_account_id?: string | null;
+  default_depreciation_expense_account_id?: string | null;
 }
 
 export interface FixedAsset {
@@ -24,10 +34,11 @@ export interface FixedAsset {
   cost: string;
   salvage_value: string;
   useful_life_months: number;
+  depreciation_rate_percent: string;
   accumulated_depreciation: string;
   net_book_value: string;
   fully_depreciated: boolean;
-  status: "active" | "disposed";
+  status: AssetOperationalStatus | "disposed";
   disposed_at: string | null;
   disposal_proceeds: string | null;
 }
@@ -44,6 +55,7 @@ export interface FixedAssetCreateInput {
   cost: string;
   salvage_value: string;
   useful_life_months: number;
+  status?: AssetOperationalStatus;
 }
 
 export interface DepreciationEntry {
@@ -119,7 +131,27 @@ export interface Reconciliation {
   total_register_cost: string;
   total_register_accumulated_depreciation: string;
   total_register_net_book_value: string;
+  total_register_depreciation_expense: string;
   fully_matched: boolean;
+}
+
+export interface ProjectedScheduleLine {
+  period_month: string;
+  depreciation: string;
+  accumulated_depreciation: string;
+  net_book_value: string;
+  posted: boolean;
+}
+
+export interface ProjectedSchedule {
+  asset_id: string;
+  asset_code: string;
+  asset_name: string;
+  cost: string;
+  salvage_value: string;
+  useful_life_months: number;
+  monthly_depreciation: string;
+  lines: ProjectedScheduleLine[];
 }
 
 export interface DepreciationScheduleLine {
