@@ -403,8 +403,18 @@ async def test_line_item_id_manipulation_cannot_read_foreign_invoice_via_credit_
 # ---------------------------------------------------------------------------
 
 
-async def test_dashboard_does_not_include_other_company_totals(client, companies):
-    a, b = companies
+async def test_dashboard_does_not_include_other_company_totals(client):
+    """Deliberately does NOT reuse the shared `companies` fixture (same
+    reasoning as `test_csv_export_does_not_include_other_company_rows`
+    below): other tests in this module legitimately issue a credit note
+    against Company A's own invoice over the module's lifetime, and since
+    the Dashboard's sales KPI is net-of-returns, that credit note would
+    change A's total without changing B's -- breaking an equality
+    assertion that has nothing to do with cross-company isolation. Two
+    fresh, self-contained companies make the expected equality
+    deterministic regardless of what other tests in this file have done."""
+    a = await _bootstrap_company(client, f"DashIsoA-{uuid.uuid4().hex[:6]}")
+    b = await _bootstrap_company(client, f"DashIsoB-{uuid.uuid4().hex[:6]}")
     dash_a = (
         await client.get(
             "/api/v1/reporting/dashboard",

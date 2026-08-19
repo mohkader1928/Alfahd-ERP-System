@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.sales.infrastructure.models import (
@@ -186,15 +186,28 @@ class SalesInvoiceRepository:
         return result.scalar_one_or_none()
 
     async def sum_total_in_range(self, company_id: UUID, date_from: date, date_to: date) -> Decimal:
-        """FR-RPT-003 — period sales KPI. Only counts tax/simplified
-        invoices, not credit/debit notes, to keep the figure a plain gross-
-        sales total rather than a net-of-returns figure."""
+        """FR-RPT-003 — Dashboard's period/trend sales KPI. Owner request:
+        this must be NET sales -- tax/simplified invoices minus credit
+        notes issued in the same period. `debit_note` is a declared
+        `invoice_type` with no creation path anywhere in Sales yet, so it
+        is deliberately left out of both sides of the CASE below rather
+        than guessed at; add it explicitly once that feature exists."""
         result = await self.session.execute(
-            select(func.coalesce(func.sum(SalesInvoice.total_amount), 0)).where(
+            select(
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (SalesInvoice.invoice_type == "credit_note", -SalesInvoice.total_amount),
+                            else_=SalesInvoice.total_amount,
+                        )
+                    ),
+                    0,
+                )
+            ).where(
                 SalesInvoice.company_id == company_id,
                 SalesInvoice.invoice_date >= date_from,
                 SalesInvoice.invoice_date <= date_to,
-                SalesInvoice.invoice_type.in_(["tax", "simplified"]),
+                SalesInvoice.invoice_type.in_(["tax", "simplified", "credit_note"]),
                 SalesInvoice.status.in_(["cleared", "reported", "pending_submission"]),
             )
         )

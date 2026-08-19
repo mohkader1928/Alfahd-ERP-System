@@ -28,18 +28,18 @@ export function KpiCard({ label, value, isLoading, isError, href, icon: Icon, ac
   const { t } = useI18n();
   const body = (
     <Card className={href ? "h-full transition-colors hover:bg-muted/40" : "h-full"}>
-      <CardContent className="flex items-start gap-3 py-4">
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${accentClassName}`}>
-          <Icon className="h-5 w-5" />
+      <CardContent className="flex items-start gap-2 py-3">
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${accentClassName}`}>
+          <Icon className="h-4 w-4" />
         </div>
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="truncate text-sm font-medium text-muted-foreground">{label}</p>
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
           {isLoading ? (
-            <Skeleton className="h-7 w-28" />
+            <Skeleton className="h-5 w-20" />
           ) : isError ? (
-            <p className="text-sm text-destructive">{t("common.error")}</p>
+            <p className="text-xs text-destructive">{t("common.error")}</p>
           ) : (
-            <p className="truncate text-xl font-semibold tabular-nums">{value}</p>
+            <p className="truncate text-base font-semibold tabular-nums">{value}</p>
           )}
         </div>
       </CardContent>

@@ -84,15 +84,17 @@ async def test_dashboard_reflects_sales_and_purchases(client):
     assert summary["cash_balance"] == "0.0000"
 
 
-async def test_dashboard_purchases_excludes_vendor_debit_notes(client):
-    """Regression for a real reported bug: the Dashboard's "Purchases" KPI
-    summed every posted VendorBill row regardless of `bill_type`, so a
-    Vendor Debit Note (a return to the vendor, stored with the same
-    positive `total_amount` as the bill it reverses) was ADDED on top of
-    the original bill instead of excluded -- roughly doubling the visible
-    impact of every return. A bill for 2300 fully returned via debit note
-    must still show period_purchases_total == 2300.0000 (the original
-    bill only), not 4600."""
+async def test_dashboard_purchases_nets_vendor_debit_notes(client):
+    """Regression for a real reported bug, in two stages. Originally the
+    Dashboard's "Purchases" KPI summed every posted VendorBill row
+    regardless of `bill_type`, so a Vendor Debit Note (a return to the
+    vendor, stored with the same positive `total_amount` as the bill it
+    reverses) was ADDED on top of the original bill instead of netted --
+    roughly doubling the visible impact of every return. The Owner then
+    asked explicitly for the KPI to be net-of-returns, so a bill fully
+    reversed by a debit note must now show period_purchases_total ==
+    0.0000 (bill minus its own full return), not the bill's own total and
+    not double it."""
     _, headers, _ = await _bootstrap_and_login(client)
 
     vendor_resp = await client.post(
@@ -149,9 +151,62 @@ async def test_dashboard_purchases_excludes_vendor_debit_notes(client):
     dashboard_after = await client.get(
         "/api/v1/reporting/dashboard", headers=headers, params={"period_start": "2026-01-01", "period_end": "2026-12-31"}
     )
-    # The debit note must not add to the KPI -- purchases stays exactly the
-    # original bill's amount, not bill_total * 2.
-    assert dashboard_after.json()["period_purchases_total"] == bill_total
+    # The debit note must net against the KPI, not add to it -- a full
+    # return brings net purchases back down to zero, not bill_total * 2
+    # (the old bug) and not bill_total (the pre-netting fix).
+    assert dashboard_after.json()["period_purchases_total"] == "0.0000"
+
+
+async def test_dashboard_sales_nets_credit_notes(client):
+    """Symmetric case to the purchases test above: Owner request for the
+    Dashboard's "Sales" KPI to be net-of-returns too. An invoice fully
+    reversed by a credit note in the same period must bring
+    period_sales_total back to 0.0000, not leave it at the invoice's own
+    gross total."""
+    _, headers, _ = await _bootstrap_and_login(client)
+
+    partner_resp = await client.post(
+        "/api/v1/identity/partners",
+        headers=headers,
+        json={"name": "Credit Note Buyer", "is_customer": True, "vat_number": unique_vat()},
+    )
+    partner_id = partner_resp.json()["id"]
+    product_resp = await client.post(
+        "/api/v1/identity/products",
+        headers=headers,
+        json={"sku": f"SKU-{unique_vat()[:8]}", "name": "Widget", "sales_price": "100.00"},
+    )
+    product_id = product_resp.json()["id"]
+
+    quote_resp = await client.post(
+        "/api/v1/sales/quotations",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "quote_date": "2026-06-01",
+            "lines": [{"product_id": product_id, "qty": "1", "unit_price": "100.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    quotation_id = quote_resp.json()["id"]
+    order_resp = await client.post(f"/api/v1/sales/quotations/{quotation_id}:confirm", headers=headers)
+    order_id = order_resp.json()["id"]
+    invoice_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    invoice_id = invoice_resp.json()["invoice"]["id"]
+
+    dashboard_before = await client.get(
+        "/api/v1/reporting/dashboard", headers=headers, params={"period_start": "2026-01-01", "period_end": "2026-12-31"}
+    )
+    assert dashboard_before.json()["period_sales_total"] == "115.0000"  # 100 + 15% VAT
+
+    credit_resp = await client.post(
+        f"/api/v1/sales/invoices/{invoice_id}:credit-note", headers=headers, json={"reason": "Full return"}
+    )
+    assert credit_resp.status_code == 201, credit_resp.text
+
+    dashboard_after = await client.get(
+        "/api/v1/reporting/dashboard", headers=headers, params={"period_start": "2026-01-01", "period_end": "2026-12-31"}
+    )
+    assert dashboard_after.json()["period_sales_total"] == "0.0000"
 
 
 # --- P0-8: Dashboard KPIs + fiscal-year-aware chart -----------------------
