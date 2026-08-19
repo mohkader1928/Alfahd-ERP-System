@@ -84,6 +84,14 @@ export interface InventoryValuationRow {
   total_value: string;
 }
 
+export interface InventoryReconciliation {
+  gl_balance: string;
+  valuation_total: string;
+  difference: string;
+  tolerance: string;
+  matched: boolean;
+}
+
 // ── VAT / Tax Summary ────────────────────────────────────────────────────────
 
 export interface VatSummary {

@@ -21,6 +21,7 @@ from src.modules.reporting.api.deps import (
 )
 from src.modules.reporting.api.schemas import (
     DashboardSummaryOut,
+    InventoryReconciliationOut,
     InventoryValuationRowOut,
     PurchaseByVendorRow,
     SalesByCustomerRow,
@@ -439,3 +440,20 @@ async def inventory_valuation(
         rtl=lang == "ar",
     )
     return build_export_response(format, "inventory-valuation", table)
+
+
+@router.get("/inventory-reconciliation", response_model=InventoryReconciliationOut)
+async def inventory_reconciliation(
+    ctx: AuthContext = Depends(require_permission("reporting.inventory_valuation.view")),
+    service: InventoryValuationReportService = Depends(get_inventory_valuation_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """Owner-reported finding (شركة المحمود, 2026-08-19): Inventory
+    Valuation and the Trial Balance's Inventory (1300) balance had
+    silently drifted apart. This surfaces that comparison directly,
+    every time, instead of relying on someone noticing two separate
+    screens disagree -- the same MATCHED/NOT MATCHED discipline Fixed
+    Assets' reconciliation report already established."""
+    company = await company_repo.get_by_id(ctx.company_id)
+    valuation_method = company.valuation_method if company else "average"
+    return await service.get_reconciliation(company_id=ctx.company_id, valuation_method=valuation_method)

@@ -1,6 +1,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   DashboardSummary,
+  InventoryReconciliation,
   InventoryValuationRow,
   PurchaseByVendorRow,
   SalesByCustomerRow,
@@ -62,6 +63,9 @@ export const reportingApi = {
       `${BASE}/inventory-valuation${warehouseId ? `?warehouse_id=${warehouseId}` : ""}`,
       { companyId }
     ),
+
+  inventoryReconciliation: (companyId: string) =>
+    apiClient.get<InventoryReconciliation>(`${BASE}/inventory-reconciliation`, { companyId }),
 
   // ── CSV Exports ──────────────────────────────────────────────────────────────
 

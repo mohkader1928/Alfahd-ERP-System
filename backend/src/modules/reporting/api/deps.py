@@ -49,4 +49,4 @@ def get_vat_reporting_service(db: AsyncSession = Depends(get_db)) -> VatReportin
 
 
 def get_inventory_valuation_service(db: AsyncSession = Depends(get_db)) -> InventoryValuationReportService:
-    return InventoryValuationReportService(db)
+    return InventoryValuationReportService(db, JournalEntryRepository(db))

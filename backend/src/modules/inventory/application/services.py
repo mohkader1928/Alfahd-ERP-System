@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from src.modules.identity.infrastructure.repositories import ProductRepository, RoleRepository
@@ -27,6 +27,8 @@ from src.modules.inventory.infrastructure.repositories import (
     WarehouseRepository,
 )
 from src.modules.notifications.infrastructure.repositories import NotificationRepository
+
+SIX_DP = Decimal("0.000001")
 
 
 def get_valuation_strategy(valuation_method: str) -> IValuationStrategy:
@@ -129,12 +131,43 @@ class InventoryValuationService:
             )
             await self.layer_repo.add(layer)
         else:
-            # Moving average recompute: (old_qty*old_avg + new_qty*new_cost) / (old_qty+new_qty)
+            # Moving average recompute: (old_qty*old_avg + new_qty*new_cost) / (old_qty+new_qty).
+            #
+            # The guard here MUST be `!= 0`, not `> 0`. Algebraically,
+            # new_total_qty * moving_avg_cost == old_qty*old_avg +
+            # qty*unit_cost for ANY new_total_qty != 0 -- i.e. the running
+            # "total value" (qty * avg_cost) always conserves exactly the
+            # cumulative net value of every receipt, no matter the sign of
+            # qty_on_hand. An `> 0` guard breaks that conservation law
+            # whenever a receipt arrives while the position is still
+            # negative afterward (a product oversold via FR-INV-007's
+            # allow_negative path, still not fully replenished): qty_on_hand
+            # keeps moving toward zero as intended, but the receipt's VALUE
+            # is silently dropped from moving_avg_cost forever, since the
+            # `if` body never runs. Found live on a real company: a product
+            # driven to -25,000 units by five large vendor returns, then
+            # partially replenished by a further receipt that still left it
+            # at -24,000 -- that last receipt's entire value vanished from
+            # the valuation report while the GL (which always posts a
+            # receipt's true value regardless of the resulting quantity)
+            # correctly kept it, producing a real, silent, growing gap
+            # between Inventory Valuation and the Trial Balance. `!= 0`
+            # only skips the division at the single genuinely undefined
+            # point (new_total_qty exactly zero, where the resulting value
+            # is 0 regardless of what average is stored, so nothing is
+            # lost by leaving the stale average in place until the next
+            # receipt overwrites it).
+            #
+            # Quantized to SIX_DP explicitly (not left to the column's
+            # implicit truncation) because this is an ITERATIVE recompute —
+            # each result becomes the next receipt's own input, so any
+            # per-step rounding error would otherwise compound across a
+            # product's whole receiving history.
             new_total_qty = quant.qty_on_hand + qty
-            if new_total_qty > 0:
+            if new_total_qty != 0:
                 quant.moving_avg_cost = (
-                    (quant.qty_on_hand * quant.moving_avg_cost) + (qty * unit_cost)
-                ) / new_total_qty
+                    ((quant.qty_on_hand * quant.moving_avg_cost) + (qty * unit_cost)) / new_total_qty
+                ).quantize(SIX_DP, rounding=ROUND_HALF_UP)
 
         quant.qty_on_hand += qty
 

@@ -106,3 +106,11 @@ class InventoryValuationRowOut(BaseModel):
     qty_on_hand: Decimal
     unit_cost: Decimal
     total_value: Decimal
+
+
+class InventoryReconciliationOut(BaseModel):
+    gl_balance: Decimal
+    valuation_total: Decimal
+    difference: Decimal
+    tolerance: Decimal
+    matched: bool

@@ -74,7 +74,7 @@ async def test_receive_stock_and_query_quant(client):
     quants = quants_resp.json()
     assert len(quants) == 1
     assert quants[0]["qty_on_hand"] == "50.000000"
-    assert quants[0]["moving_avg_cost"] == "10.0000"
+    assert quants[0]["moving_avg_cost"] == "10.000000"
 
 
 async def test_creating_second_default_warehouse_clears_previous_default(client):

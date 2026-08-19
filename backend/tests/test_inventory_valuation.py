@@ -152,6 +152,29 @@ async def test_requires_permission(client):
     assert resp.status_code == 401
 
 
+async def test_reconciliation_matches_gl_after_a_real_receipt(client):
+    """Owner-reported finding (شركة المحمود, 2026-08-19): confirms the new
+    /inventory-reconciliation endpoint independently computes both sides
+    and reports MATCHED for the ordinary case -- a receipt's GL posting
+    (Dr Inventory / Cr GRNI, via the goods-receipt flow) and its
+    valuation-report value must agree."""
+    _, headers = await _bootstrap_and_login(client, valuation_method="average")
+    await _receive_stock(client, headers, qty="100", unit_price="20.00")
+
+    resp = await client.get("/api/v1/reporting/inventory-reconciliation", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["gl_balance"] == "2000.0000"
+    assert body["valuation_total"] == "2000.0000"
+    assert body["difference"] == "0.0000"
+    assert body["matched"] is True
+
+
+async def test_reconciliation_requires_permission(client):
+    resp = await client.get("/api/v1/reporting/inventory-reconciliation")
+    assert resp.status_code == 401
+
+
 async def test_no_stock_returns_empty_not_error(client):
     _, headers = await _bootstrap_and_login(client, valuation_method="average")
     resp = await client.get("/api/v1/reporting/inventory-valuation", headers=headers)

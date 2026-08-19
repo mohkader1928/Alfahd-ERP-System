@@ -87,7 +87,12 @@ class StockQuant(Base):
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     location_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("location.id"), nullable=False)
     qty_on_hand: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False, server_default=text("0"))
-    moving_avg_cost: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default=text("0"))
+    # NUMERIC(18,6), not (18,4): this is an ITERATIVELY recomputed running
+    # average (receive_stock), not a one-off transaction cost — per-step
+    # rounding at only 4dp compounds across a product's whole receiving
+    # history into a material GL-vs-valuation gap. See receive_stock's
+    # own comment for the real-company incident that found this.
+    moving_avg_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False, server_default=text("0"))
 
     __table_args__ = (UniqueConstraint("product_id", "location_id", name="ux_stock_quant_product_location"),)
 

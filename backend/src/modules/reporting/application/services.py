@@ -770,6 +770,25 @@ class InventoryValuationRow:
     total_value: Decimal
 
 
+@dataclass(frozen=True)
+class InventoryReconciliationResult:
+    gl_balance: Decimal
+    valuation_total: Decimal
+    difference: Decimal
+    tolerance: Decimal
+    matched: bool
+
+
+# Same subtree-walking convention as every other "the real account might be
+# split into children by now" balance lookup in this codebase.
+ACCOUNT_CODE_INVENTORY = "1300"
+# Small, fixed, and explicit rather than proportional -- large enough to
+# absorb genuinely unavoidable sub-cent rounding, never large enough to
+# mask a real gap. Never used to force a MATCHED status; only to decide
+# which label to show.
+INVENTORY_RECONCILIATION_TOLERANCE = Decimal("1.00")
+
+
 class InventoryValuationReportService:
     """Product Owner audit — "what is my stock worth right now?" is a
     standard report in every reference ERP and was entirely absent here,
@@ -806,8 +825,12 @@ class InventoryValuationReportService:
     this codebase.
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, journal_entry_repo: JournalEntryRepository | None = None):
         self.session = session
+        # Optional so existing call sites/tests building this service
+        # without a journal_entry_repo (valuation() never needed one)
+        # keep working unchanged -- only get_reconciliation uses it.
+        self.journal_entry_repo = journal_entry_repo
 
     async def valuation(
         self, *, company_id: UUID, valuation_method: str, warehouse_id: UUID | None = None
@@ -875,3 +898,30 @@ class InventoryValuationReportService:
             )
         result.sort(key=lambda row: (row.warehouse_name, row.product_name))
         return result
+
+    async def get_reconciliation(self, *, company_id: UUID, valuation_method: str) -> InventoryReconciliationResult:
+        """Ties Inventory Valuation to the GL it's supposed to be a
+        subledger of -- the same discipline already applied to Fixed
+        Assets (get_reconciliation) and AR/AP. Both totals are computed
+        independently: the GL side reads real posted journal_entry_line
+        rows for the Inventory (1300) subtree, exactly like Trial Balance
+        does; the register side is this service's own `valuation()`,
+        unchanged. Never adjusts either number to force a match -- a real
+        gap is shown as a real gap, not hidden."""
+        assert self.journal_entry_repo is not None
+        rows = await self.valuation(company_id=company_id, valuation_method=valuation_method)
+        valuation_total = sum((r.total_value for r in rows), Decimal("0"))
+        # account_balance_by_root_code filters entry_date <= as_of_date
+        # (inclusive already), unlike account_balance_by_id's exclusive
+        # cutoff -- no +1 day adjustment needed here.
+        gl_balance = await self.journal_entry_repo.account_balance_by_root_code(
+            company_id, ACCOUNT_CODE_INVENTORY, date.today()
+        )
+        difference = valuation_total - gl_balance
+        return InventoryReconciliationResult(
+            gl_balance=gl_balance,
+            valuation_total=valuation_total,
+            difference=difference,
+            tolerance=INVENTORY_RECONCILIATION_TOLERANCE,
+            matched=abs(difference) <= INVENTORY_RECONCILIATION_TOLERANCE,
+        )

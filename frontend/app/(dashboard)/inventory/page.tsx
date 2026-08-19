@@ -970,6 +970,50 @@ function ValuationTab() {
   );
 }
 
+function InventoryReconciliationTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const reconQuery = useQuery({
+    queryKey: ["inventory-reconciliation", companyId],
+    queryFn: () => reportingApi.inventoryReconciliation(companyId),
+  });
+  const r = reconQuery.data;
+
+  return (
+    <ReportView
+      title={t("inventory.reconciliation.title")}
+      isLoading={reconQuery.isLoading}
+      isError={reconQuery.isError}
+      errorMessage={reconQuery.error instanceof ApiError ? reconQuery.error.detail : undefined}
+      onRetry={() => reconQuery.refetch()}
+      kpis={
+        r
+          ? [
+              { label: t("inventory.reconciliation.gl_balance"), value: formatCurrency(r.gl_balance) },
+              { label: t("inventory.reconciliation.valuation_total"), value: formatCurrency(r.valuation_total) },
+              { label: t("inventory.reconciliation.difference"), value: formatCurrency(r.difference) },
+            ]
+          : undefined
+      }
+    >
+      {r && (
+        <>
+          <p className="mb-4 text-sm text-muted-foreground">{t("inventory.reconciliation.hint")}</p>
+          <div className="flex items-center gap-3">
+            <Badge variant={r.matched ? "default" : "destructive"} className="text-sm">
+              {r.matched ? t("inventory.reconciliation.matched") : t("inventory.reconciliation.mismatched")}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {t("inventory.reconciliation.tolerance")}: {formatCurrency(r.tolerance)}
+            </span>
+          </div>
+        </>
+      )}
+    </ReportView>
+  );
+}
+
 export default function InventoryPage() {
   const searchParams = useSearchParams();
   // See the same note in accounting/page.tsx — Base UI's Tabs.Panel doesn't
@@ -998,6 +1042,7 @@ export default function InventoryPage() {
       {tab === "cycle-counts" && <CycleCountsTab />}
       {tab === "cardex" && <CardexTab />}
       {tab === "valuation" && <ValuationTab />}
+      {tab === "inventory-reconciliation" && <InventoryReconciliationTab />}
       {tab === "low-stock" && <LowStockTab />}
     </div>
   );
