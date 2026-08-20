@@ -810,7 +810,7 @@ class VendorBillService:
             raise ValueError("Debit notes can only be issued against a posted vendor bill")
 
         original_lines = await self.bill_repo.get_lines(original_bill_id)
-        number = await self.bill_repo.next_number(company_id)
+        number = await self.bill_repo.next_number(company_id, bill_type="debit_note")
 
         debit_note_lines = [
             VendorBillLine(
@@ -927,7 +927,7 @@ class VendorBillService:
             if original.partner_id != partner_id:
                 raise ValueError("The original vendor bill does not belong to this vendor")
 
-        number = await self.bill_repo.next_number(company_id)
+        number = await self.bill_repo.next_number(company_id, bill_type="debit_note")
         subtotal = Decimal("0")
         tax_total = Decimal("0")
         debit_note_lines: list[VendorBillLine] = []

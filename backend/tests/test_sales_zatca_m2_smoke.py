@@ -206,6 +206,36 @@ async def test_credit_note_reverses_the_original_invoice_journal_entry(client):
     assert rows["1200"]["total_debit"] == rows["1200"]["total_credit"] == "2300.0000"
 
 
+async def test_credit_note_gets_its_own_cn_series_not_inv(client):
+    """Owner request: a Sales Return must read as its own document type,
+    not just another invoice interleaved in the INV- series."""
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    order_id = await _create_quotation_and_confirm(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+    invoice_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    invoice = invoice_resp.json()["invoice"]
+    assert invoice["number"] == "INV-000001"
+    invoice_id = invoice["id"]
+
+    credit_resp = await client.post(
+        f"/api/v1/sales/invoices/{invoice_id}:credit-note", headers=headers, json={"reason": "Damaged goods"}
+    )
+    assert credit_resp.json()["invoice"]["number"] == "CN-000001"
+
+    # A second regular invoice continues the INV- series unaffected by the
+    # credit note that happened in between (no shared/interleaved counter).
+    order2_id = await _create_quotation_and_confirm(
+        client, headers, partner_id=partner_id, product_id=product_id, tax_rate_id=tax_rate_id
+    )
+    invoice2_resp = await client.post(f"/api/v1/sales/orders/{order2_id}:invoice", headers=headers)
+    assert invoice2_resp.json()["invoice"]["number"] == "INV-000002"
+
+
 async def test_credit_note_carries_warehouse_from_original_invoice(client):
     """Owner request: the warehouse a document's goods relate to must be
     visible on the document itself. A credit note reverses a posted

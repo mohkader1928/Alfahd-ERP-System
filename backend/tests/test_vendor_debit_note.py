@@ -97,6 +97,51 @@ async def _create_posted_bill(client, headers) -> tuple[str, str]:
     return bill_id, vendor_id
 
 
+async def test_debit_note_gets_its_own_dn_series_not_bill(client):
+    """Owner request: a Purchase Return must read as its own document type,
+    not just another bill interleaved in the BILL- series."""
+    _, headers = await _bootstrap_and_login(client)
+    bill_id, vendor_id = await _create_posted_bill(client, headers)
+    # _create_posted_bill's own receipt already auto-registers one standard
+    # bill before its explicit POST /vendor-bills call adds a second -- so
+    # don't assume BILL-000001 here, just capture whatever standard number
+    # this flow actually lands on as the baseline for the assertion below.
+    bill_number = (await client.get(f"/api/v1/purchasing/vendor-bills/{bill_id}", headers=headers)).json()["bill"][
+        "number"
+    ]
+    assert bill_number.startswith("BILL-")
+    bill_seq = int(bill_number.split("-")[1])
+
+    debit_note_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}:debit-note",
+        headers=headers,
+        json={"reason": "Damaged goods", "restock": False},
+    )
+    assert debit_note_resp.json()["number"] == "DN-000001"
+
+    # A second standard bill continues the BILL- series unaffected by the
+    # debit note that happened in between (no shared/interleaved counter).
+    product_id = await _create_product(client, headers)
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [{"product_id": product_id, "qty": "1", "unit_price": "10.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_line_id = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()["lines"][0]["id"]
+    bill2_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "1", "unit_price": "10.00"}]},
+    )
+    assert bill2_resp.json()["number"] == f"BILL-{bill_seq + 1:06d}"
+
+
 async def test_debit_note_reverses_the_original_bill_journal_entry(client):
     _, headers = await _bootstrap_and_login(client)
     bill_id, _ = await _create_posted_bill(client, headers)

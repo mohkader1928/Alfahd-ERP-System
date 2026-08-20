@@ -167,10 +167,43 @@ class SalesInvoiceRepository:
         )
         return list(result.scalars().all())
 
-    async def next_number(self, company_id: UUID) -> str:
-        result = await self.session.execute(select(func.count()).where(SalesInvoice.company_id == company_id))
-        count = result.scalar_one()
-        return f"INV-{count + 1:06d}"
+    async def next_number(self, company_id: UUID, invoice_type: str = "tax") -> str:
+        """Owner request: a Sales Return must read as its own document type,
+        not just another invoice interleaved in the same series -- mirrors
+        the precedent already set for Payments (RCT-/PAY-, scoped by
+        payment_type). A credit note gets its own CN- prefix; tax and
+        simplified invoices keep sharing one INV- prefix exactly as before.
+
+        MUST be based on the highest existing NUMBER actually carrying this
+        prefix, not a COUNT of same-type rows: every real company already
+        has years of tax/simplified invoices and credit notes interleaved
+        in one shared INV- sequence from before this change existed (e.g.
+        INV-000079 already a 'tax' row alongside INV-000078/080 already
+        'credit_note' rows). A same-type COUNT can land on a smaller number
+        than the highest INV- number actually in use and collide with an
+        already-issued one -- caught live: company_id
+        fd009389-7c82-4cf3-95f8-515eca882894 hit exactly this on
+        INV-000079. Scanning existing INV-prefixed numbers for their real
+        max (regardless of which type originally claimed them) can never
+        re-issue one that's taken, for old interleaved data or new
+        type-separated data alike."""
+        if invoice_type == "credit_note":
+            prefix = "CN"
+        elif invoice_type == "debit_note":
+            prefix = "DN"
+        else:
+            prefix = "INV"
+        result = await self.session.execute(
+            select(SalesInvoice.number).where(
+                SalesInvoice.company_id == company_id, SalesInvoice.number.like(f"{prefix}-%")
+            )
+        )
+        max_seq = 0
+        for (number,) in result.all():
+            suffix = number.split("-", 1)[1] if "-" in number else ""
+            if suffix.isdigit():
+                max_seq = max(max_seq, int(suffix))
+        return f"{prefix}-{max_seq + 1:06d}"
 
     async def latest_zatca_submission_for_company(self, company_id: UUID) -> ZatcaSubmission | None:
         """Tail of the hash chain (Phase 7 §4 note) — the whole point of the

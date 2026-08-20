@@ -756,7 +756,7 @@ class SalesInvoiceService:
             raise ValueError("Customer not found")
 
         submission_mode = "clearance" if original.invoice_type == "tax" else "reporting"
-        number = await self.invoice_repo.next_number(company_id)
+        number = await self.invoice_repo.next_number(company_id, invoice_type="credit_note")
 
         credit_lines = [
             SalesInvoiceLine(
@@ -865,7 +865,7 @@ class SalesInvoiceService:
         # no single original invoice to inherit invoice_type/submission_mode
         # from here.
         submission_mode = "clearance" if partner.vat_number else "reporting"
-        number = await self.invoice_repo.next_number(company_id)
+        number = await self.invoice_repo.next_number(company_id, invoice_type="credit_note")
 
         subtotal = Decimal("0")
         tax_total = Decimal("0")

@@ -206,10 +206,32 @@ class VendorBillRepository:
             self.session.add(line)
         await self.session.flush()
 
-    async def next_number(self, company_id: UUID) -> str:
-        result = await self.session.execute(select(func.count()).where(VendorBill.company_id == company_id))
-        count = result.scalar_one()
-        return f"BILL-{count + 1:06d}"
+    async def next_number(self, company_id: UUID, bill_type: str = "standard") -> str:
+        """Owner request: a Purchase Return must read as its own document
+        type, not just another bill interleaved in the same series --
+        mirrors the precedent already set for Payments (RCT-/PAY-, scoped
+        by payment_type). A debit note gets its own DN- prefix; standard
+        bills keep the BILL- prefix exactly as before.
+
+        MUST be based on the highest existing NUMBER actually carrying
+        this prefix, not a COUNT of same-type rows -- see
+        SalesInvoiceRepository.next_number's docstring for the exact live
+        collision (INV-000079) this same COUNT-based approach caused on a
+        real company's interleaved historical data. Scanning existing
+        BILL-prefixed numbers for their real max can never re-issue one
+        that's already taken."""
+        prefix = "DN" if bill_type == "debit_note" else "BILL"
+        result = await self.session.execute(
+            select(VendorBill.number).where(
+                VendorBill.company_id == company_id, VendorBill.number.like(f"{prefix}-%")
+            )
+        )
+        max_seq = 0
+        for (number,) in result.all():
+            suffix = number.split("-", 1)[1] if "-" in number else ""
+            if suffix.isdigit():
+                max_seq = max(max_seq, int(suffix))
+        return f"{prefix}-{max_seq + 1:06d}"
 
     async def list_by_company(self, company_id: UUID, *, partner_id: UUID | None = None) -> list[VendorBill]:
         query = select(VendorBill).where(VendorBill.company_id == company_id)
