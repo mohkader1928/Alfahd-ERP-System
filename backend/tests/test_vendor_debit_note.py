@@ -410,3 +410,113 @@ async def test_freeform_debit_note_restocks_via_valuation_engine_cost(client):
     return_moves = [m for m in moves if m["move_type"] == "return"]
     assert len(return_moves) == 1
     assert return_moves[0]["qty"] == "5.000000"
+
+
+async def test_standard_bill_carries_warehouse_from_purchase_order(client):
+    """Owner request: the warehouse a bill's goods relate to must be
+    visible on the document itself, not require tracing back through the
+    PO. register_bill copies it straight from the order it was raised
+    against."""
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    warehouse_id = wh_resp.json()["warehouse"]["id"]
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "warehouse_id": warehouse_id,
+            "lines": [{"product_id": product_id, "qty": "10", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_line_id = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()["lines"][0]["id"]
+
+    bill_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "10", "unit_price": "20.00"}]},
+    )
+    assert bill_resp.status_code == 201, bill_resp.text
+    assert bill_resp.json()["warehouse_id"] == warehouse_id
+
+
+async def test_debit_note_carries_warehouse_from_original_bill(client):
+    """issue_debit_note reverses a posted bill -- its own warehouse_id
+    must carry forward too, the same way purchase_order_id already does."""
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    warehouse_id = wh_resp.json()["warehouse"]["id"]
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "warehouse_id": warehouse_id,
+            "lines": [{"product_id": product_id, "qty": "10", "unit_price": "20.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_line_id = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()["lines"][0]["id"]
+    await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "10"}]},
+    )
+    bill_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "10", "unit_price": "20.00"}]},
+    )
+    bill_id = bill_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/vendor-bills/{bill_id}:approve", headers=headers)
+
+    debit_note_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill_id}:debit-note",
+        headers=headers,
+        json={"reason": "Damaged goods", "restock": False},
+    )
+    assert debit_note_resp.status_code == 201, debit_note_resp.text
+    assert debit_note_resp.json()["warehouse_id"] == warehouse_id
+
+
+async def test_freeform_debit_note_carries_default_warehouse_when_no_original(client):
+    """issue_debit_note_for_lines has no PO/bill to copy a warehouse from
+    -- it must still fall back to the company default rather than leaving
+    the document with no warehouse of record at all."""
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    warehouse_id = wh_resp.json()["warehouse"]["id"]
+
+    resp = await client.post(
+        "/api/v1/purchasing/vendor-bills:return",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "reason": "Freeform return, no original bill",
+            "restock": False,
+            "lines": [
+                {"product_id": product_id, "qty": "5", "unit_price": "30.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}
+            ],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["warehouse_id"] == warehouse_id

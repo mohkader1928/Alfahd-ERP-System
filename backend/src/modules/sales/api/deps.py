@@ -90,6 +90,7 @@ async def get_quotation_service(
         seller_name=company.legal_name,
         seller_name_ar=company.legal_name_ar,
         seller_logo_path=company.logo_path,
+        warehouse_repo=WarehouseRepository(db),
     )
 
 

@@ -53,6 +53,7 @@ class InvoiceDocument:
     partner_name: str
     partner_vat_number: str | None
     qr_payload: str | None
+    warehouse_name: str | None = None
     lang: str = "ar"
 
 
@@ -85,6 +86,7 @@ _LABELS = {
         "invoice_no": "رقم الفاتورة",
         "invoice_date": "تاريخ الفاتورة",
         "due_date": "تاريخ الاستحقاق",
+        "warehouse": "المستودع",
         "bill_to": "فاتورة إلى",
         "vat_number": "الرقم الضريبي",
         "description": "الوصف",
@@ -101,6 +103,7 @@ _LABELS = {
         "invoice_no": "Invoice No.",
         "invoice_date": "Invoice Date",
         "due_date": "Due Date",
+        "warehouse": "Warehouse",
         "bill_to": "Bill To",
         "vat_number": "VAT Number",
         "description": "Description",
@@ -181,6 +184,7 @@ def render_invoice_pdf(doc: InvoiceDocument) -> bytes:
     <div><dt>{h(labels["invoice_no"])}:</dt><dd>{h(doc.number)}</dd></div>
     <div><dt>{h(labels["invoice_date"])}:</dt><dd>{doc.invoice_date.isoformat()}</dd></div>
     {f'<div><dt>{h(labels["due_date"])}:</dt><dd>{doc.due_date.isoformat()}</dd></div>' if doc.due_date else ""}
+    {f'<div><dt>{h(labels["warehouse"])}:</dt><dd>{h(doc.warehouse_name)}</dd></div>' if doc.warehouse_name else ""}
   </div>
   <div class="bill-to">
     <p class="label">{h(labels["bill_to"])}</p>

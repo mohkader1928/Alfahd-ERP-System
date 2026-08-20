@@ -75,6 +75,7 @@ class QuotationService:
         seller_name: str,
         seller_name_ar: str | None = None,
         seller_logo_path: str | None = None,
+        warehouse_repo: WarehouseRepository | None = None,
     ):
         self.quotation_repo = quotation_repo
         self.order_repo = order_repo
@@ -83,6 +84,7 @@ class QuotationService:
         self.seller_name = seller_name
         self.seller_name_ar = seller_name_ar
         self.seller_logo_path = seller_logo_path
+        self.warehouse_repo = warehouse_repo
 
     async def create_quotation(
         self,
@@ -308,6 +310,10 @@ class QuotationService:
             raise ValueError("Quotation not found")
         lines = await self.quotation_repo.get_lines(quotation_id)
         partner = await self.partner_repo.get_by_id(quotation.partner_id, include_archived=True)
+        warehouse_name = None
+        if quotation.warehouse_id is not None and self.warehouse_repo is not None:
+            warehouse = await self.warehouse_repo.get_by_id(quotation.warehouse_id)
+            warehouse_name = warehouse.name if warehouse else None
 
         line_rows = []
         for line in lines:
@@ -332,6 +338,7 @@ class QuotationService:
             company_logo_path=self.seller_logo_path,
             partner_name=partner.name if partner else "",
             payment_terms=quotation.payment_terms,
+            warehouse_name=warehouse_name,
             lang=lang,
         )
         return render_quotation_pdf(doc)
@@ -784,6 +791,7 @@ class SalesInvoiceService:
             branch_id=branch_id,
             partner_id=original.partner_id,
             original_invoice_id=original.id,
+            warehouse_id=original.warehouse_id,
             invoice_type="credit_note",
             number=number,
             status="draft",
@@ -896,12 +904,24 @@ class SalesInvoiceService:
                 )
             )
 
+        # Owner request: even a freeform return (no original invoice) must
+        # carry a warehouse of record on the document itself. Prefer the
+        # referenced original invoice's own warehouse when traceable (most
+        # precise); otherwise fall back to the company default -- the same
+        # warehouse _restock_for_credit_note_lines will actually move
+        # stock back into a few lines below.
+        warehouse_id = original.warehouse_id if original is not None else None
+        if warehouse_id is None and self.warehouse_repo is not None:
+            default_warehouse = await self.warehouse_repo.get_default_for_company(company_id)
+            warehouse_id = default_warehouse.id if default_warehouse is not None else None
+
         credit_note = SalesInvoice(
             id=uuid.uuid4(),
             company_id=company_id,
             branch_id=branch_id,
             partner_id=partner_id,
             original_invoice_id=original.id if original is not None else None,
+            warehouse_id=warehouse_id,
             invoice_type="credit_note",
             number=number,
             status="draft",
@@ -1234,6 +1254,10 @@ class SalesInvoiceService:
         lines = await self.invoice_repo.get_lines(invoice_id)
         partner = await self.partner_repo.get_by_id(invoice.partner_id, include_archived=True)
         submission = await self.zatca_submission_repo.get_by_invoice_id(invoice_id)
+        warehouse_name = None
+        if invoice.warehouse_id is not None and self.warehouse_repo is not None:
+            warehouse = await self.warehouse_repo.get_by_id(invoice.warehouse_id)
+            warehouse_name = warehouse.name if warehouse else None
 
         doc = InvoiceDocument(
             number=invoice.number,
@@ -1261,6 +1285,7 @@ class SalesInvoiceService:
             partner_name=partner.name if partner else "",
             partner_vat_number=partner.vat_number if partner else None,
             qr_payload=submission.qr_payload if submission else None,
+            warehouse_name=warehouse_name,
             lang=lang,
         )
         return render_invoice_pdf(doc)

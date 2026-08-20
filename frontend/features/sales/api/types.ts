@@ -95,6 +95,7 @@ export interface SalesInvoice {
   subtotal_amount: string;
   tax_amount: string;
   total_amount: string;
+  warehouse_id: string | null;
   cost_center_id: string | null;
   journal_entry_id: string | null;
   last_emailed_at: string | null;

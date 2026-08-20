@@ -17,6 +17,7 @@ import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
+import { inventoryApi } from "@/features/inventory/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError, friendlyApiErrorMessage } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
@@ -42,6 +43,10 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
   const productsQuery = useQuery({
     queryKey: ["products", companyId],
     queryFn: () => identityApi.listProducts(companyId, branchId),
+  });
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", companyId],
+    queryFn: () => inventoryApi.listWarehouses(companyId),
   });
 
   const confirmMutation = useMutation({
@@ -124,6 +129,12 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <dt className="text-muted-foreground">{t("sales.quotations.date")}</dt>
             <dd>{quotation.quote_date}</dd>
+            <dt className="text-muted-foreground">{t("inventory.stock.warehouse")}</dt>
+            <dd>
+              {warehousesQuery.data?.find((w) => w.id === quotation.warehouse_id)?.name ??
+                quotation.warehouse_id ??
+                "—"}
+            </dd>
             <dt className="text-muted-foreground">{t("sales.quotations.total")}</dt>
             <dd>{formatCurrency(quotation.total_amount)}</dd>
           </dl>

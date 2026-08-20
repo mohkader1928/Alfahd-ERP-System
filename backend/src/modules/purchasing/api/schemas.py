@@ -133,6 +133,7 @@ class VendorBillOut(BaseModel):
     company_id: UUID
     partner_id: UUID
     purchase_order_id: UUID | None
+    warehouse_id: UUID | None
     number: str
     vendor_reference: str | None
     status: str

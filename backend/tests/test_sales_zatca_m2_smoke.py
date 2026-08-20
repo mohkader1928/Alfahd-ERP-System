@@ -206,6 +206,78 @@ async def test_credit_note_reverses_the_original_invoice_journal_entry(client):
     assert rows["1200"]["total_debit"] == rows["1200"]["total_credit"] == "2300.0000"
 
 
+async def test_credit_note_carries_warehouse_from_original_invoice(client):
+    """Owner request: the warehouse a document's goods relate to must be
+    visible on the document itself. A credit note reverses a posted
+    invoice -- its warehouse_id must carry forward too."""
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    warehouse_id = wh_resp.json()["warehouse"]["id"]
+    location_id = wh_resp.json()["default_location"]["id"]
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "2", "unit_cost": "400.00"},
+    )
+
+    quote_resp = await client.post(
+        "/api/v1/sales/quotations",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "quote_date": "2026-03-01",
+            "warehouse_id": warehouse_id,
+            "lines": [{"product_id": product_id, "qty": "2", "unit_price": "1000.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    quotation_id = quote_resp.json()["id"]
+    order_id = (await client.post(f"/api/v1/sales/quotations/{quotation_id}:confirm", headers=headers)).json()["id"]
+    invoice_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    assert invoice_resp.status_code == 201, invoice_resp.text
+    invoice_id = invoice_resp.json()["invoice"]["id"]
+    assert invoice_resp.json()["invoice"]["warehouse_id"] == warehouse_id
+
+    credit_resp = await client.post(
+        f"/api/v1/sales/invoices/{invoice_id}:credit-note", headers=headers, json={"reason": "Damaged goods"}
+    )
+    assert credit_resp.status_code == 201, credit_resp.text
+    assert credit_resp.json()["invoice"]["warehouse_id"] == warehouse_id
+
+
+async def test_freeform_credit_note_carries_default_warehouse_when_no_original(client):
+    """issue_credit_note_for_lines has no original invoice to copy a
+    warehouse from -- it must still fall back to the company default
+    rather than leaving the document with no warehouse of record."""
+    _, headers = await _bootstrap_and_login(client)
+    partner_id = await _create_partner(client, headers, is_b2b=True)
+    product_id = await _create_product(client, headers)
+    tax_rate_id = await _get_tax_rate_id(client, headers)
+
+    wh_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Main", "is_default": True}
+    )
+    warehouse_id = wh_resp.json()["warehouse"]["id"]
+
+    resp = await client.post(
+        "/api/v1/sales/invoices:return",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "reason": "Freeform return, no original invoice",
+            "restock": False,
+            "lines": [{"product_id": product_id, "qty": "1", "unit_price": "500.00", "tax_rate_id": tax_rate_id}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["invoice"]["warehouse_id"] == warehouse_id
+
+
 # --- P0-9: Sales Return (credit note + restock) ---------------------------
 
 

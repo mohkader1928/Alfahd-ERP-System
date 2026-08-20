@@ -625,6 +625,7 @@ class VendorBillService:
             branch_id=branch_id,
             partner_id=order.partner_id,
             purchase_order_id=order.id,
+            warehouse_id=order.warehouse_id,
             number=number,
             vendor_reference=vendor_reference,
             status=status,
@@ -833,6 +834,7 @@ class VendorBillService:
             branch_id=branch_id,
             partner_id=original.partner_id,
             purchase_order_id=original.purchase_order_id,
+            warehouse_id=original.warehouse_id,
             original_bill_id=original.id,
             bill_type="debit_note",
             number=number,
@@ -951,12 +953,24 @@ class VendorBillService:
                 )
             )
 
+        # Owner request: even a freeform return (no PO) must carry a
+        # warehouse of record on the document itself. Prefer the
+        # referenced original bill's own warehouse when traceable (most
+        # precise); otherwise fall back to the company default -- the
+        # same warehouse _restock_for_debit_note will actually move stock
+        # out of a few lines below.
+        warehouse_id = original.warehouse_id if original is not None else None
+        if warehouse_id is None and self.warehouse_repo is not None:
+            default_warehouse = await self.warehouse_repo.get_default_for_company(company_id)
+            warehouse_id = default_warehouse.id if default_warehouse is not None else None
+
         debit_note = VendorBill(
             id=uuid.uuid4(),
             company_id=company_id,
             branch_id=branch_id,
             partner_id=partner_id,
             purchase_order_id=None,
+            warehouse_id=warehouse_id,
             original_bill_id=original.id if original is not None else None,
             bill_type="debit_note",
             number=number,

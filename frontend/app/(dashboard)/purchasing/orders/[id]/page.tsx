@@ -18,6 +18,7 @@ import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
+import { inventoryApi } from "@/features/inventory/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
@@ -45,6 +46,10 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
   const productsQuery = useQuery({
     queryKey: ["products", companyId],
     queryFn: () => identityApi.listProducts(companyId, branchId),
+  });
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", companyId],
+    queryFn: () => inventoryApi.listWarehouses(companyId),
   });
 
   const invalidate = () => {
@@ -189,6 +194,10 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <dt className="text-muted-foreground">{t("purchasing.orders.date")}</dt>
             <dd>{order.order_date}</dd>
+            <dt className="text-muted-foreground">{t("inventory.stock.warehouse")}</dt>
+            <dd>
+              {warehousesQuery.data?.find((w) => w.id === order.warehouse_id)?.name ?? order.warehouse_id ?? "—"}
+            </dd>
             <dt className="text-muted-foreground">{t("purchasing.orders.total")}</dt>
             <dd>{formatCurrency(order.total_amount)}</dd>
           </dl>

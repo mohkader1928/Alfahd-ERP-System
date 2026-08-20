@@ -140,6 +140,15 @@ class VendorBill(Base):
     purchase_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("purchase_order.id"), nullable=True
     )
+    # Owner request: the warehouse keeper, accountant, and auditor all need
+    # to see which warehouse a bill's goods relate to on the document
+    # itself, not have to trace back through the PO. Nullable: a freeform
+    # Purchase Return with no original bill and no PO has no PO to copy it
+    # from either -- resolved at creation the same way the module already
+    # resolves one for restocking (see register_bill / _restock_for_debit_note).
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("warehouse.id"), nullable=True
+    )
     number: Mapped[str] = mapped_column(Text, nullable=False)
     vendor_reference: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")

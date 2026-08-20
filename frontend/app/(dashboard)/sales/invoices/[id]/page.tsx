@@ -17,6 +17,7 @@ import { Can } from "@/components/erp/permissions/can";
 import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { inventoryApi } from "@/features/inventory/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError, friendlyApiErrorMessage } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
@@ -40,6 +41,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const { data, isLoading } = useQuery({
     queryKey: ["invoice", companyId, id],
     queryFn: () => salesApi.getInvoice(companyId, id),
+  });
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", companyId],
+    queryFn: () => inventoryApi.listWarehouses(companyId),
   });
 
   const creditNoteMutation = useMutation({
@@ -136,6 +141,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             <dd className="capitalize">{invoice.invoice_type.replace("_", " ")}</dd>
             <dt className="text-muted-foreground">{t("sales.invoice.date")}</dt>
             <dd>{formatDate(invoice.invoice_date, locale)}</dd>
+            <dt className="text-muted-foreground">{t("inventory.stock.warehouse")}</dt>
+            <dd>
+              {warehousesQuery.data?.find((w) => w.id === invoice.warehouse_id)?.name ?? invoice.warehouse_id ?? "—"}
+            </dd>
             {invoice.sales_order_id && (
               <>
                 <dt className="text-muted-foreground">{t("sales.invoice.from_order")}</dt>

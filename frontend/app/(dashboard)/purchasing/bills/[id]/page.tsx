@@ -15,6 +15,7 @@ import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
+import { inventoryApi } from "@/features/inventory/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
@@ -49,6 +50,10 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
   const vendorsQuery = useQuery({
     queryKey: ["partners", companyId, "vendors"],
     queryFn: () => identityApi.listPartners(companyId, branchId, { vendorsOnly: true }),
+  });
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", companyId],
+    queryFn: () => inventoryApi.listWarehouses(companyId),
   });
 
   const approveMutation = useMutation({
@@ -143,6 +148,10 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
             <dd>{vendorLabel}</dd>
             <dt className="text-muted-foreground">{t("purchasing.orders.date")}</dt>
             <dd>{formatDate(bill.bill_date, locale)}</dd>
+            <dt className="text-muted-foreground">{t("inventory.stock.warehouse")}</dt>
+            <dd>
+              {warehousesQuery.data?.find((w) => w.id === bill.warehouse_id)?.name ?? bill.warehouse_id ?? "—"}
+            </dd>
             {!isEditing && bill.vendor_reference && (
               <>
                 <dt className="text-muted-foreground">{t("purchasing.vendor_bills.vendor_reference")}</dt>

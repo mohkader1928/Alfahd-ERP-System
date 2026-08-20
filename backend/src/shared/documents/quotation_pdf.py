@@ -41,6 +41,7 @@ class QuotationDocument:
     company_logo_path: str | None
     partner_name: str
     payment_terms: str | None
+    warehouse_name: str | None = None
     lang: str = "ar"
 
 
@@ -62,6 +63,7 @@ _LABELS = {
     "ar": {
         "quote_no": "رقم عرض السعر",
         "quote_date": "التاريخ",
+        "warehouse": "المستودع",
         "to": "إلى",
         "product": "الصنف",
         "qty": "الكمية",
@@ -73,6 +75,7 @@ _LABELS = {
     "en": {
         "quote_no": "Quotation No.",
         "quote_date": "Date",
+        "warehouse": "Warehouse",
         "to": "To",
         "product": "Product",
         "qty": "Qty",
@@ -149,6 +152,7 @@ def render_quotation_pdf(doc: QuotationDocument) -> bytes:
   <div class="meta">
     <div><dt>{h(labels["quote_no"])}:</dt><dd>{h(doc.number)}</dd></div>
     <div><dt>{h(labels["quote_date"])}:</dt><dd>{doc.quote_date.isoformat()}</dd></div>
+    {f'<div><dt>{h(labels["warehouse"])}:</dt><dd>{h(doc.warehouse_name)}</dd></div>' if doc.warehouse_name else ""}
   </div>
   <div class="bill-to">
     <p class="label">{h(labels["to"])}</p>

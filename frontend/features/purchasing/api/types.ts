@@ -50,6 +50,7 @@ export interface VendorBill {
   company_id: string;
   partner_id: string;
   purchase_order_id: string | null;
+  warehouse_id: string | null;
   number: string;
   vendor_reference: string | null;
   status: string;
