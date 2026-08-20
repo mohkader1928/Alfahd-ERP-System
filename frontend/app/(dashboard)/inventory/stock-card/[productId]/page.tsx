@@ -43,7 +43,13 @@ export default function StockCardPage({ params }: { params: Promise<{ productId:
       sortValue: (r) => r.moved_at,
       render: (r) => formatDate(r.moved_at, locale),
     },
-    { key: "move_type", header: t("inventory.moves.type"), render: (r) => <Badge variant="secondary">{r.move_type}</Badge> },
+    {
+      key: "move_type",
+      header: t("inventory.moves.type"),
+      sortable: true,
+      sortValue: (r) => r.move_type,
+      render: (r) => <Badge variant="secondary">{r.move_type}</Badge>,
+    },
     { key: "qty", header: t("inventory.moves.qty"), align: "end", sortable: true, sortValue: (r) => Number(r.qty), render: (r) => r.qty },
     {
       key: "unit_cost",
@@ -56,6 +62,11 @@ export default function StockCardPage({ params }: { params: Promise<{ productId:
     {
       key: "source",
       header: t("inventory.moves.source"),
+      sortable: true,
+      sortValue: (r) => {
+        const labelKey = sourceDocumentLabelKey(r.source_table);
+        return labelKey ? t(labelKey) : r.source_table;
+      },
       render: (r) => {
         const href = sourceDocumentHref(r.source_table, r.source_id);
         const labelKey = sourceDocumentLabelKey(r.source_table);

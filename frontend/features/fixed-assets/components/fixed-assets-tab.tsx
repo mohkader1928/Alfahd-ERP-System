@@ -234,6 +234,8 @@ export function FixedAssetsTab() {
     {
       key: "category",
       header: t("fixed_assets.category"),
+      sortable: true,
+      sortValue: (r) => categoriesQuery.data?.find((c) => c.id === r.category_id)?.name ?? "",
       render: (r) => categoriesQuery.data?.find((c) => c.id === r.category_id)?.name ?? "—",
     },
     {
@@ -243,22 +245,40 @@ export function FixedAssetsTab() {
       sortValue: (r) => r.acquisition_date,
       render: (r) => formatDate(r.acquisition_date, locale),
     },
-    { key: "cost", header: t("fixed_assets.cost"), align: "end", render: (r) => formatCurrency(r.cost) },
+    {
+      key: "cost",
+      header: t("fixed_assets.cost"),
+      align: "end",
+      sortable: true,
+      sortValue: (r) => Number(r.cost),
+      render: (r) => formatCurrency(r.cost),
+    },
     {
       key: "accumulated_depreciation",
       header: t("fixed_assets.accumulated_depreciation"),
       align: "end",
+      sortable: true,
+      sortValue: (r) => Number(r.accumulated_depreciation),
       render: (r) => formatCurrency(r.accumulated_depreciation),
     },
     {
       key: "net_book_value",
       header: t("fixed_assets.net_book_value"),
       align: "end",
+      sortable: true,
+      sortValue: (r) => Number(r.net_book_value),
       render: (r) => formatCurrency(r.net_book_value),
     },
     {
       key: "status",
       header: t("fixed_assets.status"),
+      sortable: true,
+      sortValue: (r) =>
+        r.status === "disposed"
+          ? t("fixed_assets.status_disposed")
+          : r.fully_depreciated
+            ? t("fixed_assets.status_fully_depreciated")
+            : t(`fixed_assets.status_${r.status}`),
       render: (r) => (
         <Badge
           variant={

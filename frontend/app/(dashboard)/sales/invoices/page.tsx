@@ -94,11 +94,15 @@ export default function SalesInvoicesPage() {
     {
       key: "partner_id",
       header: t("sales.orders.customer"),
+      sortable: true,
+      sortValue: (row) => customer.label(row.partner_id),
       render: (row) => customer.label(row.partner_id),
     },
     {
       key: "invoice_type",
       header: t("sales.invoice.type"),
+      sortable: true,
+      sortValue: (row) => row.invoice_type,
       render: (row) => <span className="capitalize">{row.invoice_type.replace("_", " ")}</span>,
     },
     {

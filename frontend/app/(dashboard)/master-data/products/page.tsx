@@ -65,11 +65,25 @@ export default function ProductsListPage() {
         </span>
       ),
     },
-    { key: "name_ar", header: t("master_data.products.name_ar"), render: (r) => r.name_ar ?? "—" },
-    { key: "category", header: t("master_data.products.category"), render: (r) => categoryPath(r.category_id) },
+    {
+      key: "name_ar",
+      header: t("master_data.products.name_ar"),
+      sortable: true,
+      sortValue: (r) => r.name_ar ?? "",
+      render: (r) => r.name_ar ?? "—",
+    },
+    {
+      key: "category",
+      header: t("master_data.products.category"),
+      sortable: true,
+      sortValue: (r) => categoryPath(r.category_id),
+      render: (r) => categoryPath(r.category_id),
+    },
     {
       key: "is_stockable",
       header: t("master_data.products.stockable"),
+      sortable: true,
+      sortValue: (r) => (r.is_stockable ? 1 : 0),
       render: (r) => <Badge variant={r.is_stockable ? "default" : "secondary"}>{r.is_stockable ? t("common.yes") : t("common.no")}</Badge>,
     },
     { key: "sales_price", header: t("master_data.products.sales_price"), align: "end", sortable: true, sortValue: (r) => Number(r.sales_price), render: (r) => formatCurrency(r.sales_price) },

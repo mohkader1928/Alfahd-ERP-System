@@ -87,11 +87,19 @@ function OrdersTab() {
         </Link>
       ),
     },
-    { key: "vendor", header: t("purchasing.orders.vendor"), render: (r) => vendorLabel(r.partner_id) },
+    {
+      key: "vendor",
+      header: t("purchasing.orders.vendor"),
+      sortable: true,
+      sortValue: (r) => vendorLabel(r.partner_id),
+      render: (r) => vendorLabel(r.partner_id),
+    },
     { key: "order_date", header: t("purchasing.orders.date"), sortable: true, sortValue: (r) => r.order_date, render: (r) => formatDate(r.order_date, locale) },
     {
       key: "status",
       header: t("purchasing.orders.status"),
+      sortable: true,
+      sortValue: (r) => t(`purchasing.orders.status_${r.status}`),
       render: (r) => <Badge variant={statusVariant(r.status)}>{t(`purchasing.orders.status_${r.status}`)}</Badge>,
     },
     {
@@ -178,10 +186,21 @@ function VendorBillsTab() {
 
   const columns: ERPColumn<VendorBill>[] = [
     { key: "number", header: t("purchasing.orders.number"), sortable: true, sortValue: (r) => r.number, render: (r) => r.number },
-    { key: "vendor", header: t("purchasing.orders.vendor"), render: (r) => vendorLabel(r.partner_id) },
+    {
+      key: "vendor",
+      header: t("purchasing.orders.vendor"),
+      sortable: true,
+      sortValue: (r) => vendorLabel(r.partner_id),
+      render: (r) => vendorLabel(r.partner_id),
+    },
     {
       key: "bill_type",
       header: t("purchasing.vendor_bills.type"),
+      sortable: true,
+      sortValue: (r) =>
+        r.bill_type === "debit_note"
+          ? t("purchasing.vendor_bills.type_debit_note")
+          : t("purchasing.vendor_bills.type_standard"),
       render: (r) =>
         r.bill_type === "debit_note" ? (
           <Badge variant="warning">{t("purchasing.vendor_bills.type_debit_note")}</Badge>
@@ -192,6 +211,8 @@ function VendorBillsTab() {
     {
       key: "status",
       header: t("purchasing.orders.status"),
+      sortable: true,
+      sortValue: (r) => r.status,
       render: (r) => (
         <div className="flex gap-1">
           <Badge variant={statusVariant(r.status)}>{r.status}</Badge>

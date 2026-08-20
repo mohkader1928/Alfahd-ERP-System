@@ -84,11 +84,15 @@ export default function PurchaseReturnsPage() {
     {
       key: "partner_id",
       header: t("purchasing.orders.vendor"),
+      sortable: true,
+      sortValue: (row) => vendor.label(row.partner_id),
       render: (row) => vendor.label(row.partner_id),
     },
     {
       key: "original_bill_id",
       header: t("purchasing.returns.original_bill"),
+      sortable: true,
+      sortValue: (row) => row.original_bill_id ?? "",
       render: (row) =>
         row.original_bill_id ? (
           <Link href={`/purchasing/bills/${row.original_bill_id}`} className="underline-offset-4 hover:underline">

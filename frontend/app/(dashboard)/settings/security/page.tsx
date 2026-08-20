@@ -76,6 +76,8 @@ export default function SecuritySettingsPage() {
     {
       key: "is_system",
       header: t("settings.security.role_type"),
+      sortable: true,
+      sortValue: (r) => (r.is_system ? 1 : 0),
       render: (r) => <Badge variant={r.is_system ? "secondary" : "outline"}>{r.is_system ? t("settings.security.system") : t("settings.security.custom")}</Badge>,
     },
   ];

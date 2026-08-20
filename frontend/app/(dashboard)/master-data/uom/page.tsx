@@ -57,10 +57,18 @@ export default function UnitsOfMeasurePage() {
   const columns: ERPColumn<UnitOfMeasure>[] = [
     { key: "code", header: t("master_data.uom.code"), sortable: true, sortValue: (r) => r.code, render: (r) => <span className="font-mono">{r.code}</span> },
     { key: "name", header: t("master_data.uom.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
-    { key: "name_ar", header: t("master_data.uom.name_ar"), render: (r) => r.name_ar ?? "—" },
+    {
+      key: "name_ar",
+      header: t("master_data.uom.name_ar"),
+      sortable: true,
+      sortValue: (r) => r.name_ar ?? "",
+      render: (r) => r.name_ar ?? "—",
+    },
     {
       key: "active",
       header: t("master_data.uom.active"),
+      sortable: true,
+      sortValue: (r) => (r.active ? 1 : 0),
       render: (r) => <Badge variant={r.active ? "default" : "secondary"}>{r.active ? t("common.active") : t("common.inactive")}</Badge>,
     },
   ];

@@ -297,7 +297,13 @@ function ChartOfAccountsTab() {
       sortValue: (r) => r.name,
       render: (r) => <span style={{ paddingInlineStart: `${(r.level - 1) * 1.25}rem` }}>{r.name}</span>,
     },
-    { key: "name_ar", header: t("master_data.partners.name_ar"), render: (r) => r.name_ar ?? "—" },
+    {
+      key: "name_ar",
+      header: t("master_data.partners.name_ar"),
+      sortable: true,
+      sortValue: (r) => r.name_ar ?? "",
+      render: (r) => r.name_ar ?? "—",
+    },
     {
       key: "level",
       header: t("accounting.accounts.level"),
@@ -309,6 +315,8 @@ function ChartOfAccountsTab() {
     {
       key: "is_group",
       header: t("accounting.accounts.is_group"),
+      sortable: true,
+      sortValue: (r) => (r.is_group ? 1 : 0),
       render: (r) => (
         <Badge variant={r.is_group ? "warning" : "outline"}>
           {r.is_group ? t("accounting.accounts.group") : t("accounting.accounts.posting")}
@@ -318,11 +326,15 @@ function ChartOfAccountsTab() {
     {
       key: "is_active",
       header: t("accounting.accounts.active"),
+      sortable: true,
+      sortValue: (r) => (r.is_active ? 1 : 0),
       render: (r) => <Badge variant={r.is_active ? "default" : "secondary"}>{r.is_active ? t("common.active") : t("common.inactive")}</Badge>,
     },
     {
       key: "is_cash_equivalent",
       header: t("accounting.accounts.is_cash_equivalent"),
+      sortable: true,
+      sortValue: (r) => (r.is_cash_equivalent ? 1 : 0),
       render: (r) => (r.is_cash_equivalent ? <Badge variant="default">{t("common.yes")}</Badge> : "—"),
     },
     {
@@ -546,6 +558,8 @@ function JournalEntriesTab() {
     {
       key: "status",
       header: t("accounting.je.status"),
+      sortable: true,
+      sortValue: (r) => r.status,
       render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge>,
     },
   ];
@@ -2293,6 +2307,8 @@ function FiscalPeriodsTab() {
     {
       key: "is_closed",
       header: t("accounting.fiscal_periods.status"),
+      sortable: true,
+      sortValue: (r) => (r.is_closed ? 1 : 0),
       render: (r) => (
         <Badge variant={r.is_closed ? "outline" : "default"}>
           {r.is_closed ? t("accounting.fiscal_periods.closed") : t("accounting.fiscal_periods.open")}
@@ -2449,10 +2465,18 @@ function CostCentersTab() {
 
   const columns: ERPColumn<CostCenter>[] = [
     { key: "name", header: t("accounting.cost_centers.name"), sortable: true, sortValue: (r) => r.name, render: (r) => r.name },
-    { key: "name_ar", header: t("accounting.cost_centers.name_ar"), render: (r) => r.name_ar ?? "—" },
+    {
+      key: "name_ar",
+      header: t("accounting.cost_centers.name_ar"),
+      sortable: true,
+      sortValue: (r) => r.name_ar ?? "",
+      render: (r) => r.name_ar ?? "—",
+    },
     {
       key: "is_active",
       header: t("accounting.cost_centers.status"),
+      sortable: true,
+      sortValue: (r) => (r.is_active ? 1 : 0),
       render: (r) => (
         <Badge variant={r.is_active ? "default" : "outline"}>
           {r.is_active ? t("accounting.cost_centers.active") : t("accounting.cost_centers.archived")}

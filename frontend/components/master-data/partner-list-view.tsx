@@ -125,10 +125,19 @@ export function PartnerListView({ kind }: { kind: PartnerListKind }) {
         </Link>
       ),
     },
-    { key: "name_ar", header: t("master_data.partners.name_ar"), render: (r) => r.name_ar ?? "—" },
+    {
+      key: "name_ar",
+      header: t("master_data.partners.name_ar"),
+      sortable: true,
+      sortValue: (r) => r.name_ar ?? "",
+      render: (r) => r.name_ar ?? "—",
+    },
     {
       key: "roles",
       header: t("master_data.partners.roles"),
+      sortable: true,
+      sortValue: (r) =>
+        [r.is_customer && "customer", r.is_vendor && "vendor", r.is_employee && "employee"].filter(Boolean).join(","),
       render: (r) => (
         <div className="flex flex-wrap gap-1">
           {r.is_customer && <Badge variant="outline">{t("master_data.partners.is_customer")}</Badge>}
@@ -138,11 +147,25 @@ export function PartnerListView({ kind }: { kind: PartnerListKind }) {
         </div>
       ),
     },
-    { key: "vat_number", header: t("master_data.partners.vat_number"), render: (r) => r.vat_number ?? "—" },
-    { key: "cr_number", header: t("master_data.partners.cr_number"), render: (r) => r.cr_number ?? "—" },
+    {
+      key: "vat_number",
+      header: t("master_data.partners.vat_number"),
+      sortable: true,
+      sortValue: (r) => r.vat_number ?? "",
+      render: (r) => r.vat_number ?? "—",
+    },
+    {
+      key: "cr_number",
+      header: t("master_data.partners.cr_number"),
+      sortable: true,
+      sortValue: (r) => r.cr_number ?? "",
+      render: (r) => r.cr_number ?? "—",
+    },
     {
       key: "is_active",
       header: t("master_data.partners.status"),
+      sortable: true,
+      sortValue: (r) => (r.is_active ? 1 : 0),
       render: (r) => <Badge variant={r.is_active ? "default" : "secondary"}>{r.is_active ? t("common.active") : t("common.inactive")}</Badge>,
     },
   ];

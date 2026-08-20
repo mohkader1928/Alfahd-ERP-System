@@ -86,6 +86,8 @@ export function PaymentListView({
     {
       key: "reference",
       header: t("payments.reference"),
+      sortable: true,
+      sortValue: (row) => row.reference ?? "",
       render: (row) => row.reference ?? "—",
     },
   ];

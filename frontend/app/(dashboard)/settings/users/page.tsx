@@ -77,10 +77,12 @@ export default function UsersSettingsPage() {
         </a>
       ),
     },
-    { key: "email", header: t("settings.users.email"), render: (r) => r.email },
+    { key: "email", header: t("settings.users.email"), sortable: true, sortValue: (r) => r.email, render: (r) => r.email },
     {
       key: "roles",
       header: t("settings.users.roles"),
+      sortable: true,
+      sortValue: (r) => r.role_names.join(","),
       render: (r) =>
         r.role_names.length > 0 ? (
           <div className="flex flex-wrap gap-1">
@@ -97,6 +99,8 @@ export default function UsersSettingsPage() {
     {
       key: "is_active",
       header: t("settings.users.status"),
+      sortable: true,
+      sortValue: (r) => (r.is_active ? 1 : 0),
       render: (r) => (
         <Badge variant={r.is_active ? "secondary" : "outline"}>
           {r.is_active ? t("settings.users.active") : t("settings.users.inactive")}

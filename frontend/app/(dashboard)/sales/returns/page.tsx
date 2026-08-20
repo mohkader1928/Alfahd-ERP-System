@@ -86,11 +86,15 @@ export default function SalesReturnsPage() {
     {
       key: "partner_id",
       header: t("sales.orders.customer"),
+      sortable: true,
+      sortValue: (row) => customer.label(row.partner_id),
       render: (row) => customer.label(row.partner_id),
     },
     {
       key: "original_invoice_id",
       header: t("sales.returns.original_invoice"),
+      sortable: true,
+      sortValue: (row) => row.original_invoice_id ?? "",
       render: (row) =>
         row.original_invoice_id ? (
           <Link

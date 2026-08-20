@@ -110,6 +110,8 @@ function WarehousesTab() {
     {
       key: "is_default",
       header: t("inventory.warehouses.default"),
+      sortable: true,
+      sortValue: (r) => (r.is_default ? 1 : 0),
       render: (r) => (r.is_default ? <Badge>{t("inventory.warehouses.default")}</Badge> : "—"),
     },
   ];
@@ -354,7 +356,13 @@ function MovesTab() {
       render: (r) => formatDate(r.moved_at, locale),
     },
     { key: "product", header: t("inventory.stock.product"), sortable: true, sortValue: (r) => productLabel(r.product_id), render: (r) => productLabel(r.product_id) },
-    { key: "move_type", header: t("inventory.moves.type"), render: (r) => <Badge variant="secondary">{r.move_type}</Badge> },
+    {
+      key: "move_type",
+      header: t("inventory.moves.type"),
+      sortable: true,
+      sortValue: (r) => r.move_type,
+      render: (r) => <Badge variant="secondary">{r.move_type}</Badge>,
+    },
     { key: "qty", header: t("inventory.moves.qty"), align: "end", sortable: true, sortValue: (r) => Number(r.qty), render: (r) => r.qty },
     {
       key: "unit_cost",
@@ -367,6 +375,11 @@ function MovesTab() {
     {
       key: "source",
       header: t("inventory.moves.source"),
+      sortable: true,
+      sortValue: (r) => {
+        const labelKey = sourceDocumentLabelKey(r.source_table);
+        return labelKey ? t(labelKey) : r.source_table;
+      },
       render: (r) => {
         const href = sourceDocumentHref(r.source_table, r.source_id);
         const labelKey = sourceDocumentLabelKey(r.source_table);
@@ -563,7 +576,13 @@ function CycleCountsTab() {
       sortValue: (r) => r.scheduled_date,
       render: (r) => formatDate(r.scheduled_date, locale),
     },
-    { key: "status", header: t("purchasing.orders.status"), render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge> },
+    {
+      key: "status",
+      header: t("purchasing.orders.status"),
+      sortable: true,
+      sortValue: (r) => r.status,
+      render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge>,
+    },
   ];
 
   return (
@@ -813,6 +832,8 @@ function LowStockTab() {
     {
       key: "name",
       header: t("inventory.low_stock.product"),
+      sortable: true,
+      sortValue: (r) => (locale === "ar" && r.name_ar ? r.name_ar : r.name),
       render: (r) => (locale === "ar" && r.name_ar ? r.name_ar : r.name),
     },
     {

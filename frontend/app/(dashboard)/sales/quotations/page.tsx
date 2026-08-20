@@ -63,6 +63,8 @@ export default function QuotationsPage() {
     {
       key: "partner_id",
       header: t("sales.orders.customer"),
+      sortable: true,
+      sortValue: (row) => customer.label(row.partner_id),
       render: (row) => customer.label(row.partner_id),
     },
     {
