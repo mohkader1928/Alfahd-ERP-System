@@ -29,8 +29,13 @@ export function StockBalanceHint({ companyId, productId, warehouseId }: StockBal
 
   if (!productId || !warehouseId || !balanceQuery.data) return null;
 
+  // Owner request: a balance at or below zero (out of stock, or oversold
+  // negative via FR-INV-007) must stand out in red rather than blend in
+  // with the same muted color as a healthy balance.
+  const isNonPositive = Number(balanceQuery.data.qty_on_hand) <= 0;
+
   return (
-    <p className="text-xs text-muted-foreground">
+    <p className={isNonPositive ? "text-xs font-medium text-destructive" : "text-xs text-muted-foreground"}>
       {t("inventory.stock_balance.current")}: <span className="tabular-nums">{balanceQuery.data.qty_on_hand}</span>
     </p>
   );
