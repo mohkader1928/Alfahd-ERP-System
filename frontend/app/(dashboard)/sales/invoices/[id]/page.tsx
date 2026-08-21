@@ -34,6 +34,13 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const branchId = useAuthStore((s) => s.activeBranchId)!;
   const [reason, setReason] = useState("");
   const [restock, setRestock] = useState(true);
+  // Stable per-mount key: a retried/duplicate submission of the SAME
+  // credit note (double-click, network retry, resubmission after an
+  // unclear result) reuses this key so the backend's idempotency guard
+  // replays the first response instead of posting a second full GL
+  // reversal + restock -- same defect class fixed on the Purchasing side
+  // after a real, reported Inventory Valuation vs GL gap.
+  const [creditNoteIdempotencyKey] = useState(() => crypto.randomUUID());
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [emailOverride, setEmailOverride] = useState("");
   const [downloading, setDownloading] = useState(false);
@@ -48,7 +55,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   });
 
   const creditNoteMutation = useMutation({
-    mutationFn: () => salesApi.issueCreditNote(companyId, branchId, id, reason, restock),
+    mutationFn: () =>
+      salesApi.issueCreditNote(companyId, branchId, id, reason, restock, creditNoteIdempotencyKey),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["invoice", companyId, id] });
       toastSuccess(t("toast.success_title"), result.invoice.number);

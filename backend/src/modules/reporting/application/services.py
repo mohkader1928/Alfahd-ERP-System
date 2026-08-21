@@ -754,6 +754,75 @@ class VatReportingService:
             "net_vat_payable": output_vat - input_vat,
         }
 
+    async def vat_detail(self, *, company_id: UUID, date_from: date, date_to: date) -> list[dict]:
+        """Per-document breakdown behind `vat_summary` -- every posted sales
+        invoice, sales credit note, and (standard) vendor bill in the
+        period, so the Owner can trace the net VAT payable figure back to
+        the individual documents that make it up rather than trusting a
+        single netted number. Same document scope as `vat_summary`
+        (vendor debit notes stay excluded from input VAT there -- see that
+        method's docstring -- so they're excluded here too, to avoid a
+        detail view whose totals don't reconcile to the summary's). Credit
+        notes carry negated amounts (same contra convention `vat_summary`
+        already applies when subtracting `credit_row` from `sales_row`), so
+        summing any column here reproduces the exact totals `vat_summary`
+        returns."""
+
+        async def _rows(model, date_column, type_filter, movement_type: str, direction: str, negate: bool):
+            stmt = (
+                select(
+                    model.id,
+                    model.number,
+                    date_column.label("doc_date"),
+                    Partner.name.label("partner_name"),
+                    model.subtotal_amount,
+                    model.tax_amount,
+                    model.total_amount,
+                )
+                .join(Partner, Partner.id == model.partner_id)
+                .where(
+                    model.company_id == company_id,
+                    model.journal_entry_id.is_not(None),
+                    type_filter,
+                    date_column >= date_from,
+                    date_column <= date_to,
+                )
+                .order_by(date_column, model.number)
+            )
+            result = await self.session.execute(stmt)
+            sign = Decimal("-1") if negate else Decimal("1")
+            return [
+                {
+                    "document_date": r.doc_date,
+                    "movement_type": movement_type,
+                    "direction": direction,
+                    "document_id": r.id,
+                    "number": r.number,
+                    "partner_name": r.partner_name,
+                    "subtotal_amount": Decimal(str(r.subtotal_amount)) * sign,
+                    "vat_amount": Decimal(str(r.tax_amount)) * sign,
+                    "total_amount": Decimal(str(r.total_amount)) * sign,
+                }
+                for r in result.all()
+            ]
+
+        invoice_rows = await _rows(
+            SalesInvoice, SalesInvoice.invoice_date, SalesInvoice.invoice_type.in_(_FORWARD_INVOICE_TYPES),
+            "invoice", "output", negate=False,
+        )
+        credit_note_rows = await _rows(
+            SalesInvoice, SalesInvoice.invoice_date, SalesInvoice.invoice_type == "credit_note",
+            "credit_note", "output", negate=True,
+        )
+        bill_rows = await _rows(
+            VendorBill, VendorBill.bill_date, VendorBill.bill_type == "standard",
+            "bill", "input", negate=False,
+        )
+
+        lines = invoice_rows + credit_note_rows + bill_rows
+        lines.sort(key=lambda r: (r["document_date"], r["number"]))
+        return lines
+
 
 # ── Inventory Valuation ────────────────────────────────────────────────────────
 

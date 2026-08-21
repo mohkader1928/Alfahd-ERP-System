@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
+import { SortableTableHead } from "@/components/erp/report-view/sortable-table-head";
+import { useSortedRows } from "@/lib/use-sorted-rows";
 import { Can } from "@/components/erp/permissions/can";
 import { ConfirmDialog } from "@/components/erp/states/confirm-dialog";
 import { useI18n } from "@/lib/i18n/config";
@@ -25,7 +27,9 @@ import { accountingApi } from "@/features/accounting/api/client";
 import type {
   Account,
   CostCenter,
+  CostCenterReportAccountRow,
   FiscalPeriod,
+  GeneralLedgerLine,
   JournalEntry,
   JournalEntryLineIn,
 } from "@/features/accounting/api/types";
@@ -40,6 +44,7 @@ import type { AgingRow, SubledgerLine } from "@/features/payments/api/types";
 import { ApiError } from "@/lib/api-client";
 import { reportExportHandlers } from "@/lib/report-export";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
+import type { VatDetailRow } from "@/features/reporting/api/types";
 
 const ACCOUNT_TYPE_CODES = ["asset", "liability", "equity", "revenue", "expense"] as const;
 const JOURNAL_CODES = ["GEN", "SALES", "PURCH", "BANK", "CASH"] as const;
@@ -770,7 +775,18 @@ function TrialBalanceTab() {
     enabled: !!ranAt,
   });
 
-  const rows = reportQuery.data ?? [];
+  const rawRows = reportQuery.data ?? [];
+  const { sort, toggleSort, sortedRows } = useSortedRows(rawRows, {
+    account_code: (r) => r.account_code,
+    account_name: (r) => r.account_name,
+    opening_debit: (r) => Math.max(Number(r.opening_balance), 0),
+    opening_credit: (r) => Math.max(-Number(r.opening_balance), 0),
+    period_debit: (r) => Number(r.period_debit),
+    period_credit: (r) => Number(r.period_credit),
+    closing_debit: (r) => tbBalanceCells(r).drBalance,
+    closing_credit: (r) => tbBalanceCells(r).crBalance,
+  });
+  const rows = sortedRows ?? rawRows;
   const totalPeriodDebit = rows.reduce((s, r) => s + Number(r.period_debit), 0);
   const totalPeriodCredit = rows.reduce((s, r) => s + Number(r.period_credit), 0);
   const totalOpeningDr = rows.reduce((s, r) => s + Math.max(Number(r.opening_balance), 0), 0);
@@ -817,8 +833,12 @@ function TrialBalanceTab() {
             <TableHeader>
               <TableRow>
                 {/* Account info */}
-                <TableHead rowSpan={2} className="align-bottom w-24">{t("accounting.accounts.code")}</TableHead>
-                <TableHead rowSpan={2} className="align-bottom">{t("accounting.accounts.name")}</TableHead>
+                <SortableTableHead sortKey="account_code" sort={sort} onSort={toggleSort} className="align-bottom w-24">
+                  {t("accounting.accounts.code")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="account_name" sort={sort} onSort={toggleSort} className="align-bottom">
+                  {t("accounting.accounts.name")}
+                </SortableTableHead>
                 {/* Opening balance group */}
                 <TableHead colSpan={2} className="text-center border-s">{t("accounting.tb.opening_balance")}</TableHead>
                 {/* Period movement group */}
@@ -827,12 +847,24 @@ function TrialBalanceTab() {
                 <TableHead colSpan={2} className="text-center border-s">{t("accounting.tb.closing_balance")}</TableHead>
               </TableRow>
               <TableRow>
-                <TableHead className="text-end border-s">{t("accounting.tb.debit")}</TableHead>
-                <TableHead className="text-end">{t("accounting.tb.credit")}</TableHead>
-                <TableHead className="text-end border-s">{t("accounting.tb.debit")}</TableHead>
-                <TableHead className="text-end">{t("accounting.tb.credit")}</TableHead>
-                <TableHead className="text-end border-s">{t("accounting.tb.debit")}</TableHead>
-                <TableHead className="text-end">{t("accounting.tb.credit")}</TableHead>
+                <SortableTableHead sortKey="opening_debit" sort={sort} onSort={toggleSort} align="end" className="border-s">
+                  {t("accounting.tb.debit")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="opening_credit" sort={sort} onSort={toggleSort} align="end">
+                  {t("accounting.tb.credit")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="period_debit" sort={sort} onSort={toggleSort} align="end" className="border-s">
+                  {t("accounting.tb.debit")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="period_credit" sort={sort} onSort={toggleSort} align="end">
+                  {t("accounting.tb.credit")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="closing_debit" sort={sort} onSort={toggleSort} align="end" className="border-s">
+                  {t("accounting.tb.debit")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="closing_credit" sort={sort} onSort={toggleSort} align="end">
+                  {t("accounting.tb.credit")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1055,20 +1087,57 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
       {ranAt && reportQuery.data && (
         <>
         <ReportPrintHeader reportTitle={t("accounting.tabs.general_ledger")} dateRangeLabel={`${ranAt.from} – ${ranAt.to}`} />
+        <GeneralLedgerLinesTable lines={reportQuery.data.lines} />
+        </>
+      )}
+    </ReportView>
+  );
+}
+
+function GeneralLedgerLinesTable({ lines }: { lines: GeneralLedgerLine[] }) {
+  const { t, locale } = useI18n();
+  const { sort, toggleSort, sortedRows } = useSortedRows(lines, {
+    entry_date: (l) => l.entry_date,
+    reference: (l) => l.reference ?? l.journal_entry_id,
+    source: (l) => {
+      const key = sourceDocumentLabelKey(l.source_table);
+      return key ? t(key) : "";
+    },
+    cost_center_name: (l) => l.cost_center_name ?? "",
+    debit: (l) => Number(l.debit),
+    credit: (l) => Number(l.credit),
+    running_balance: (l) => Number(l.running_balance),
+  });
+  const rows = sortedRows ?? lines;
+  return (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{t("accounting.gl.date")}</TableHead>
-              <TableHead>{t("accounting.gl.reference")}</TableHead>
-              <TableHead>{t("accounting.sub.source")}</TableHead>
-              <TableHead>{t("accounting.gl.cost_center")}</TableHead>
-              <TableHead className="text-end">{t("accounting.je.debit")}</TableHead>
-              <TableHead className="text-end">{t("accounting.je.credit")}</TableHead>
-              <TableHead className="text-end">{t("accounting.gl.running_balance")}</TableHead>
+              <SortableTableHead sortKey="entry_date" sort={sort} onSort={toggleSort}>
+                {t("accounting.gl.date")}
+              </SortableTableHead>
+              <SortableTableHead sortKey="reference" sort={sort} onSort={toggleSort}>
+                {t("accounting.gl.reference")}
+              </SortableTableHead>
+              <SortableTableHead sortKey="source" sort={sort} onSort={toggleSort}>
+                {t("accounting.sub.source")}
+              </SortableTableHead>
+              <SortableTableHead sortKey="cost_center_name" sort={sort} onSort={toggleSort}>
+                {t("accounting.gl.cost_center")}
+              </SortableTableHead>
+              <SortableTableHead sortKey="debit" sort={sort} onSort={toggleSort} align="end">
+                {t("accounting.je.debit")}
+              </SortableTableHead>
+              <SortableTableHead sortKey="credit" sort={sort} onSort={toggleSort} align="end">
+                {t("accounting.je.credit")}
+              </SortableTableHead>
+              <SortableTableHead sortKey="running_balance" sort={sort} onSort={toggleSort} align="end">
+                {t("accounting.gl.running_balance")}
+              </SortableTableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {reportQuery.data.lines.map((line, i) => {
+            {rows.map((line, i) => {
               const sourceHref = sourceDocumentHref(line.source_table, line.source_id);
               const sourceLabelKey = sourceDocumentLabelKey(line.source_table);
               return (
@@ -1104,9 +1173,6 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
             })}
           </TableBody>
         </Table>
-        </>
-      )}
-    </ReportView>
   );
 }
 
@@ -1811,28 +1877,205 @@ function VatSummaryTab() {
   );
 }
 
+function VatDetailTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["vat-detail", companyId, ranAt?.from, ranAt?.to],
+    queryFn: () => reportingApi.vatDetail(companyId, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+  const rows: VatDetailRow[] = reportQuery.data ?? [];
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      subtotal: acc.subtotal + Number(r.subtotal_amount),
+      vat: acc.vat + Number(r.vat_amount),
+      total: acc.total + Number(r.total_amount),
+      output_vat: acc.output_vat + (r.direction === "output" ? Number(r.vat_amount) : 0),
+      input_vat: acc.input_vat + (r.direction === "input" ? Number(r.vat_amount) : 0),
+    }),
+    { subtotal: 0, vat: 0, total: 0, output_vat: 0, input_vat: 0 }
+  );
+  const netPayable = totals.output_vat - totals.input_vat;
+
+  const { sort, toggleSort, sortedRows } = useSortedRows(rows, {
+    document_date: (r) => r.document_date,
+    movement_type: (r) => t(`accounting.sub.movement_type.${r.movement_type}`),
+    number: (r) => r.number,
+    partner_name: (r) => r.partner_name,
+    subtotal_amount: (r) => Number(r.subtotal_amount),
+    vat_amount: (r) => Number(r.vat_amount),
+    total_amount: (r) => Number(r.total_amount),
+  });
+  const displayRows = sortedRows ?? rows;
+
+  return (
+    <ReportView
+      title={t("accounting.tabs.vat_detail")}
+      filterArea={
+        <>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.vat.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.vat.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+        </>
+      }
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onReset={() => setRanAt(null)}
+      onPrint={ranAt && rows.length > 0 ? () => window.print() : undefined}
+      {...(ranAt
+        ? reportExportHandlers(
+            "/api/v1/reporting/vat-detail",
+            { date_from: ranAt.from, date_to: ranAt.to, lang: locale },
+            companyId
+          )
+        : {})}
+      isLoading={reportQuery.isFetching}
+      isError={reportQuery.isError}
+      errorMessage={String(reportQuery.error ?? "")}
+      onRetry={() => reportQuery.refetch()}
+      isEmpty={!!ranAt && !reportQuery.isFetching && rows.length === 0}
+      kpis={
+        ranAt && rows.length > 0
+          ? [
+              { label: t("accounting.vat.output_vat"), value: formatCurrency(totals.output_vat) },
+              { label: t("accounting.vat.input_vat"), value: formatCurrency(totals.input_vat) },
+              {
+                label: netPayable >= 0 ? t("accounting.vat.net_vat_payable") : t("accounting.vat.net_vat_refundable"),
+                value: formatCurrency(Math.abs(netPayable)),
+              },
+            ]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("sales.reports.run_hint")}</p>}
+      {ranAt && rows.length > 0 && (
+        <>
+          <ReportPrintHeader
+            reportTitle={t("accounting.tabs.vat_detail")}
+            dateRangeLabel={`${ranAt.from} – ${ranAt.to}`}
+          />
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortableTableHead sortKey="document_date" sort={sort} onSort={toggleSort}>
+                  {t("accounting.vat.date")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="movement_type" sort={sort} onSort={toggleSort}>
+                  {t("accounting.sub.type")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="number" sort={sort} onSort={toggleSort}>
+                  {t("accounting.vat.number")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="partner_name" sort={sort} onSort={toggleSort}>
+                  {t("accounting.vat.partner")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="subtotal_amount" sort={sort} onSort={toggleSort} align="end">
+                  {t("accounting.vat.subtotal")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="vat_amount" sort={sort} onSort={toggleSort} align="end">
+                  {t("accounting.vat.vat_amount")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="total_amount" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("sales.reports.period.total")}
+                </SortableTableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {displayRows.map((row) => {
+                const href = sourceDocumentHref(row.movement_type === "bill" ? "vendor_bill" : "sales_invoice", row.document_id);
+                return (
+                  <TableRow key={row.document_id}>
+                    <TableCell>{formatDate(row.document_date, locale)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{t(`accounting.sub.movement_type.${row.movement_type}`)}</Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {href ? (
+                        <Link href={href} className="underline-offset-4 hover:underline">
+                          {row.number}
+                        </Link>
+                      ) : (
+                        row.number
+                      )}
+                    </TableCell>
+                    <TableCell>{row.partner_name}</TableCell>
+                    <TableCell className="text-end tabular-nums">{formatCurrency(row.subtotal_amount)}</TableCell>
+                    <TableCell className="text-end tabular-nums">{formatCurrency(row.vat_amount)}</TableCell>
+                    <TableCell className="text-end tabular-nums font-semibold">{formatCurrency(row.total_amount)}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell colSpan={4} className="font-bold">{t("sales.reports.totals")}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.subtotal)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.vat)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.total)}</TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
+        </>
+      )}
+    </ReportView>
+  );
+}
+
 function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
   const { t, locale } = useI18n();
+  const { sort, toggleSort, sortedRows } = useSortedRows(lines, {
+    date: (l) => l.date,
+    reference: (l) => l.reference,
+    movement_type: (l) => t(`accounting.sub.movement_type.${l.movement_type}`),
+    debit: (l) => Number(l.debit),
+    credit: (l) => Number(l.credit),
+    running_balance: (l) => Number(l.running_balance),
+  });
+  const rows = sortedRows ?? lines;
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{t("accounting.sub.date")}</TableHead>
-          <TableHead>{t("accounting.sub.reference")}</TableHead>
-          <TableHead className="text-end">{t("accounting.sub.debit")}</TableHead>
-          <TableHead className="text-end">{t("accounting.sub.credit")}</TableHead>
-          <TableHead className="text-end">{t("accounting.sub.running_balance")}</TableHead>
+          <SortableTableHead sortKey="date" sort={sort} onSort={toggleSort}>
+            {t("accounting.sub.date")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="reference" sort={sort} onSort={toggleSort}>
+            {t("accounting.sub.reference")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="movement_type" sort={sort} onSort={toggleSort}>
+            {t("accounting.sub.type")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="debit" sort={sort} onSort={toggleSort} align="end">
+            {t("accounting.sub.debit")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="credit" sort={sort} onSort={toggleSort} align="end">
+            {t("accounting.sub.credit")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="running_balance" sort={sort} onSort={toggleSort} align="end">
+            {t("accounting.sub.running_balance")}
+          </SortableTableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {lines.length === 0 && (
+        {rows.length === 0 && (
           <TableRow>
-            <TableCell colSpan={5} className="text-center text-muted-foreground">
+            <TableCell colSpan={6} className="text-center text-muted-foreground">
               {t("common.empty")}
             </TableCell>
           </TableRow>
         )}
-        {lines.map((line, i) => {
+        {rows.map((line, i) => {
           const href = sourceDocumentHref(line.document_type, line.document_id);
           return (
             <TableRow key={i}>
@@ -1845,6 +2088,9 @@ function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
                 ) : (
                   line.reference
                 )}
+              </TableCell>
+              <TableCell>
+                <Badge variant="outline">{t(`accounting.sub.movement_type.${line.movement_type}`)}</Badge>
               </TableCell>
               <TableCell className="text-end font-mono">{formatCurrency(line.debit)}</TableCell>
               <TableCell className="text-end font-mono">{formatCurrency(line.credit)}</TableCell>
@@ -1869,6 +2115,11 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [partnerId, setPartnerId] = useState(initialPartnerId ?? "");
+  // Owner request: filter the statement down to one document type (e.g.
+  // just credit notes) without re-running the whole date range — client-
+  // side, same as every other filter already applied to an already-
+  // fetched report in this codebase.
+  const [movementType, setMovementType] = useState<string>("all");
   const [ranAt, setRanAt] = useState<{ partner: string; from: string; to: string } | null>(() =>
     initialPartnerId ? { partner: initialPartnerId, from: dateFrom, to: dateTo } : null
   );
@@ -1928,6 +2179,20 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
             <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
+          <div className="w-44 space-y-1">
+            <Label className="text-xs">{t("accounting.sub.type")}</Label>
+            <Select value={movementType} onValueChange={(v) => setMovementType(v ?? "all")}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("accounting.sub.type_all")}</SelectItem>
+                <SelectItem value="invoice">{t("accounting.sub.movement_type.invoice")}</SelectItem>
+                <SelectItem value="credit_note">{t("accounting.sub.movement_type.credit_note")}</SelectItem>
+                <SelectItem value="payment">{t("accounting.sub.movement_type.payment")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </>
       }
       onApply={partnerId ? () => setRanAt({ partner: partnerId, from: dateFrom, to: dateTo }) : undefined}
@@ -1959,7 +2224,13 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
             subtitle={reportQuery.data.partner_name}
             dateRangeLabel={`${reportQuery.data.date_from} – ${reportQuery.data.date_to}`}
           />
-          <SubledgerLinesTable lines={reportQuery.data.lines} />
+          <SubledgerLinesTable
+            lines={
+              movementType === "all"
+                ? reportQuery.data.lines
+                : reportQuery.data.lines.filter((l) => l.movement_type === movementType)
+            }
+          />
         </>
       )}
     </ReportView>
@@ -1974,6 +2245,7 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [partnerId, setPartnerId] = useState(initialPartnerId ?? "");
+  const [movementType, setMovementType] = useState<string>("all");
   const [ranAt, setRanAt] = useState<{ partner: string; from: string; to: string } | null>(() =>
     initialPartnerId ? { partner: initialPartnerId, from: dateFrom, to: dateTo } : null
   );
@@ -2033,6 +2305,20 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
             <Label className="text-xs">{t("accounting.tb.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
           </div>
+          <div className="w-44 space-y-1">
+            <Label className="text-xs">{t("accounting.sub.type")}</Label>
+            <Select value={movementType} onValueChange={(v) => setMovementType(v ?? "all")}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("accounting.sub.type_all")}</SelectItem>
+                <SelectItem value="bill">{t("accounting.sub.movement_type.bill")}</SelectItem>
+                <SelectItem value="debit_note">{t("accounting.sub.movement_type.debit_note")}</SelectItem>
+                <SelectItem value="payment">{t("accounting.sub.movement_type.payment")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </>
       }
       onApply={partnerId ? () => setRanAt({ partner: partnerId, from: dateFrom, to: dateTo }) : undefined}
@@ -2064,7 +2350,13 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
             subtitle={reportQuery.data.partner_name}
             dateRangeLabel={`${reportQuery.data.date_from} – ${reportQuery.data.date_to}`}
           />
-          <SubledgerLinesTable lines={reportQuery.data.lines} />
+          <SubledgerLinesTable
+            lines={
+              movementType === "all"
+                ? reportQuery.data.lines
+                : reportQuery.data.lines.filter((l) => l.movement_type === movementType)
+            }
+          />
         </>
       )}
     </ReportView>
@@ -2092,26 +2384,44 @@ function AgingTable({
   // the number to compare against, matching the Trial Balance's own
   // totals row below.
   const total = rows.reduce((sum, r) => sum + Number(r.balance_due), 0);
+  const { sort, toggleSort, sortedRows } = useSortedRows(rows, {
+    partner_name: (r) => r.partner_name,
+    number: (r) => r.number,
+    due_date: (r) => r.due_date,
+    balance_due: (r) => Number(r.balance_due),
+    bucket: (r) => t(`accounting.aging.bucket.${r.bucket}`),
+  });
+  const sortedList = sortedRows ?? rows;
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{partnerLabel}</TableHead>
-          <TableHead>{t("accounting.aging.document")}</TableHead>
-          <TableHead>{t("accounting.aging.due_date")}</TableHead>
-          <TableHead className="text-end">{t("accounting.aging.balance_due")}</TableHead>
-          <TableHead>{t("accounting.aging.bucket")}</TableHead>
+          <SortableTableHead sortKey="partner_name" sort={sort} onSort={toggleSort}>
+            {partnerLabel}
+          </SortableTableHead>
+          <SortableTableHead sortKey="number" sort={sort} onSort={toggleSort}>
+            {t("accounting.aging.document")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="due_date" sort={sort} onSort={toggleSort}>
+            {t("accounting.aging.due_date")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="balance_due" sort={sort} onSort={toggleSort} align="end">
+            {t("accounting.aging.balance_due")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="bucket" sort={sort} onSort={toggleSort}>
+            {t("accounting.aging.bucket")}
+          </SortableTableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.length === 0 && (
+        {sortedList.length === 0 && (
           <TableRow>
             <TableCell colSpan={5} className="text-center text-muted-foreground">
               {t("common.empty")}
             </TableCell>
           </TableRow>
         )}
-        {rows.map((row, i) => {
+        {sortedList.map((row, i) => {
           const href = documentSourceTable ? sourceDocumentHref(documentSourceTable, row.document_id) : null;
           return (
           <TableRow key={i}>
@@ -2668,42 +2978,70 @@ function CostCenterReportTab() {
             reportTitle={`${t("accounting.ccr.title")} — ${r.cost_center.name}`}
             dateRangeLabel={`${r.date_from} – ${r.date_to}`}
           />
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("accounting.ccr.account_code")}</TableHead>
-                <TableHead>{t("accounting.ccr.account")}</TableHead>
-                <TableHead>{t("accounting.ccr.type")}</TableHead>
-                <TableHead className="text-end">{t("accounting.ccr.balance")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {r.accounts.map((row) => (
-                <TableRow key={row.account_id}>
-                  <TableCell className="font-mono text-xs">{row.account_code}</TableCell>
-                  <TableCell>
-                    <Link
-                      href={`/accounting?tab=general-ledger&account=${row.account_id}`}
-                      className="underline-offset-4 hover:underline"
-                    >
-                      {row.account_name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{t(`accounting.account_type.${row.type_code}`)}</TableCell>
-                  <TableCell className="text-end font-mono">{formatCurrency(row.balance)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-            <TableFooter>
-              <TableRow>
-                <TableCell colSpan={3}>{t("accounting.ccr.net_result")}</TableCell>
-                <TableCell className="text-end font-mono">{formatCurrency(r.net_result)}</TableCell>
-              </TableRow>
-            </TableFooter>
-          </Table>
+          <CostCenterAccountsTable accounts={r.accounts} netResult={r.net_result} />
         </>
       )}
     </ReportView>
+  );
+}
+
+function CostCenterAccountsTable({
+  accounts,
+  netResult,
+}: {
+  accounts: CostCenterReportAccountRow[];
+  netResult: string;
+}) {
+  const { t } = useI18n();
+  const { sort, toggleSort, sortedRows } = useSortedRows(accounts, {
+    account_code: (r) => r.account_code,
+    account_name: (r) => r.account_name,
+    type_code: (r) => t(`accounting.account_type.${r.type_code}`),
+    balance: (r) => Number(r.balance),
+  });
+  const rows = sortedRows ?? accounts;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <SortableTableHead sortKey="account_code" sort={sort} onSort={toggleSort}>
+            {t("accounting.ccr.account_code")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="account_name" sort={sort} onSort={toggleSort}>
+            {t("accounting.ccr.account")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="type_code" sort={sort} onSort={toggleSort}>
+            {t("accounting.ccr.type")}
+          </SortableTableHead>
+          <SortableTableHead sortKey="balance" sort={sort} onSort={toggleSort} align="end">
+            {t("accounting.ccr.balance")}
+          </SortableTableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.account_id}>
+            <TableCell className="font-mono text-xs">{row.account_code}</TableCell>
+            <TableCell>
+              <Link
+                href={`/accounting?tab=general-ledger&account=${row.account_id}`}
+                className="underline-offset-4 hover:underline"
+              >
+                {row.account_name}
+              </Link>
+            </TableCell>
+            <TableCell className="text-muted-foreground">{t(`accounting.account_type.${row.type_code}`)}</TableCell>
+            <TableCell className="text-end font-mono">{formatCurrency(row.balance)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+      <TableFooter>
+        <TableRow>
+          <TableCell colSpan={3}>{t("accounting.ccr.net_result")}</TableCell>
+          <TableCell className="text-end font-mono">{formatCurrency(netResult)}</TableCell>
+        </TableRow>
+      </TableFooter>
+    </Table>
   );
 }
 
@@ -2749,6 +3087,7 @@ export default function AccountingPage() {
       {tab === "cash-flow" && <CashFlowTab />}
       {tab === "equity-statement" && <EquityStatementTab />}
       {tab === "vat-summary" && <VatSummaryTab />}
+      {tab === "vat-detail" && <VatDetailTab />}
       {tab === "customer-subledger" && <CustomerSubledgerTab initialPartnerId={deepLinkPartnerId} />}
       {tab === "vendor-subledger" && <VendorSubledgerTab initialPartnerId={deepLinkPartnerId} />}
       {tab === "ar-aging" && <ArAgingTab />}

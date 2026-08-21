@@ -60,6 +60,7 @@ ACCOUNT_CODE_SALES_REVENUE = "4100"
 ACCOUNT_CODE_VAT_PAYABLE = "2200"
 ACCOUNT_CODE_INVENTORY = "1300"
 ACCOUNT_CODE_COGS = "5100"
+ACCOUNT_CODE_INVENTORY_VARIANCE = "5150"
 
 
 class QuotationService:
@@ -983,8 +984,9 @@ class SalesInvoiceService:
             return
 
         total_cost = Decimal("0")
+        total_valuation_variance = Decimal("0")
         for move in delivery_moves:
-            await self.inventory_service.receive_stock(
+            _move, variance = await self.inventory_service.receive_stock(
                 company_id=credit_note.company_id,
                 product_id=move.product_id,
                 location_id=move.source_location_id,
@@ -996,30 +998,94 @@ class SalesInvoiceService:
                 move_type="return",
             )
             total_cost += (move.qty * move.unit_cost).quantize(Decimal("0.0001"))
+            total_valuation_variance += variance
 
-        if total_cost <= 0:
-            return
+        if total_cost > 0:
+            cogs_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_COGS)
+            inventory_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_INVENTORY)
+            if not (cogs_account and inventory_account):
+                raise ValueError("Default Chart of Accounts is not seeded for this company")
 
-        cogs_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_COGS)
-        inventory_account = await self.account_repo.get_by_code(credit_note.company_id, ACCOUNT_CODE_INVENTORY)
-        if not (cogs_account and inventory_account):
+            entry = await self.journal_entry_service.create_draft_entry(
+                company_id=credit_note.company_id,
+                branch_id=branch_id,
+                journal_code="GEN",
+                entry_date=credit_note.invoice_date,
+                reference=f"Inventory return for {credit_note.number}",
+                lines=[
+                    {"account_id": inventory_account.id, "debit": total_cost, "credit": 0},
+                    {"account_id": cogs_account.id, "debit": 0, "credit": total_cost},
+                ],
+                created_by=created_by,
+                source_table="sales_invoice",
+                source_id=credit_note.id,
+            )
+            await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=credit_note.company_id)
+
+        # Owner-reported bug: a restock that brings a negative position
+        # (oversold via FR-INV-007) to EXACTLY zero can't carry its true
+        # blended value in a qty*avg register -- see
+        # `InventoryValuationService.receive_stock`'s own comment. Posted
+        # explicitly instead of letting the register silently drift from
+        # the GL.
+        if total_valuation_variance != 0:
+            await self._post_inventory_valuation_variance(
+                company_id=credit_note.company_id,
+                branch_id=branch_id,
+                created_by=created_by,
+                entry_date=credit_note.invoice_date,
+                reference=credit_note.number,
+                variance=total_valuation_variance,
+                source_id=credit_note.id,
+            )
+
+    async def _post_inventory_valuation_variance(
+        self,
+        *,
+        company_id: UUID,
+        branch_id: UUID,
+        created_by: UUID,
+        entry_date: date,
+        reference: str,
+        variance: Decimal,
+        source_id: UUID,
+    ) -> None:
+        """Shared by both restock paths below: posts the residual
+        `receive_stock` returned against the Inventory Valuation Variance
+        (5150) account, Dr/Cr Inventory for the same amount, so the GL
+        stays reconciled to what the register can represent. Mirrors
+        PurchaseOrderService's own copy of this (no shared module for it —
+        matches this codebase's existing convention of small per-module
+        account-code constants rather than a new cross-module dependency)."""
+        inventory_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_INVENTORY)
+        variance_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_INVENTORY_VARIANCE)
+        if not (inventory_account and variance_account):
             raise ValueError("Default Chart of Accounts is not seeded for this company")
 
+        amount = abs(variance)
+        if variance > 0:
+            lines = [
+                {"account_id": inventory_account.id, "debit": 0, "credit": amount},
+                {"account_id": variance_account.id, "debit": amount, "credit": 0},
+            ]
+        else:
+            lines = [
+                {"account_id": inventory_account.id, "debit": amount, "credit": 0},
+                {"account_id": variance_account.id, "debit": 0, "credit": amount},
+            ]
+
         entry = await self.journal_entry_service.create_draft_entry(
-            company_id=credit_note.company_id,
+            company_id=company_id,
             branch_id=branch_id,
             journal_code="GEN",
-            entry_date=credit_note.invoice_date,
-            reference=f"Inventory return for {credit_note.number}",
-            lines=[
-                {"account_id": inventory_account.id, "debit": total_cost, "credit": 0},
-                {"account_id": cogs_account.id, "debit": 0, "credit": total_cost},
-            ],
+            entry_date=entry_date,
+            reference=f"Inventory valuation variance for {reference}",
+            lines=lines,
             created_by=created_by,
             source_table="sales_invoice",
-            source_id=credit_note.id,
+            source_id=source_id,
         )
-        await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=credit_note.company_id)
+        await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=company_id)
 
     async def _restock_for_credit_note_lines(
         self,
@@ -1075,6 +1141,7 @@ class SalesInvoiceService:
                     original_cost_by_product[move.product_id] = move.unit_cost
 
         total_cost = Decimal("0")
+        total_valuation_variance = Decimal("0")
         any_restocked = False
         for line in lines:
             product = await self.product_repo.get_by_id(line.product_id)
@@ -1088,7 +1155,7 @@ class SalesInvoiceService:
             if unit_cost <= 0:
                 continue
 
-            await self.inventory_service.receive_stock(
+            _move, variance = await self.inventory_service.receive_stock(
                 company_id=credit_note.company_id,
                 product_id=line.product_id,
                 location_id=location.id,
@@ -1100,7 +1167,21 @@ class SalesInvoiceService:
                 move_type="return",
             )
             total_cost += (line.qty * unit_cost).quantize(Decimal("0.0001"))
+            total_valuation_variance += variance
             any_restocked = True
+
+        if any_restocked and total_valuation_variance != 0:
+            # Owner-reported bug: see _restock_for_credit_note's own
+            # comment on the same fix.
+            await self._post_inventory_valuation_variance(
+                company_id=credit_note.company_id,
+                branch_id=branch_id,
+                created_by=created_by,
+                entry_date=credit_note.invoice_date,
+                reference=credit_note.number,
+                variance=total_valuation_variance,
+                source_id=credit_note.id,
+            )
 
         if not any_restocked or total_cost <= 0:
             return

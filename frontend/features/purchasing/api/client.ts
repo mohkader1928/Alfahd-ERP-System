@@ -110,8 +110,19 @@ export const purchasingApi = {
   approveVendorBill: (companyId: string, id: string) =>
     apiClient.post<VendorBill>(`${BASE}/vendor-bills/${id}:approve`, undefined, { companyId }),
 
-  issueDebitNote: (companyId: string, branchId: string, id: string, reason: string, restock = true) =>
-    apiClient.post<VendorBill>(`${BASE}/vendor-bills/${id}:debit-note`, { reason, restock }, { companyId, branchId }),
+  issueDebitNote: (
+    companyId: string,
+    branchId: string,
+    id: string,
+    reason: string,
+    restock = true,
+    idempotencyKey?: string
+  ) =>
+    apiClient.post<VendorBill>(
+      `${BASE}/vendor-bills/${id}:debit-note`,
+      { reason, restock },
+      { companyId, branchId, headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }
+    ),
 
   issueDebitNoteForLines: (
     companyId: string,
@@ -122,8 +133,14 @@ export const purchasingApi = {
       reason: string;
       restock: boolean;
       lines: PurchaseOrderLineIn[];
-    }
-  ) => apiClient.post<VendorBill>(`${BASE}/vendor-bills:return`, payload, { companyId, branchId }),
+    },
+    idempotencyKey?: string
+  ) =>
+    apiClient.post<VendorBill>(`${BASE}/vendor-bills:return`, payload, {
+      companyId,
+      branchId,
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    }),
 
   getVendorBill: (companyId: string, id: string) =>
     apiClient.get<VendorBillDetail>(`${BASE}/vendor-bills/${id}`, { companyId }),

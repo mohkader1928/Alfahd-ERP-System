@@ -88,6 +88,7 @@ class InventoryValuationService:
         product_repo: ProductRepository | None = None,
         role_repo: RoleRepository | None = None,
         notification_repo: NotificationRepository | None = None,
+        location_repo: LocationRepository | None = None,
     ):
         self.quant_repo = quant_repo
         self.layer_repo = layer_repo
@@ -98,6 +99,9 @@ class InventoryValuationService:
         self.role_repo = role_repo
         self.notification_repo = notification_repo
         self.move_repo = move_repo
+        # Optional — only product_cardex's warehouse-per-line enrichment
+        # uses this; every other call site is unaffected by omitting it.
+        self.location_repo = location_repo
 
     async def receive_stock(
         self,
@@ -111,7 +115,10 @@ class InventoryValuationService:
         source_table: str,
         source_id: UUID,
         move_type: str | None = None,
-    ) -> StockMove:
+    ) -> tuple[StockMove, Decimal]:
+        """Returns (move, valuation_variance). `valuation_variance` is
+        almost always zero -- see the note below for the one real case
+        where it isn't, and what the caller is expected to do with it."""
         if qty <= 0:
             raise ValueError("Received quantity must be positive")
 
@@ -120,6 +127,7 @@ class InventoryValuationService:
         # starting qty_on_hand and one write silently overwrites the other's.
         quant = await self.quant_repo.get_or_create_for_update(company_id, product_id, location_id)
 
+        valuation_variance = Decimal("0")
         if valuation_method == "fifo":
             layer = StockLayer(
                 id=uuid.uuid4(),
@@ -151,23 +159,42 @@ class InventoryValuationService:
             # the valuation report while the GL (which always posts a
             # receipt's true value regardless of the resulting quantity)
             # correctly kept it, producing a real, silent, growing gap
-            # between Inventory Valuation and the Trial Balance. `!= 0`
-            # only skips the division at the single genuinely undefined
-            # point (new_total_qty exactly zero, where the resulting value
-            # is 0 regardless of what average is stored, so nothing is
-            # lost by leaving the stale average in place until the next
-            # receipt overwrites it).
+            # between Inventory Valuation and the Trial Balance.
+            #
+            # `!= 0` still leaves ONE genuinely unrepresentable case: a
+            # receipt that brings a negative position to EXACTLY zero.
+            # `old_qty*old_avg + qty*unit_cost` can be any nonzero number
+            # there (old_avg and unit_cost are independent costs), but
+            # `qty_on_hand` is now 0, and 0 * anything == 0 -- there is no
+            # `moving_avg_cost` that can carry a nonzero value at zero
+            # quantity. That true-but-unrepresentable amount is real money
+            # that already flowed through the GL (every receive/issue posts
+            # its own exact value): a positive residual means the negative
+            # period's issues understated COGS relative to this receipt's
+            # replacement cost; a negative residual means they overstated
+            # it. Found live: a real company off by SAR 31,250.56 on a
+            # single such crossing. Returned to the caller as
+            # `valuation_variance` rather than silently dropped -- the
+            # caller posts it against the new Inventory Valuation Variance
+            # account (see purchasing/sales callers) so the GL keeps
+            # matching this register exactly instead of drifting.
             #
             # Quantized to SIX_DP explicitly (not left to the column's
             # implicit truncation) because this is an ITERATIVE recompute —
             # each result becomes the next receipt's own input, so any
             # per-step rounding error would otherwise compound across a
             # product's whole receiving history.
-            new_total_qty = quant.qty_on_hand + qty
+            old_qty = quant.qty_on_hand
+            old_avg = quant.moving_avg_cost
+            new_total_qty = old_qty + qty
             if new_total_qty != 0:
                 quant.moving_avg_cost = (
-                    ((quant.qty_on_hand * quant.moving_avg_cost) + (qty * unit_cost)) / new_total_qty
+                    ((old_qty * old_avg) + (qty * unit_cost)) / new_total_qty
                 ).quantize(SIX_DP, rounding=ROUND_HALF_UP)
+            else:
+                valuation_variance = ((old_qty * old_avg) + (qty * unit_cost)).quantize(
+                    Decimal("0.0001"), rounding=ROUND_HALF_UP
+                )
 
         quant.qty_on_hand += qty
 
@@ -183,7 +210,8 @@ class InventoryValuationService:
             source_table=source_table,
             source_id=source_id,
         )
-        return await self.move_repo.add(move)
+        added = await self.move_repo.add(move)
+        return added, valuation_variance
 
     async def issue_stock(
         self,
@@ -233,6 +261,33 @@ class InventoryValuationService:
             layer_by_id = {row.id: row for row in layer_rows}
             for layer_id, qty_consumed in result.consumed:
                 layer_by_id[layer_id].qty_remaining -= qty_consumed
+
+        # Real gap found live on a real company's books (Inventory
+        # Valuation vs GL, off by tens of thousands of SAR on ~150M SAR of
+        # throughput): `compute_issue_cost` rounds `total_cost` to 4dp
+        # (matching `journal_entry_line`'s Numeric(18,4) column) for the
+        # caller's COGS/GRNI journal entry, but this quant's own
+        # `moving_avg_cost` carries 6dp and was left untouched -- so the
+        # register's implicit remaining value (qty_on_hand * moving_avg_cost,
+        # unrounded) silently diverged from what was actually posted to the
+        # GL (the rounded total_cost) on every single issue. Over hundreds
+        # of large-quantity deliveries/returns, that per-transaction
+        # sub-cent rounding compounded into a material, permanent gap.
+        # `receive_stock` never has this problem because it recomputes
+        # `moving_avg_cost` itself from conserved total value; issues need
+        # the same discipline, conserving against the exact `total_cost`
+        # that will actually be journaled rather than assuming "value
+        # removed == qty * old_avg" exactly. FIFO is unaffected -- its
+        # valuation truth lives in `StockLayer.qty_remaining * unit_cost`,
+        # not this quant's moving_avg_cost, which valuation() never reads
+        # for a fifo company.
+        if valuation_method != "fifo":
+            old_qty = quant.qty_on_hand
+            old_avg = quant.moving_avg_cost
+            new_qty = old_qty - qty
+            if new_qty != 0:
+                quant.moving_avg_cost = ((old_qty * old_avg) - result.total_cost) / new_qty
+                quant.moving_avg_cost = quant.moving_avg_cost.quantize(SIX_DP, rounding=ROUND_HALF_UP)
 
         quant.qty_on_hand -= qty
 
@@ -326,12 +381,37 @@ class InventoryValuationService:
             source_table=source_table,
         )
 
+        # Owner request: show which warehouse each cardex line actually
+        # touched. Same "dest wins, else source" rule signed_qty already
+        # uses below -- the location that determines the sign is the one
+        # meaningful warehouse for a receipt/delivery; a transfer's two
+        # legs each get their own move row already, so this never has to
+        # pick between two different warehouses for one line.
+        warehouse_by_location: dict[UUID, tuple[UUID, str]] = {}
+        if self.location_repo is not None:
+            location_ids = {
+                (move.dest_location_id or move.source_location_id)
+                for move in moves
+                if move.dest_location_id or move.source_location_id
+            }
+            warehouse_by_location = await self.location_repo.warehouse_names_by_location(list(location_ids))
+
         running = opening
         lines = []
         for move in moves:
             signed_qty = move.qty if move.dest_location_id is not None else -move.qty
             running = running + signed_qty
-            lines.append({"move": move, "signed_qty": signed_qty, "running_qty": running})
+            location_id = move.dest_location_id or move.source_location_id
+            warehouse_id_, warehouse_name = warehouse_by_location.get(location_id, (None, None))
+            lines.append(
+                {
+                    "move": move,
+                    "signed_qty": signed_qty,
+                    "running_qty": running,
+                    "warehouse_id": warehouse_id_,
+                    "warehouse_name": warehouse_name,
+                }
+            )
 
         return {"opening_qty": opening, "lines": lines, "closing_qty": running}
 

@@ -10,17 +10,18 @@ import {
   TableBody,
   TableCell,
   TableFooter,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
+import { SortableTableHead } from "@/components/erp/report-view/sortable-table-head";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { reportingApi } from "@/features/reporting/api/client";
 import { formatCurrency } from "@/lib/format-currency";
 import { reportExportHandlers } from "@/lib/report-export";
+import { useSortedRows } from "@/lib/use-sorted-rows";
 import type {
   SalesByCustomerRow,
   SalesByPeriodRow,
@@ -104,6 +105,16 @@ function ByCustomerTab() {
     }),
     { invoice_count: 0, subtotal: 0, tax_amount: 0, total: 0, payments_received: 0, balance: 0 }
   );
+  const { sort, toggleSort, sortedRows } = useSortedRows(rows, {
+    partner_name: (r) => r.partner_name,
+    invoice_count: (r) => r.invoice_count,
+    subtotal: (r) => Number(r.subtotal),
+    tax_amount: (r) => Number(r.tax_amount),
+    total: (r) => Number(r.total),
+    payments_received: (r) => Number(r.payments_received),
+    balance: (r) => Number(r.balance),
+  });
+  const displayRows = sortedRows ?? rows;
 
   return (
     <ReportView
@@ -153,17 +164,31 @@ function ByCustomerTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("sales.reports.customer.partner_name")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.customer.invoice_count")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.customer.subtotal")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.customer.tax")}</TableHead>
-                <TableHead className="text-end font-semibold">{t("sales.reports.customer.total")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.customer.payments_received")}</TableHead>
-                <TableHead className="text-end font-semibold">{t("sales.reports.customer.balance")}</TableHead>
+                <SortableTableHead sortKey="partner_name" sort={sort} onSort={toggleSort}>
+                  {t("sales.reports.customer.partner_name")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="invoice_count" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.customer.invoice_count")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="subtotal" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.customer.subtotal")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="tax_amount" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.customer.tax")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="total" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("sales.reports.customer.total")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="payments_received" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.customer.payments_received")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="balance" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("sales.reports.customer.balance")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {displayRows.map((row) => (
                 <TableRow key={row.partner_id}>
                   <TableCell className="font-medium">{row.partner_name}</TableCell>
                   <TableCell className="text-end tabular-nums">{row.invoice_count}</TableCell>
@@ -218,6 +243,15 @@ function ByProductTab() {
     }),
     { qty_sold: 0, subtotal: 0, tax_amount: 0, total: 0 }
   );
+  const { sort, toggleSort, sortedRows } = useSortedRows(rows, {
+    product_code: (r) => r.product_code ?? "",
+    product_name: (r) => r.product_name,
+    qty_sold: (r) => Number(r.qty_sold),
+    subtotal: (r) => Number(r.subtotal),
+    tax_amount: (r) => Number(r.tax_amount),
+    total: (r) => Number(r.total),
+  });
+  const displayRows = sortedRows ?? rows;
 
   return (
     <ReportView
@@ -267,16 +301,28 @@ function ByProductTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("sales.reports.product.product_code")}</TableHead>
-                <TableHead>{t("sales.reports.product.product_name")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.product.qty_sold")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.product.subtotal")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.product.tax")}</TableHead>
-                <TableHead className="text-end font-semibold">{t("sales.reports.product.total")}</TableHead>
+                <SortableTableHead sortKey="product_code" sort={sort} onSort={toggleSort}>
+                  {t("sales.reports.product.product_code")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="product_name" sort={sort} onSort={toggleSort}>
+                  {t("sales.reports.product.product_name")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="qty_sold" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.product.qty_sold")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="subtotal" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.product.subtotal")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="tax_amount" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.product.tax")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="total" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("sales.reports.product.total")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {displayRows.map((row) => (
                 <TableRow key={row.product_id}>
                   <TableCell className="font-mono text-xs text-muted-foreground">{row.product_code || "—"}</TableCell>
                   <TableCell className="font-medium">{row.product_name}</TableCell>
@@ -328,6 +374,14 @@ function ByPeriodTab() {
     }),
     { invoice_count: 0, subtotal: 0, tax_amount: 0, total: 0 }
   );
+  const { sort, toggleSort, sortedRows } = useSortedRows(rows, {
+    period_label: (r) => r.period_label,
+    invoice_count: (r) => r.invoice_count,
+    subtotal: (r) => Number(r.subtotal),
+    tax_amount: (r) => Number(r.tax_amount),
+    total: (r) => Number(r.total),
+  });
+  const displayRows = sortedRows ?? rows;
 
   return (
     <ReportView
@@ -377,15 +431,25 @@ function ByPeriodTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("sales.reports.period.period")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.period.invoice_count")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.period.subtotal")}</TableHead>
-                <TableHead className="text-end">{t("sales.reports.period.tax")}</TableHead>
-                <TableHead className="text-end font-semibold">{t("sales.reports.period.total")}</TableHead>
+                <SortableTableHead sortKey="period_label" sort={sort} onSort={toggleSort}>
+                  {t("sales.reports.period.period")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="invoice_count" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.period.invoice_count")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="subtotal" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.period.subtotal")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="tax_amount" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.period.tax")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="total" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("sales.reports.period.total")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {displayRows.map((row) => (
                 <TableRow key={row.period_label}>
                   <TableCell className="font-medium tabular-nums">{row.period_label}</TableCell>
                   <TableCell className="text-end tabular-nums">{row.invoice_count}</TableCell>

@@ -2,17 +2,19 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
+import { SortableTableHead } from "@/components/erp/report-view/sortable-table-head";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { fixedAssetsApi } from "@/features/fixed-assets/api/client";
 import { formatCurrency } from "@/lib/format-currency";
 import { reportExportHandlers } from "@/lib/report-export";
+import { useSortedRows } from "@/lib/use-sorted-rows";
 
 /** Owner-standing requirement: the fixed asset register must always tie
  * out to the same GL accounts Trial Balance reads — this is the same
@@ -32,6 +34,16 @@ export function FixedAssetsReconciliationTab() {
     enabled: !!ranAt,
   });
   const r = reportQuery.data;
+  const { sort, toggleSort, sortedRows } = useSortedRows(r?.accounts, {
+    account_code: (row) => row.account_code,
+    account_name: (row) => row.account_name,
+    register_total: (row) => Number(row.register_total),
+    gl_balance: (row) => Number(row.gl_balance),
+    difference: (row) => Number(row.difference),
+    matches: (row) =>
+      row.matches ? t("fixed_assets.reconciliation.matched") : t("fixed_assets.reconciliation.mismatched"),
+  });
+  const accountRows = sortedRows ?? r?.accounts ?? [];
 
   return (
     <ReportView
@@ -81,23 +93,35 @@ export function FixedAssetsReconciliationTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("accounting.accounts.code")}</TableHead>
-                <TableHead>{t("accounting.accounts.name")}</TableHead>
-                <TableHead className="text-end">{t("fixed_assets.reconciliation.register_total")}</TableHead>
-                <TableHead className="text-end">{t("fixed_assets.reconciliation.gl_balance")}</TableHead>
-                <TableHead className="text-end">{t("fixed_assets.reconciliation.difference")}</TableHead>
-                <TableHead>{t("fixed_assets.status")}</TableHead>
+                <SortableTableHead sortKey="account_code" sort={sort} onSort={toggleSort}>
+                  {t("accounting.accounts.code")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="account_name" sort={sort} onSort={toggleSort}>
+                  {t("accounting.accounts.name")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="register_total" sort={sort} onSort={toggleSort} align="end">
+                  {t("fixed_assets.reconciliation.register_total")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="gl_balance" sort={sort} onSort={toggleSort} align="end">
+                  {t("fixed_assets.reconciliation.gl_balance")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="difference" sort={sort} onSort={toggleSort} align="end">
+                  {t("fixed_assets.reconciliation.difference")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="matches" sort={sort} onSort={toggleSort}>
+                  {t("fixed_assets.status")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {r.accounts.length === 0 && (
+              {accountRows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground">
                     {t("common.empty")}
                   </TableCell>
                 </TableRow>
               )}
-              {r.accounts.map((row) => (
+              {accountRows.map((row) => (
                 <TableRow key={row.account_id}>
                   <TableCell className="font-mono">{row.account_code}</TableCell>
                   <TableCell>{row.account_name}</TableCell>

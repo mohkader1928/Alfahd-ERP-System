@@ -60,6 +60,9 @@ _LABELS: dict[str, dict[str, str]] = {
         "liability": "التزامات",
         "equity": "حقوق الملكية",
         "expense": "مصروفات",
+        "number": "رقم المستند",
+        "partner": "العميل / المورد",
+        "vat_amount": "قيمة الضريبة",
     },
     "en": {
         "account": "Account",
@@ -117,6 +120,9 @@ _LABELS: dict[str, dict[str, str]] = {
         "liability": "Liabilities",
         "equity": "Equity",
         "expense": "Expenses",
+        "number": "Document No.",
+        "partner": "Customer / Vendor",
+        "vat_amount": "VAT Amount",
     },
 }
 
@@ -136,6 +142,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "purchases_by_supplier": "المشتريات حسب المورد",
         "product_cardex": "بطاقة الصنف القياسية",
         "vat_summary": "ملخص ضريبة القيمة المضافة",
+        "vat_detail": "تقرير ضريبة القيمة المضافة التفصيلي",
         "inventory_valuation": "تقييم المخزون",
         "fixed_asset_card": "بطاقة الأصل الثابت",
         "fixed_assets_reconciliation": "تسوية الأصول الثابتة مع الأستاذ العام",
@@ -158,6 +165,7 @@ _TITLES: dict[str, dict[str, str]] = {
         "purchases_by_supplier": "Purchases by Supplier",
         "product_cardex": "Standard Product Cardex",
         "vat_summary": "VAT Summary",
+        "vat_detail": "VAT Detail Report",
         "inventory_valuation": "Inventory Valuation",
         "fixed_asset_card": "Fixed Asset Card",
         "fixed_assets_reconciliation": "Fixed Assets Reconciliation to GL",

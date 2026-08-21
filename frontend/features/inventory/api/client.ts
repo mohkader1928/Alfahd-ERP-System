@@ -7,6 +7,7 @@ import type {
   LowStockRow,
   ProductCardex,
   StockBalance,
+  StockBalanceByProduct,
   StockMove,
   StockQuant,
   Warehouse,
@@ -36,6 +37,9 @@ export const inventoryApi = {
       `${BASE}/stock/balance?product_id=${productId}&warehouse_id=${warehouseId}`,
       { companyId }
     ),
+
+  getStockBalanceByProduct: (companyId: string, productId: string) =>
+    apiClient.get<StockBalanceByProduct>(`${BASE}/stock/balance-by-product?product_id=${productId}`, { companyId }),
 
   listStockMoves: (companyId: string, productId?: string) =>
     apiClient.get<StockMove[]>(`${BASE}/stock/moves${productId ? `?product_id=${productId}` : ""}`, { companyId }),

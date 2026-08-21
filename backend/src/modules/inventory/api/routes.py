@@ -36,6 +36,8 @@ from src.modules.inventory.api.deps import (
     get_warehouse_repo,
     require_permission,
 )
+from src.modules.purchasing.infrastructure.repositories import GoodsReceiptRepository, VendorBillRepository
+from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
 from src.modules.inventory.api.schemas import (
     CardexLineOut,
     CycleCountCreateRequest,
@@ -43,6 +45,8 @@ from src.modules.inventory.api.schemas import (
     CycleCountOut,
     LowStockRowOut,
     ProductCardexResponse,
+    StockBalanceByProductOut,
+    StockBalanceByWarehouseOut,
     StockBalanceOut,
     StockMoveOut,
     StockQuantOut,
@@ -80,6 +84,7 @@ router = APIRouter()
 
 ACCOUNT_CODE_INVENTORY = "1300"
 ACCOUNT_CODE_ADJUSTMENT = "5200"
+ACCOUNT_CODE_INVENTORY_VARIANCE = "5150"
 
 
 @router.post("/warehouses", response_model=WarehouseCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -145,7 +150,11 @@ async def receive_stock(
 ):
     service = InventoryValuationService(quant_repo, layer_repo, move_repo)
     try:
-        move = await service.receive_stock(
+        # Manual receive posts no journal entry at all today (see this
+        # module's own docstring), so there is no GL to keep a valuation
+        # variance reconciled against here -- discard it, same as any
+        # other GL-neutral path.
+        move, _variance = await service.receive_stock(
             company_id=ctx.company_id,
             product_id=payload.product_id,
             location_id=payload.location_id,
@@ -184,6 +193,38 @@ async def get_stock_balance(
     to every document-editing screen."""
     qty = await quant_repo.qty_on_hand_for_product_in_warehouse(ctx.company_id, product_id, warehouse_id)
     return StockBalanceOut(product_id=product_id, warehouse_id=warehouse_id, qty_on_hand=qty)
+
+
+@router.get("/stock/balance-by-product", response_model=StockBalanceByProductOut)
+async def get_stock_balance_by_product(
+    product_id: UUID,
+    ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
+    quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
+    warehouse_repo: WarehouseRepository = Depends(get_warehouse_repo),
+):
+    """Owner request: a single product's balance across every warehouse
+    at once (unlike /stock/balance, which is scoped to one warehouse),
+    with the grand total across all of them -- every warehouse the
+    company has is listed, even ones this product currently has zero
+    stock in, so the report reads as complete rather than silently
+    omitting rows."""
+    warehouses = await warehouse_repo.list_by_company(ctx.company_id)
+    qty_by_warehouse = await quant_repo.qty_on_hand_by_warehouse_for_product(ctx.company_id, product_id)
+    by_warehouse = sorted(
+        (
+            StockBalanceByWarehouseOut(
+                warehouse_id=w.id,
+                warehouse_name=w.name,
+                qty_on_hand=qty_by_warehouse.get(w.id, Decimal("0.000000")),
+            )
+            for w in warehouses
+        ),
+        key=lambda row: row.warehouse_name,
+    )
+    total_qty_on_hand = sum((row.qty_on_hand for row in by_warehouse), Decimal("0"))
+    return StockBalanceByProductOut(
+        product_id=product_id, total_qty_on_hand=total_qty_on_hand, by_warehouse=by_warehouse
+    )
 
 
 @router.get("/stock/low-stock", response_model=list[LowStockRowOut])
@@ -242,14 +283,28 @@ async def product_cardex(
     quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
     layer_repo: StockLayerRepository = Depends(get_stock_layer_repo),
     move_repo: StockMoveRepository = Depends(get_stock_move_repo),
+    location_repo: LocationRepository = Depends(get_location_repo),
     product_repo: ProductRepository = Depends(get_product_repo),
     company_repo: CompanyRepository = Depends(get_company_repo),
+    db: AsyncSession = Depends(get_db),
 ):
     """Bundle E — standard product cardex (Owner-requested): opening qty,
     every move in range with a running balance, closing qty. Optional
     warehouse and document-type (source_table) filters narrow the inquiry,
-    matching how Accounting's General Ledger already filters by account."""
-    service = InventoryValuationService(quant_repo, layer_repo, move_repo)
+    matching how Accounting's General Ledger already filters by account.
+    Each line also carries the source document's own number and the
+    warehouse it touched (Owner request), resolved via the owning
+    module's own repository classes constructed directly off this
+    request's session -- deliberately NOT via Sales/Purchasing's own
+    `api.deps` providers, since those modules' deps.py files themselves
+    import back into Inventory (for GL-posting orchestration), and
+    importing them here at module load time creates a circular import
+    that only "resolves" by accident of whichever module the app happens
+    to import first."""
+    sales_invoice_repo = SalesInvoiceRepository(db)
+    vendor_bill_repo = VendorBillRepository(db)
+    goods_receipt_repo = GoodsReceiptRepository(db)
+    service = InventoryValuationService(quant_repo, layer_repo, move_repo, location_repo=location_repo)
     result = await service.product_cardex(
         company_id=ctx.company_id,
         product_id=product_id,
@@ -257,6 +312,9 @@ async def product_cardex(
         date_to=date_to,
         warehouse_id=warehouse_id,
         source_table=source_table,
+    )
+    document_numbers = await _resolve_cardex_document_numbers(
+        result["lines"], sales_invoice_repo, vendor_bill_repo, goods_receipt_repo
     )
     if format == "json":
         return ProductCardexResponse(
@@ -270,6 +328,9 @@ async def product_cardex(
                     move_type=line["move"].move_type,
                     source_table=line["move"].source_table,
                     source_id=line["move"].source_id,
+                    document_number=document_numbers.get(line["move"].source_id),
+                    warehouse_id=line["warehouse_id"],
+                    warehouse_name=line["warehouse_name"],
                     qty=line["move"].qty,
                     unit_cost=line["move"].unit_cost,
                     signed_qty=line["signed_qty"],
@@ -286,6 +347,8 @@ async def product_cardex(
             format_date_str(line["move"].moved_at),
             line["move"].move_type,
             line["move"].source_table,
+            document_numbers.get(line["move"].source_id) or "",
+            line["warehouse_name"] or "",
             format_qty(line["signed_qty"]),
             format_amount(line["move"].unit_cost),
             format_qty(line["running_qty"]),
@@ -300,18 +363,48 @@ async def product_cardex(
             ReportColumn(label(lang, "date")),
             ReportColumn(label(lang, "type")),
             ReportColumn(label(lang, "source")),
+            ReportColumn(label(lang, "number")),
+            ReportColumn(label(lang, "warehouse")),
             ReportColumn(label(lang, "qty"), "end"),
             ReportColumn(label(lang, "unit_cost"), "end"),
             ReportColumn(label(lang, "running_qty"), "end"),
         ],
         rows=[
-            ["", "", label(lang, "opening_balance"), "", "", format_qty(result["opening_qty"])],
+            ["", "", label(lang, "opening_balance"), "", "", "", "", format_qty(result["opening_qty"])],
             *table_rows,
         ],
-        totals=["", "", label(lang, "closing_balance"), "", "", format_qty(result["closing_qty"])],
+        totals=["", "", label(lang, "closing_balance"), "", "", "", "", format_qty(result["closing_qty"])],
         rtl=lang == "ar",
     )
     return build_export_response(format, f"product-cardex-{product_name}", table)
+
+
+async def _resolve_cardex_document_numbers(
+    lines: list[dict],
+    sales_invoice_repo: SalesInvoiceRepository,
+    vendor_bill_repo: VendorBillRepository,
+    goods_receipt_repo: GoodsReceiptRepository,
+) -> dict[UUID, str]:
+    """Owner request (Product Cardex detail): resolve each line's
+    `source_id` to a human-readable document number. Only the source
+    tables that actually back a real numbered document resolve to
+    anything -- cycle_count_line/manual_receipt/stock_transfer have no
+    document number anywhere in the schema, so those lines simply show
+    none (frontend falls back to the type label alone), same as
+    `sourceDocumentHref` already has no entry for them."""
+    ids_by_table: dict[str, set[UUID]] = {}
+    for line in lines:
+        move = line["move"]
+        ids_by_table.setdefault(move.source_table, set()).add(move.source_id)
+
+    numbers: dict[UUID, str] = {}
+    if "sales_invoice" in ids_by_table:
+        numbers.update(await sales_invoice_repo.numbers_for_ids(list(ids_by_table["sales_invoice"])))
+    if "vendor_bill" in ids_by_table:
+        numbers.update(await vendor_bill_repo.numbers_for_ids(list(ids_by_table["vendor_bill"])))
+    if "goods_receipt_line" in ids_by_table:
+        numbers.update(await goods_receipt_repo.numbers_for_lines(list(ids_by_table["goods_receipt_line"])))
+    return numbers
 
 
 @router.post("/transfers", response_model=list[StockMoveOut], status_code=status.HTTP_201_CREATED)
@@ -343,7 +436,11 @@ async def create_transfer(
             move_type="transfer",
         )
         unit_cost = cost / payload.qty if payload.qty > 0 else 0
-        receive_move = await service.receive_stock(
+        # A transfer posts no journal entry at all (same account both legs
+        # would touch -- see this endpoint's own docstring), so there is
+        # no GL to keep a valuation variance reconciled against -- discard
+        # it, same as manual receive above.
+        receive_move, _variance = await service.receive_stock(
             company_id=ctx.company_id,
             product_id=payload.product_id,
             location_id=payload.dest_location_id,
@@ -449,13 +546,14 @@ async def approve_cycle_count(
     # and what a reviewer actually wants to see in the ledger (one line
     # item to approve/audit, not N).
     net_value = Decimal("0")  # positive = net increase (Dr Inventory), negative = net decrease
+    net_valuation_variance = Decimal("0")
 
     for line in lines:
         diff = line.counted_qty - line.system_qty
         if diff == 0:
             continue
         if diff > 0:
-            move = await inv_service.receive_stock(
+            move, variance = await inv_service.receive_stock(
                 company_id=ctx.company_id,
                 product_id=line.product_id,
                 location_id=line.location_id,
@@ -466,6 +564,7 @@ async def approve_cycle_count(
                 source_id=line.id,
             )
             net_value += move.qty * move.unit_cost
+            net_valuation_variance += variance
         else:
             move, cost = await inv_service.issue_stock(
                 company_id=ctx.company_id,
@@ -507,6 +606,41 @@ async def approve_cycle_count(
             source_id=cycle_count.id,
         )
         await journal_service.post_entry(entry_id=entry.id, company_id=ctx.company_id)
+
+    if net_valuation_variance != 0:
+        # Owner-reported bug: a count that brings a negative position
+        # (oversold via FR-INV-007) to EXACTLY zero can't carry its true
+        # blended value in a qty*avg register -- see
+        # `InventoryValuationService.receive_stock`'s own comment. Posted
+        # explicitly instead of letting the register silently drift from
+        # the GL.
+        variance_account = await account_repo.get_by_code(ctx.company_id, ACCOUNT_CODE_INVENTORY_VARIANCE)
+        if variance_account is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Default Chart of Accounts is not seeded")
+        amount = abs(net_valuation_variance)
+        variance_lines = (
+            [
+                {"account_id": inventory_account.id, "debit": 0, "credit": amount},
+                {"account_id": variance_account.id, "debit": amount, "credit": 0},
+            ]
+            if net_valuation_variance > 0
+            else [
+                {"account_id": inventory_account.id, "debit": amount, "credit": 0},
+                {"account_id": variance_account.id, "debit": 0, "credit": amount},
+            ]
+        )
+        variance_entry = await journal_service.create_draft_entry(
+            company_id=ctx.company_id,
+            branch_id=ctx.branch_id,
+            journal_code="GEN",
+            entry_date=cycle_count.scheduled_date,
+            reference=f"Inventory valuation variance for cycle count {cycle_count.id}",
+            lines=variance_lines,
+            created_by=ctx.user_id,
+            source_table="cycle_count",
+            source_id=cycle_count.id,
+        )
+        await journal_service.post_entry(entry_id=variance_entry.id, company_id=ctx.company_id)
 
     cycle_count.status = "approved"
     await db.commit()

@@ -222,3 +222,131 @@ async def test_vat_summary_requires_permission(client):
         "/api/v1/reporting/vat-summary", params={"date_from": "2026-01-01", "date_to": "2026-12-31"}
     )
     assert resp.status_code == 401
+
+
+async def test_vat_detail_lists_documents_reconciling_to_summary(client):
+    """Owner-requested companion to VAT Summary: a document-level listing
+    whose totals must reproduce the exact figures /vat-summary returns,
+    so the net VAT payable number can be traced back to individual
+    invoices/bills rather than trusted blind."""
+    today = date.today()
+    _, headers = await _bootstrap_and_login(client)
+    invoice = await _issue_sale(client, headers, invoice_date=today.isoformat())
+    bill = await _post_vendor_bill(client, headers, bill_date=today.isoformat())
+
+    summary_resp = await client.get(
+        "/api/v1/reporting/vat-summary",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    summary = summary_resp.json()
+
+    detail_resp = await client.get(
+        "/api/v1/reporting/vat-detail",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    assert detail_resp.status_code == 200, detail_resp.text
+    lines = detail_resp.json()
+    assert len(lines) == 2
+
+    invoice_line = next(l for l in lines if l["movement_type"] == "invoice")
+    assert invoice_line["document_id"] == invoice["id"]
+    assert invoice_line["direction"] == "output"
+    assert Decimal(invoice_line["vat_amount"]) == Decimal(invoice["tax_amount"])
+
+    bill_line = next(l for l in lines if l["movement_type"] == "bill")
+    assert bill_line["document_id"] == bill["id"]
+    assert bill_line["direction"] == "input"
+    assert Decimal(bill_line["vat_amount"]) == Decimal(bill["tax_amount"])
+
+    output_vat = sum(Decimal(l["vat_amount"]) for l in lines if l["direction"] == "output")
+    input_vat = sum(Decimal(l["vat_amount"]) for l in lines if l["direction"] == "input")
+    assert output_vat == Decimal(summary["output_vat"])
+    assert input_vat == Decimal(summary["input_vat"])
+
+
+async def test_vat_detail_credit_note_carries_negated_amounts(client):
+    """A sales credit note reduces output VAT in /vat-summary via
+    subtraction; the detail row for it must carry negated amounts so a
+    plain SUM over the detail rows reproduces that same subtraction."""
+    today = date.today()
+    _, headers = await _bootstrap_and_login(client)
+    invoice = await _issue_sale(client, headers, invoice_date=today.isoformat())
+
+    credit_resp = await client.post(
+        f"/api/v1/sales/invoices/{invoice['id']}:credit-note", headers=headers, json={"reason": "Full return"}
+    )
+    assert credit_resp.status_code == 201, credit_resp.text
+    credit_note = credit_resp.json()["invoice"]
+
+    detail_resp = await client.get(
+        "/api/v1/reporting/vat-detail",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    lines = detail_resp.json()
+    credit_line = next(l for l in lines if l["movement_type"] == "credit_note")
+    assert credit_line["document_id"] == credit_note["id"]
+    assert Decimal(credit_line["vat_amount"]) == -Decimal(credit_note["tax_amount"])
+    assert Decimal(credit_line["total_amount"]) == -Decimal(credit_note["total_amount"])
+
+    summary_resp = await client.get(
+        "/api/v1/reporting/vat-summary",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    summary = summary_resp.json()
+    output_vat = sum(Decimal(l["vat_amount"]) for l in lines if l["direction"] == "output")
+    assert output_vat == Decimal(summary["output_vat"])
+
+
+async def test_vat_detail_excludes_vendor_debit_notes(client):
+    """Same scope as /vat-summary's purchases_stmt: vendor debit notes
+    stay out of the detail listing too, so the two reports never disagree
+    about what counts toward input VAT."""
+    today = date.today()
+    _, headers = await _bootstrap_and_login(client)
+    bill = await _post_vendor_bill(client, headers, bill_date=today.isoformat())
+    debit_resp = await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill['id']}:debit-note", headers=headers, json={"reason": "Full return"}
+    )
+    assert debit_resp.status_code == 201, debit_resp.text
+
+    detail_resp = await client.get(
+        "/api/v1/reporting/vat-detail",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    lines = detail_resp.json()
+    assert all(l["movement_type"] != "debit_note" for l in lines)
+    assert sum(1 for l in lines if l["direction"] == "input") == 1
+
+
+async def test_vat_detail_export_pdf_and_excel(client):
+    today = date.today()
+    _, headers = await _bootstrap_and_login(client)
+    await _issue_sale(client, headers, invoice_date=today.isoformat())
+
+    pdf_resp = await client.get(
+        "/api/v1/reporting/vat-detail",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat(), "format": "pdf"},
+    )
+    assert pdf_resp.status_code == 200
+    assert pdf_resp.content[:4] == b"%PDF"
+
+    xlsx_resp = await client.get(
+        "/api/v1/reporting/vat-detail",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat(), "format": "xlsx", "lang": "en"},
+    )
+    assert xlsx_resp.status_code == 200
+    assert xlsx_resp.content[:2] == b"PK"
+
+
+async def test_vat_detail_requires_permission(client):
+    resp = await client.get(
+        "/api/v1/reporting/vat-detail", params={"date_from": "2026-01-01", "date_to": "2026-12-31"}
+    )
+    assert resp.status_code == 401

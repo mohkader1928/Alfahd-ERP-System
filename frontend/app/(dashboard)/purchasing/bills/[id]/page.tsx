@@ -32,6 +32,11 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
   const branchId = useAuthStore((s) => s.activeBranchId);
   const [debitNoteReason, setDebitNoteReason] = useState("");
   const [debitNoteRestock, setDebitNoteRestock] = useState(true);
+  // Stable per-mount key: a retried/duplicate submission of the SAME debit
+  // note (double-click, network retry, resubmission after an unclear
+  // result) reuses this key so the backend's idempotency guard replays the
+  // first response instead of posting a second full GL reversal + restock.
+  const [debitNoteIdempotencyKey] = useState(() => crypto.randomUUID());
   const [isEditing, setIsEditing] = useState(false);
   const [editVendorReference, setEditVendorReference] = useState("");
   const [editLines, setEditLines] = useState<{ purchase_order_line_id: string; qty: string; unit_price: string }[]>(
@@ -67,7 +72,15 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
   });
 
   const debitNoteMutation = useMutation({
-    mutationFn: () => purchasingApi.issueDebitNote(companyId, branchId!, id, debitNoteReason, debitNoteRestock),
+    mutationFn: () =>
+      purchasingApi.issueDebitNote(
+        companyId,
+        branchId!,
+        id,
+        debitNoteReason,
+        debitNoteRestock,
+        debitNoteIdempotencyKey
+      ),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["vendor-bill", companyId, id] });
       queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] });

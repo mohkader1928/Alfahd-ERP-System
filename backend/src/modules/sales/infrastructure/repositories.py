@@ -150,6 +150,17 @@ class SalesInvoiceRepository:
         result = await self.session.execute(select(SalesInvoice).where(SalesInvoice.id == invoice_id))
         return result.scalar_one_or_none()
 
+    async def numbers_for_ids(self, invoice_ids: list[UUID]) -> dict[UUID, str]:
+        """Owner request (Product Cardex detail): batch id->number lookup
+        for a set of invoices/credit notes, so enriching a cardex's worth
+        of stock moves doesn't do one query per line."""
+        if not invoice_ids:
+            return {}
+        result = await self.session.execute(
+            select(SalesInvoice.id, SalesInvoice.number).where(SalesInvoice.id.in_(invoice_ids))
+        )
+        return {row[0]: row[1] for row in result.all()}
+
     async def get_by_id_for_update(self, invoice_id: UUID) -> SalesInvoice | None:
         """Phase 17D: row-locked read, used only by PaymentService's
         allocation check — closes the same class of concurrent-write race

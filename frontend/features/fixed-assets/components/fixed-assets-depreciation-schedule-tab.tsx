@@ -2,18 +2,20 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { CategorySelect } from "@/components/erp/category-select/category-select";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
+import { SortableTableHead } from "@/components/erp/report-view/sortable-table-head";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { fixedAssetsApi } from "@/features/fixed-assets/api/client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { reportExportHandlers } from "@/lib/report-export";
+import { useSortedRows } from "@/lib/use-sorted-rows";
 
 /** Company-wide standard report: every depreciation entry actually posted
  * within a period range — the "rest of the standard reports" the Owner
@@ -40,6 +42,13 @@ export function FixedAssetsDepreciationScheduleTab() {
     enabled: !!ranAt,
   });
   const r = reportQuery.data;
+  const { sort, toggleSort, sortedRows } = useSortedRows(r?.lines, {
+    period_month: (l) => l.period_month,
+    asset_code: (l) => l.asset_code,
+    asset_name: (l) => l.asset_name,
+    amount: (l) => Number(l.amount),
+  });
+  const lines = sortedRows ?? r?.lines ?? [];
 
   return (
     <ReportView
@@ -86,21 +95,29 @@ export function FixedAssetsDepreciationScheduleTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("fixed_assets.schedule.period")}</TableHead>
-                <TableHead>{t("fixed_assets.code")}</TableHead>
-                <TableHead>{t("fixed_assets.name")}</TableHead>
-                <TableHead className="text-end">{t("payments.amount")}</TableHead>
+                <SortableTableHead sortKey="period_month" sort={sort} onSort={toggleSort}>
+                  {t("fixed_assets.schedule.period")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="asset_code" sort={sort} onSort={toggleSort}>
+                  {t("fixed_assets.code")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="asset_name" sort={sort} onSort={toggleSort}>
+                  {t("fixed_assets.name")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="amount" sort={sort} onSort={toggleSort} align="end">
+                  {t("payments.amount")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {r.lines.length === 0 && (
+              {lines.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-muted-foreground">
                     {t("common.empty")}
                   </TableCell>
                 </TableRow>
               )}
-              {r.lines.map((line, i) => (
+              {lines.map((line, i) => (
                 <TableRow key={i}>
                   <TableCell>{formatDate(line.period_month, locale)}</TableCell>
                   <TableCell className="font-mono">{line.asset_code}</TableCell>

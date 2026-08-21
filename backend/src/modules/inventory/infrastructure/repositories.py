@@ -71,6 +71,20 @@ class LocationRepository:
         result = await self.session.execute(select(Location).where(Location.warehouse_id == warehouse_id))
         return list(result.scalars().all())
 
+    async def warehouse_names_by_location(self, location_ids: list[UUID]) -> dict[UUID, tuple[UUID, str]]:
+        """Owner request (Product Cardex detail): batch-resolve a set of
+        locations straight to their warehouse id/name, so the cardex line
+        loop doesn't do one query per line -- mirrors the batching already
+        used for products/warehouses in InventoryValuationReportService.valuation."""
+        if not location_ids:
+            return {}
+        result = await self.session.execute(
+            select(Location.id, Warehouse.id, Warehouse.name)
+            .join(Warehouse, Warehouse.id == Location.warehouse_id)
+            .where(Location.id.in_(location_ids))
+        )
+        return {row[0]: (row[1], row[2]) for row in result.all()}
+
 
 class StockQuantRepository:
     def __init__(self, session: AsyncSession):
@@ -191,6 +205,25 @@ class StockQuantRepository:
             .group_by(StockQuant.product_id)
         )
         return {row[0]: row[1] for row in result.all()}
+
+    async def qty_on_hand_by_warehouse_for_product(
+        self, company_id: UUID, product_id: UUID
+    ) -> dict[UUID, Decimal]:
+        """Owner request: one product's balance broken down per warehouse
+        (not netted into a single total like `qty_on_hand_for_product`),
+        so the "stock balance by product" report can show every warehouse
+        on its own row. Only warehouses with at least one quant row for
+        this product come back here -- the route zero-fills the rest from
+        the company's full warehouse list, same reasoning as
+        `qty_on_hand_for_product_in_warehouse`'s Location join."""
+        result = await self.session.execute(
+            select(Location.warehouse_id, func.coalesce(func.sum(StockQuant.qty_on_hand), 0))
+            .select_from(StockQuant)
+            .join(Location, Location.id == StockQuant.location_id)
+            .where(StockQuant.company_id == company_id, StockQuant.product_id == product_id)
+            .group_by(Location.warehouse_id)
+        )
+        return {row[0]: Decimal(str(row[1])).quantize(Decimal("0.000001")) for row in result.all()}
 
 
 class StockLayerRepository:

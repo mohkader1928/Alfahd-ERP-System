@@ -739,6 +739,64 @@ async def test_cardex_source_table_filter(client):
     assert adjustment_only["lines"][0]["signed_qty"] == "3.000000"  # 9 counted - 6 system
 
 
+async def test_cardex_shows_document_number_and_warehouse(client):
+    """Owner request: each cardex line should show the source document's
+    own number and the warehouse it touched, not just a bare type label.
+    Covers the two real-document cases (sales_invoice resolves via
+    SalesInvoiceRepository, manual_receipt has no document to resolve)."""
+    _, headers = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+    today = date.today().isoformat()
+
+    receive_resp = await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": location_id, "qty": "5", "unit_cost": "600.00"},
+    )
+    assert receive_resp.status_code == 201
+
+    partner_resp = await client.post(
+        "/api/v1/identity/partners",
+        headers=headers,
+        json={"name": "Cardex Buyer", "is_customer": True, "vat_number": unique_vat()},
+    )
+    partner_id = partner_resp.json()["id"]
+    quote_resp = await client.post(
+        "/api/v1/sales/quotations",
+        headers=headers,
+        json={
+            "partner_id": partner_id,
+            "quote_date": today,
+            "lines": [{"product_id": product_id, "qty": "2", "unit_price": "1000.00", "tax_rate_id": "00000000-0000-0000-0000-000000000001"}],
+        },
+    )
+    order_id = (await client.post(f"/api/v1/sales/quotations/{quote_resp.json()['id']}:confirm", headers=headers)).json()["id"]
+    invoice_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
+    assert invoice_resp.status_code == 201
+    invoice = invoice_resp.json()["invoice"]
+
+    cardex = (
+        await client.get(
+            "/api/v1/inventory/stock/cardex",
+            headers=headers,
+            params={"product_id": product_id, "date_from": today, "date_to": today},
+        )
+    ).json()
+    assert len(cardex["lines"]) == 2
+
+    receive_line = next(l for l in cardex["lines"] if l["source_table"] == "manual_receipt")
+    assert receive_line["document_number"] is None  # no real document backs a manual receipt
+    assert receive_line["warehouse_id"] == wh["warehouse"]["id"]
+    assert receive_line["warehouse_name"] == wh["warehouse"]["name"]
+
+    invoice_line = next(l for l in cardex["lines"] if l["source_table"] == "sales_invoice")
+    assert invoice_line["document_number"] == invoice["number"]
+    assert invoice_line["warehouse_id"] == wh["warehouse"]["id"]
+    assert invoice_line["warehouse_name"] == wh["warehouse"]["name"]
+
+
 async def test_cardex_export_pdf_and_excel(client):
     """Standard Reporting Framework — Product Cardex must also serve real
     PDF/Excel, matching every other report."""

@@ -61,6 +61,7 @@ DEFAULT_SAUDI_COA: list[tuple[str, str, str, str, str | None]] = [
     ("4900", "Gain on Disposal of Fixed Assets", "أرباح استبعاد الأصول الثابتة", "revenue", "4000"),
     ("5000", "Expenses", "Expenses AR", "expense", None),
     ("5100", "Cost of Goods Sold", "COGS AR", "expense", "5000"),
+    ("5150", "Inventory Valuation Variance", "فروقات تقييم المخزون", "expense", "5000"),
     ("5200", "Operating Expenses", "Operating Expenses AR", "expense", "5000"),
     ("5900", "Loss on Disposal of Fixed Assets", "خسائر استبعاد الأصول الثابتة", "expense", "5000"),
     ("5950", "Depreciation Expense", "مصروف الإهلاك", "expense", "5000"),

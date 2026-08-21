@@ -97,6 +97,18 @@ class VatSummaryOut(BaseModel):
     net_vat_payable: Decimal
 
 
+class VatDetailRowOut(BaseModel):
+    document_date: date
+    movement_type: str
+    direction: str
+    document_id: UUID
+    number: str
+    partner_name: str
+    subtotal_amount: Decimal
+    vat_amount: Decimal
+    total_amount: Decimal
+
+
 class InventoryValuationRowOut(BaseModel):
     product_id: UUID
     product_code: str

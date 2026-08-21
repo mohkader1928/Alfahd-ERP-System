@@ -157,6 +157,13 @@ export const NAV_CONFIG: NavEntry[] = [
       },
       {
         type: "link",
+        href: "/accounting?tab=vat-detail",
+        labelKey: "accounting.tabs.vat_detail",
+        icon: Receipt,
+        permission: "reporting.vat.view",
+      },
+      {
+        type: "link",
         href: "/accounting?tab=customer-subledger",
         labelKey: "accounting.tabs.customer_subledger",
         icon: BookUser,
@@ -247,6 +254,7 @@ export const NAV_CONFIG: NavEntry[] = [
         permission: "inventory.stock.view",
       },
       { type: "link", href: "/inventory?tab=cardex", labelKey: "inventory.tabs.cardex", icon: FileText, permission: "inventory.stock.view" },
+      { type: "link", href: "/inventory?tab=stock-balance", labelKey: "inventory.tabs.stock_balance", icon: PackageSearch, permission: "inventory.stock.view" },
       { type: "link", href: "/inventory?tab=valuation", labelKey: "inventory.tabs.valuation", icon: Coins, permission: "reporting.inventory_valuation.view" },
       { type: "link", href: "/inventory?tab=inventory-reconciliation", labelKey: "inventory.tabs.reconciliation", icon: Scale, permission: "reporting.inventory_valuation.view" },
       {

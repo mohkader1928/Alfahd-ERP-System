@@ -250,3 +250,53 @@ async def test_purchase_order_warehouse_carries_through_to_goods_receipt(client)
         params={"product_id": product_id, "warehouse_id": wh_a},
     )
     assert balance_a.json()["qty_on_hand"] == "0.000000"  # default warehouse untouched
+
+
+async def test_stock_balance_by_product_lists_every_warehouse_with_grand_total(client):
+    """Owner request: a single product's balance broken down per
+    warehouse, with a grand total across all of them -- including a
+    warehouse the product was never received into (must read as zero,
+    not be silently omitted from the list)."""
+    _, headers = await _bootstrap_and_login(client)
+    wh_a, loc_a, wh_b, loc_b = await _two_warehouses(client, headers)
+    # A third warehouse the product never touches at all.
+    wh_c_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Untouched", "is_default": False}
+    )
+    wh_c = wh_c_resp.json()["warehouse"]["id"]
+    product_id = await _create_product(client, headers)
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": loc_a, "qty": "12", "unit_cost": "10.00"},
+    )
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_id, "location_id": loc_b, "qty": "5", "unit_cost": "10.00"},
+    )
+
+    resp = await client.get(
+        "/api/v1/inventory/stock/balance-by-product",
+        headers=headers,
+        params={"product_id": product_id},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["product_id"] == product_id
+    assert body["total_qty_on_hand"] == "17.000000"
+
+    by_warehouse = {row["warehouse_id"]: row["qty_on_hand"] for row in body["by_warehouse"]}
+    assert len(body["by_warehouse"]) == 3  # every warehouse listed, including the untouched one
+    assert by_warehouse[wh_a] == "12.000000"
+    assert by_warehouse[wh_b] == "5.000000"
+    assert by_warehouse[wh_c] == "0.000000"
+
+
+async def test_stock_balance_by_product_requires_permission(client):
+    resp = await client.get(
+        "/api/v1/inventory/stock/balance-by-product",
+        params={"product_id": "00000000-0000-0000-0000-000000000001"},
+    )
+    assert resp.status_code == 401

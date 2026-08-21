@@ -30,6 +30,18 @@ export interface StockBalance {
   qty_on_hand: string;
 }
 
+export interface StockBalanceByWarehouse {
+  warehouse_id: string;
+  warehouse_name: string;
+  qty_on_hand: string;
+}
+
+export interface StockBalanceByProduct {
+  product_id: string;
+  total_qty_on_hand: string;
+  by_warehouse: StockBalanceByWarehouse[];
+}
+
 export interface LowStockRow {
   product_id: string;
   sku: string;
@@ -87,6 +99,9 @@ export interface CardexLine {
   move_type: string;
   source_table: string;
   source_id: string;
+  document_number: string | null;
+  warehouse_id: string | null;
+  warehouse_name: string | null;
   qty: string;
   unit_cost: string;
   signed_qty: string;

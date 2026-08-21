@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHeader, TableRow } from "@/components/ui/table";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
+import { SortableTableHead } from "@/components/erp/report-view/sortable-table-head";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { fixedAssetsApi } from "@/features/fixed-assets/api/client";
@@ -18,6 +19,7 @@ import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { reportExportHandlers } from "@/lib/report-export";
 import { toastError, toastSuccess } from "@/lib/toast";
+import { useSortedRows } from "@/lib/use-sorted-rows";
 import { ApiError } from "@/lib/api-client";
 
 /** بطاقة الأصل الثابت — same opening/running/closing shape as the
@@ -73,6 +75,29 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
     queryFn: () => fixedAssetsApi.getProjectedSchedule(companyId, ranAt!.asset),
     enabled: !!ranAt,
   });
+  const { sort: movementSort, toggleSort: toggleMovementSort, sortedRows: sortedMovementLines } = useSortedRows(
+    r?.lines,
+    {
+      date: (l) => l.date,
+      movement_type: (l) => t(`fixed_assets.card.movement.${l.movement_type}`),
+      reference: (l) => l.reference,
+      running_cost: (l) => Number(l.running_cost),
+      running_accumulated_depreciation: (l) => Number(l.running_accumulated_depreciation),
+      running_net_book_value: (l) => Number(l.running_net_book_value),
+    }
+  );
+  const movementLines = sortedMovementLines ?? r?.lines ?? [];
+  const { sort: scheduleSort, toggleSort: toggleScheduleSort, sortedRows: sortedScheduleLines } = useSortedRows(
+    scheduleQuery.data?.lines,
+    {
+      period_month: (l) => l.period_month,
+      depreciation: (l) => Number(l.depreciation),
+      accumulated_depreciation: (l) => Number(l.accumulated_depreciation),
+      net_book_value: (l) => Number(l.net_book_value),
+      posted: (l) => (l.posted ? 1 : 0),
+    }
+  );
+  const scheduleLines = sortedScheduleLines ?? scheduleQuery.data?.lines ?? [];
 
   const statusMutation = useMutation({
     mutationFn: (newStatus: AssetOperationalStatus) =>
@@ -182,12 +207,34 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("accounting.sub.date")}</TableHead>
-                <TableHead>{t("fixed_assets.card.movement_type")}</TableHead>
-                <TableHead>{t("accounting.sub.reference")}</TableHead>
-                <TableHead className="text-end">{t("fixed_assets.cost")}</TableHead>
-                <TableHead className="text-end">{t("fixed_assets.accumulated_depreciation")}</TableHead>
-                <TableHead className="text-end">{t("fixed_assets.net_book_value")}</TableHead>
+                <SortableTableHead sortKey="date" sort={movementSort} onSort={toggleMovementSort}>
+                  {t("accounting.sub.date")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="movement_type" sort={movementSort} onSort={toggleMovementSort}>
+                  {t("fixed_assets.card.movement_type")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="reference" sort={movementSort} onSort={toggleMovementSort}>
+                  {t("accounting.sub.reference")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="running_cost" sort={movementSort} onSort={toggleMovementSort} align="end">
+                  {t("fixed_assets.cost")}
+                </SortableTableHead>
+                <SortableTableHead
+                  sortKey="running_accumulated_depreciation"
+                  sort={movementSort}
+                  onSort={toggleMovementSort}
+                  align="end"
+                >
+                  {t("fixed_assets.accumulated_depreciation")}
+                </SortableTableHead>
+                <SortableTableHead
+                  sortKey="running_net_book_value"
+                  sort={movementSort}
+                  onSort={toggleMovementSort}
+                  align="end"
+                >
+                  {t("fixed_assets.net_book_value")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -197,14 +244,14 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
                 <TableCell className="text-end font-mono">{formatCurrency(r.opening_accumulated_depreciation)}</TableCell>
                 <TableCell className="text-end font-mono">{formatCurrency(r.opening_net_book_value)}</TableCell>
               </TableRow>
-              {r.lines.length === 0 && (
+              {movementLines.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground">
                     {t("common.empty")}
                   </TableCell>
                 </TableRow>
               )}
-              {r.lines.map((line, i) => (
+              {movementLines.map((line, i) => (
                 <TableRow key={i}>
                   <TableCell>{formatDate(line.date, locale)}</TableCell>
                   <TableCell>{t(`fixed_assets.card.movement.${line.movement_type}`)}</TableCell>
@@ -234,15 +281,30 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t("fixed_assets.card.schedule.period")}</TableHead>
-                    <TableHead className="text-end">{t("fixed_assets.card.schedule.depreciation")}</TableHead>
-                    <TableHead className="text-end">{t("fixed_assets.accumulated_depreciation")}</TableHead>
-                    <TableHead className="text-end">{t("fixed_assets.net_book_value")}</TableHead>
-                    <TableHead>{t("fixed_assets.card.schedule.status")}</TableHead>
+                    <SortableTableHead sortKey="period_month" sort={scheduleSort} onSort={toggleScheduleSort}>
+                      {t("fixed_assets.card.schedule.period")}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="depreciation" sort={scheduleSort} onSort={toggleScheduleSort} align="end">
+                      {t("fixed_assets.card.schedule.depreciation")}
+                    </SortableTableHead>
+                    <SortableTableHead
+                      sortKey="accumulated_depreciation"
+                      sort={scheduleSort}
+                      onSort={toggleScheduleSort}
+                      align="end"
+                    >
+                      {t("fixed_assets.accumulated_depreciation")}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="net_book_value" sort={scheduleSort} onSort={toggleScheduleSort} align="end">
+                      {t("fixed_assets.net_book_value")}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="posted" sort={scheduleSort} onSort={toggleScheduleSort}>
+                      {t("fixed_assets.card.schedule.status")}
+                    </SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {scheduleQuery.data.lines.map((line) => (
+                  {scheduleLines.map((line) => (
                     <TableRow key={line.period_month} className={line.posted ? undefined : "text-muted-foreground"}>
                       <TableCell>{line.period_month.slice(0, 7)}</TableCell>
                       <TableCell className="text-end font-mono">{formatCurrency(line.depreciation)}</TableCell>

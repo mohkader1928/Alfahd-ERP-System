@@ -58,6 +58,18 @@ class StockBalanceOut(BaseModel):
     qty_on_hand: Decimal
 
 
+class StockBalanceByWarehouseOut(BaseModel):
+    warehouse_id: UUID
+    warehouse_name: str
+    qty_on_hand: Decimal
+
+
+class StockBalanceByProductOut(BaseModel):
+    product_id: UUID
+    total_qty_on_hand: Decimal
+    by_warehouse: list[StockBalanceByWarehouseOut]
+
+
 class LowStockRowOut(BaseModel):
     product_id: UUID
     sku: str
@@ -134,6 +146,9 @@ class CardexLineOut(BaseModel):
     move_type: str
     source_table: str
     source_id: UUID
+    document_number: str | None = None
+    warehouse_id: UUID | None = None
+    warehouse_name: str | None = None
     qty: Decimal
     unit_cost: Decimal
     signed_qty: Decimal

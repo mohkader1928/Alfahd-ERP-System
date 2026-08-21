@@ -11,18 +11,19 @@ import {
   TableBody,
   TableCell,
   TableFooter,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
+import { SortableTableHead } from "@/components/erp/report-view/sortable-table-head";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { reportingApi } from "@/features/reporting/api/client";
 import { formatCurrency } from "@/lib/format-currency";
 import { reportExportHandlers } from "@/lib/report-export";
+import { useSortedRows } from "@/lib/use-sorted-rows";
 import type { PurchaseByVendorRow } from "@/features/reporting/api/types";
 
 const ALL_SUPPLIERS = "__all__";
@@ -61,6 +62,18 @@ function ByVendorTab() {
     }),
     { bill_count: 0, subtotal: 0, tax_amount: 0, total: 0, adjustments: 0, net_total: 0, payments_made: 0, balance: 0 }
   );
+  const { sort, toggleSort, sortedRows } = useSortedRows(rows, {
+    partner_name: (r) => r.partner_name,
+    bill_count: (r) => r.bill_count,
+    subtotal: (r) => Number(r.subtotal),
+    tax_amount: (r) => Number(r.tax_amount),
+    total: (r) => Number(r.total),
+    adjustments: (r) => Number(r.adjustments),
+    net_total: (r) => Number(r.net_total),
+    payments_made: (r) => Number(r.payments_made),
+    balance: (r) => Number(r.balance),
+  });
+  const displayRows = sortedRows ?? rows;
 
   return (
     <ReportView
@@ -146,19 +159,37 @@ function ByVendorTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("purchasing.reports.supplier.partner_name")}</TableHead>
-                <TableHead className="text-end">{t("purchasing.reports.supplier.bill_count")}</TableHead>
-                <TableHead className="text-end">{t("purchasing.reports.supplier.subtotal")}</TableHead>
-                <TableHead className="text-end">{t("purchasing.reports.supplier.tax")}</TableHead>
-                <TableHead className="text-end font-semibold">{t("purchasing.reports.supplier.total")}</TableHead>
-                <TableHead className="text-end">{t("purchasing.reports.supplier.adjustments")}</TableHead>
-                <TableHead className="text-end font-semibold">{t("purchasing.reports.supplier.net_total")}</TableHead>
-                <TableHead className="text-end">{t("purchasing.reports.supplier.payments_made")}</TableHead>
-                <TableHead className="text-end font-semibold">{t("purchasing.reports.supplier.balance")}</TableHead>
+                <SortableTableHead sortKey="partner_name" sort={sort} onSort={toggleSort}>
+                  {t("purchasing.reports.supplier.partner_name")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="bill_count" sort={sort} onSort={toggleSort} align="end">
+                  {t("purchasing.reports.supplier.bill_count")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="subtotal" sort={sort} onSort={toggleSort} align="end">
+                  {t("purchasing.reports.supplier.subtotal")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="tax_amount" sort={sort} onSort={toggleSort} align="end">
+                  {t("purchasing.reports.supplier.tax")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="total" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("purchasing.reports.supplier.total")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="adjustments" sort={sort} onSort={toggleSort} align="end">
+                  {t("purchasing.reports.supplier.adjustments")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="net_total" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("purchasing.reports.supplier.net_total")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="payments_made" sort={sort} onSort={toggleSort} align="end">
+                  {t("purchasing.reports.supplier.payments_made")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="balance" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("purchasing.reports.supplier.balance")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {displayRows.map((row) => (
                 <TableRow key={row.partner_id}>
                   <TableCell className="font-medium">
                     <Link

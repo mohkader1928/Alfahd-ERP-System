@@ -47,6 +47,13 @@ export default function NewPurchaseReturnPage() {
   const [returnLines, setReturnLines] = useState<ReturnLine[]>([]);
   const [loadedBillId, setLoadedBillId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Stable per-mount key: a retried/duplicate submission of the SAME
+  // return (double-click, network retry, resubmission after an unclear
+  // result) reuses this key so the backend's idempotency guard replays the
+  // first response instead of posting a second full GL reversal + restock
+  // -- exactly the defect class that produced a real, reported Inventory
+  // Valuation vs GL gap (two identical debit notes against one bill).
+  const [returnIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const vendorsQuery = useQuery({
     queryKey: ["partners", companyId, "vendor"],
@@ -102,18 +109,23 @@ export default function NewPurchaseReturnPage() {
 
   const createMutation = useMutation({
     mutationFn: () =>
-      purchasingApi.issueDebitNoteForLines(companyId, branchId, {
-        partner_id: billDetailQuery.data!.bill.partner_id,
-        original_bill_id: billId,
-        reason,
-        restock,
-        lines: linesToReturn.map((l) => ({
-          product_id: l.product_id,
-          qty: l.returned_qty,
-          unit_price: l.price,
-          tax_rate_id: l.tax_rate_id,
-        })),
-      }),
+      purchasingApi.issueDebitNoteForLines(
+        companyId,
+        branchId,
+        {
+          partner_id: billDetailQuery.data!.bill.partner_id,
+          original_bill_id: billId,
+          reason,
+          restock,
+          lines: linesToReturn.map((l) => ({
+            product_id: l.product_id,
+            qty: l.returned_qty,
+            unit_price: l.price,
+            tax_rate_id: l.tax_rate_id,
+          })),
+        },
+        returnIdempotencyKey
+      ),
     onSuccess: (bill) => {
       queryClient.invalidateQueries({ queryKey: ["purchase-returns", companyId] });
       queryClient.invalidateQueries({ queryKey: ["vendor-bills", companyId] });

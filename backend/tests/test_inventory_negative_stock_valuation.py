@@ -205,6 +205,79 @@ async def test_valuation_conserves_net_value_through_full_negative_excursion(cli
     assert quant["moving_avg_cost"] == "8.333333"
 
 
+async def test_receipt_that_zeros_a_negative_position_posts_valuation_variance(client):
+    """The follow-up bug (2026-08-21), found live on a real company off by
+    SAR 31,250.56 on the Inventory Valuation vs GL reconciliation: the
+    `!= 0` guard above still leaves ONE unrepresentable case -- a receipt
+    that brings a negative position to EXACTLY zero. `old_qty*old_avg +
+    qty*unit_cost` can be any nonzero number there, but qty_on_hand is now
+    0, and 0 * anything == 0 -- no average can carry that value. The fix:
+    `receive_stock` now returns that residual instead of dropping it, and
+    the goods-receipt flow posts it against the new Inventory Valuation
+    Variance (5150) account, Dr/Cr Inventory, so the GL is corrected to
+    match what the register can represent instead of drifting from it."""
+    _, headers = await _bootstrap_and_login(client, "ZeroCross")
+    env = await _setup_oversold_position(client, headers)
+    # After setup: qty=-100, avg=20.00 -> implied value = -2000.00.
+
+    # A fresh purchase order/receipt for exactly 100 units at a DIFFERENT
+    # cost -- brings qty_on_hand to exactly 0.
+    vendor_resp = await client.post(
+        "/api/v1/identity/partners", headers=headers, json={"name": "Zero Cross Vendor", "is_vendor": True}
+    )
+    vendor_id = vendor_resp.json()["id"]
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-03",
+            "lines": [
+                {
+                    "product_id": env["product_id"],
+                    "qty": "100",
+                    "unit_price": "25.00",
+                    "tax_rate_id": TAX_RATE_PLACEHOLDER,
+                }
+            ],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_line_id = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()["lines"][0]["id"]
+
+    receipt_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "100"}]},
+    )
+    assert receipt_resp.status_code == 201, receipt_resp.text
+
+    quants = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    quant = next(q for q in quants if q["product_id"] == env["product_id"])
+    assert quant["qty_on_hand"] == "0.000000"
+
+    # Residual: -2000.00 (old_qty*old_avg) + 100*25.00 (this receipt) = 500.00.
+    # Positive residual -> GL Inventory already has SAR 500 more than the
+    # (necessarily zero, at 0 qty) register can show -> Cr Inventory / Dr
+    # Variance for 500.00.
+    trial_balance = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+    )
+    rows = {row["account_code"]: row for row in trial_balance.json()}
+    assert "5150" in rows, "Inventory Valuation Variance account should have a posted movement"
+    assert rows["5150"]["total_debit"] == "500.0000"
+    assert rows["5150"]["total_credit"] == "0.0000"
+
+    # Inventory Valuation vs GL reconciliation must now be closed for this
+    # product's contribution -- the whole point of the fix.
+    reconciliation = await client.get("/api/v1/reporting/inventory-reconciliation", headers=headers)
+    assert reconciliation.status_code == 200, reconciliation.text
+    assert reconciliation.json()["matched"] is True
+
+
 async def test_moving_avg_cost_stores_six_decimal_places(client):
     """Schema/precision confirmation: the column now carries six decimal
     places (was four), and a blend that would round differently at 4dp

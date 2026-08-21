@@ -50,6 +50,7 @@ ACCOUNT_CODE_INVENTORY = "1300"
 ACCOUNT_CODE_GRNI = "2300"  # Goods Received Not Invoiced
 ACCOUNT_CODE_AP = "2100"
 ACCOUNT_CODE_VAT = "2200"  # shared control account for output + input VAT
+ACCOUNT_CODE_INVENTORY_VARIANCE = "5150"
 
 
 class PurchaseOrderService:
@@ -409,6 +410,7 @@ class GoodsReceiptService:
         )
         receipt_lines: list[GoodsReceiptLine] = []
         total_value = Decimal("0")
+        total_valuation_variance = Decimal("0")
 
         billed_lines: list[dict] = []
         for line in lines:
@@ -426,7 +428,7 @@ class GoodsReceiptService:
 
             product = await self.product_repo.get_by_id(po_line.product_id)
             if product is not None and product.is_stockable:
-                await self.inventory_service.receive_stock(
+                _move, variance = await self.inventory_service.receive_stock(
                     company_id=company_id,
                     product_id=po_line.product_id,
                     location_id=location.id,
@@ -437,6 +439,7 @@ class GoodsReceiptService:
                     source_id=po_line.id,
                 )
                 total_value += qty * po_line.unit_price
+                total_valuation_variance += variance
 
             po_line.qty_received += qty
             receipt_lines.append(
@@ -503,7 +506,71 @@ class GoodsReceiptService:
             )
             await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=company_id)
 
+        # Owner-reported bug: a receipt that brings a negative position
+        # (oversold via FR-INV-007) to EXACTLY zero can't carry its true
+        # blended value in a qty*avg register (0 * anything == 0) -- see
+        # `InventoryValuationService.receive_stock`'s own comment. That
+        # value already exists (every line's GRNI/Inventory entry above
+        # posted its own exact amount); this recognizes it explicitly
+        # instead of letting the register silently fall behind the GL.
+        if total_valuation_variance != 0:
+            await self._post_inventory_valuation_variance(
+                company_id=company_id,
+                branch_id=branch_id,
+                created_by=created_by,
+                entry_date=receipt.receipt_date,
+                reference=receipt.number,
+                variance=total_valuation_variance,
+                source_id=receipt.id,
+            )
+
         return receipt
+
+    async def _post_inventory_valuation_variance(
+        self,
+        *,
+        company_id: UUID,
+        branch_id: UUID,
+        created_by: UUID,
+        entry_date: date,
+        reference: str,
+        variance: Decimal,
+        source_id: UUID,
+    ) -> None:
+        """Shared by every receive_stock caller that can hit the
+        exactly-zero-crossing case: posts the residual `receive_stock`
+        returned against the Inventory Valuation Variance (5150) account,
+        Dr/Cr Inventory for the same amount, so the GL stays reconciled
+        to what the register can represent rather than drifting from it."""
+        inventory_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_INVENTORY)
+        variance_account = await self.account_repo.get_by_code(company_id, ACCOUNT_CODE_INVENTORY_VARIANCE)
+        if not (inventory_account and variance_account):
+            raise ValueError("Default Chart of Accounts is not seeded for this company")
+
+        amount = abs(variance)
+        if variance > 0:
+            lines = [
+                {"account_id": inventory_account.id, "debit": 0, "credit": amount},
+                {"account_id": variance_account.id, "debit": amount, "credit": 0},
+            ]
+        else:
+            lines = [
+                {"account_id": inventory_account.id, "debit": amount, "credit": 0},
+                {"account_id": variance_account.id, "debit": 0, "credit": amount},
+            ]
+
+        entry = await self.journal_entry_service.create_draft_entry(
+            company_id=company_id,
+            branch_id=branch_id,
+            journal_code="GEN",
+            entry_date=entry_date,
+            reference=f"Inventory valuation variance for {reference}",
+            lines=lines,
+            created_by=created_by,
+            source_table="goods_receipt",
+            source_id=source_id,
+        )
+        await self.journal_entry_service.post_entry(entry_id=entry.id, company_id=company_id)
 
 
 class VendorBillService:

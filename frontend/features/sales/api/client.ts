@@ -114,11 +114,18 @@ export const salesApi = {
     return apiClient.get<Page<SalesInvoice>>(`${BASE}/invoices?${qs.toString()}`, { companyId });
   },
 
-  issueCreditNote: (companyId: string, branchId: string, invoiceId: string, reason: string, restock = true) =>
+  issueCreditNote: (
+    companyId: string,
+    branchId: string,
+    invoiceId: string,
+    reason: string,
+    restock = true,
+    idempotencyKey?: string
+  ) =>
     apiClient.post<InvoiceIssueResponse>(
       `${BASE}/invoices/${invoiceId}:credit-note`,
       { reason, restock },
-      { companyId, branchId }
+      { companyId, branchId, headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined }
     ),
 
   issueCreditNoteForLines: (
@@ -130,8 +137,14 @@ export const salesApi = {
       reason: string;
       restock: boolean;
       lines: QuotationLineIn[];
-    }
-  ) => apiClient.post<InvoiceIssueResponse>(`${BASE}/invoices:return`, payload, { companyId, branchId }),
+    },
+    idempotencyKey?: string
+  ) =>
+    apiClient.post<InvoiceIssueResponse>(`${BASE}/invoices:return`, payload, {
+      companyId,
+      branchId,
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    }),
 
   downloadInvoicePdf: (companyId: string, invoiceId: string, lang: string) =>
     apiClient.getBlob(`${BASE}/invoices/${invoiceId}/pdf?lang=${lang}`, { companyId }),

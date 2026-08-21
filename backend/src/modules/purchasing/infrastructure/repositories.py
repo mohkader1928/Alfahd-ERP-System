@@ -167,6 +167,21 @@ class GoodsReceiptRepository:
         count = result.scalar_one()
         return f"GR-{count + 1:06d}"
 
+    async def numbers_for_lines(self, line_ids: list[UUID]) -> dict[UUID, str]:
+        """Owner request (Product Cardex detail): a `stock_move` whose
+        `source_table` is "goods_receipt_line" carries a GoodsReceiptLine id
+        in `source_id`, not the receipt itself -- this joins through to the
+        parent GoodsReceipt's own `number` in one batched query rather than
+        one lookup per cardex line."""
+        if not line_ids:
+            return {}
+        result = await self.session.execute(
+            select(GoodsReceiptLine.id, GoodsReceipt.number)
+            .join(GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id)
+            .where(GoodsReceiptLine.id.in_(line_ids))
+        )
+        return {row[0]: row[1] for row in result.all()}
+
 
 class VendorBillRepository:
     def __init__(self, session: AsyncSession):
@@ -184,6 +199,15 @@ class VendorBillRepository:
     async def get_by_id(self, bill_id: UUID) -> VendorBill | None:
         result = await self.session.execute(select(VendorBill).where(VendorBill.id == bill_id))
         return result.scalar_one_or_none()
+
+    async def numbers_for_ids(self, bill_ids: list[UUID]) -> dict[UUID, str]:
+        """Owner request (Product Cardex detail): batch id->number lookup
+        for a set of bills/debit notes, mirroring
+        SalesInvoiceRepository.numbers_for_ids."""
+        if not bill_ids:
+            return {}
+        result = await self.session.execute(select(VendorBill.id, VendorBill.number).where(VendorBill.id.in_(bill_ids)))
+        return {row[0]: row[1] for row in result.all()}
 
     async def get_by_id_for_update(self, bill_id: UUID) -> VendorBill | None:
         """Phase 17D: row-locked read, used only by PaymentService's

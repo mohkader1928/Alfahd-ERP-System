@@ -106,6 +106,18 @@ export interface VatSummary {
   net_vat_payable: string;
 }
 
+export interface VatDetailRow {
+  document_date: string;
+  movement_type: "invoice" | "credit_note" | "bill";
+  direction: "output" | "input";
+  document_id: string;
+  number: string;
+  partner_name: string;
+  subtotal_amount: string;
+  vat_amount: string;
+  total_amount: string;
+}
+
 // ── Global Search ─────────────────────────────────────────────────────────────
 
 export interface SearchResultRow {

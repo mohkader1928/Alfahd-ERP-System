@@ -28,6 +28,7 @@ from src.modules.reporting.api.schemas import (
     SalesByPeriodRow,
     SalesByProductRow,
     SearchResultRow,
+    VatDetailRowOut,
     VatSummaryOut,
 )
 from src.modules.reporting.application.services import (
@@ -390,6 +391,65 @@ async def vat_summary(
         rtl=lang == "ar",
     )
     return build_export_response(format, "vat-summary", table)
+
+
+@router.get("/vat-detail", response_model=list[VatDetailRowOut])
+async def vat_detail(
+    date_from: date,
+    date_to: date,
+    format: ExportFormatParam = "json",
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("reporting.vat.view")),
+    service: VatReportingService = Depends(get_vat_reporting_service),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """Owner-requested companion to /vat-summary: the same net VAT payable
+    figure broken down to the individual sales invoice/credit note and
+    vendor bill rows that make it up, so the totals can be traced and
+    reconciled rather than trusted as a single netted number."""
+    rows = await service.vat_detail(company_id=ctx.company_id, date_from=date_from, date_to=date_to)
+    if format == "json":
+        return rows
+
+    output_vat = sum((r["vat_amount"] for r in rows if r["direction"] == "output"), start=Decimal("0"))
+    input_vat = sum((r["vat_amount"] for r in rows if r["direction"] == "input"), start=Decimal("0"))
+    table = ReportTable(
+        title=title(lang, "vat_detail"),
+        company_name=await resolve_company_name(company_repo, ctx.company_id, lang),
+        subtitle=f"{date_from} — {date_to}",
+        columns=[
+            ReportColumn(label(lang, "date")),
+            ReportColumn(label(lang, "type")),
+            ReportColumn(label(lang, "number")),
+            ReportColumn(label(lang, "partner")),
+            ReportColumn(label(lang, "amount"), "end"),
+            ReportColumn(label(lang, "vat_amount"), "end"),
+            ReportColumn(label(lang, "total"), "end"),
+        ],
+        rows=[
+            [
+                str(r["document_date"]),
+                r["movement_type"],
+                r["number"],
+                r["partner_name"],
+                format_amount(r["subtotal_amount"]),
+                format_amount(r["vat_amount"]),
+                format_amount(r["total_amount"]),
+            ]
+            for r in rows
+        ],
+        totals=[
+            label(lang, "net_vat_payable"),
+            "",
+            "",
+            "",
+            "",
+            format_amount(output_vat - input_vat),
+            "",
+        ],
+        rtl=lang == "ar",
+    )
+    return build_export_response(format, "vat-detail", table)
 
 
 # ── Inventory Valuation ────────────────────────────────────────────────────────

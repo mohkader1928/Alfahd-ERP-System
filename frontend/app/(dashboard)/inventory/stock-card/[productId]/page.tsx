@@ -16,6 +16,7 @@ import { inventoryApi } from "@/features/inventory/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
+import { formatQty } from "@/lib/format-qty";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
 import type { StockMove } from "@/features/inventory/api/types";
 
@@ -50,7 +51,7 @@ export default function StockCardPage({ params }: { params: Promise<{ productId:
       sortValue: (r) => r.move_type,
       render: (r) => <Badge variant="secondary">{r.move_type}</Badge>,
     },
-    { key: "qty", header: t("inventory.moves.qty"), align: "end", sortable: true, sortValue: (r) => Number(r.qty), render: (r) => r.qty },
+    { key: "qty", header: t("inventory.moves.qty"), align: "end", sortable: true, sortValue: (r) => Number(r.qty), render: (r) => formatQty(r.qty) },
     {
       key: "unit_cost",
       header: t("inventory.moves.unit_cost"),

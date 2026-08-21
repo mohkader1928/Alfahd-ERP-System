@@ -47,6 +47,13 @@ export default function NewSalesReturnPage() {
   const [returnLines, setReturnLines] = useState<ReturnLine[]>([]);
   const [loadedInvoiceId, setLoadedInvoiceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Stable per-mount key: a retried/duplicate submission of the SAME
+  // return (double-click, network retry, resubmission after an unclear
+  // result) reuses this key so the backend's idempotency guard replays
+  // the first response instead of posting a second full GL reversal +
+  // restock -- same defect class fixed on the Purchasing side after a
+  // real, reported Inventory Valuation vs GL gap.
+  const [returnIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, "customers"],
@@ -104,18 +111,23 @@ export default function NewSalesReturnPage() {
 
   const createMutation = useMutation({
     mutationFn: () =>
-      salesApi.issueCreditNoteForLines(companyId, branchId, {
-        partner_id: invoiceDetailQuery.data!.invoice.partner_id,
-        original_invoice_id: invoiceId,
-        reason,
-        restock,
-        lines: linesToReturn.map((l) => ({
-          product_id: l.product_id,
-          qty: l.returned_qty,
-          unit_price: l.price,
-          tax_rate_id: l.tax_rate_id,
-        })),
-      }),
+      salesApi.issueCreditNoteForLines(
+        companyId,
+        branchId,
+        {
+          partner_id: invoiceDetailQuery.data!.invoice.partner_id,
+          original_invoice_id: invoiceId,
+          reason,
+          restock,
+          lines: linesToReturn.map((l) => ({
+            product_id: l.product_id,
+            qty: l.returned_qty,
+            unit_price: l.price,
+            tax_rate_id: l.tax_rate_id,
+          })),
+        },
+        returnIdempotencyKey
+      ),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["sales-returns", companyId] });
       queryClient.invalidateQueries({ queryKey: ["sales-invoices", companyId] });

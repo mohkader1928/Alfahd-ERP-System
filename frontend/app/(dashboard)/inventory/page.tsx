@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHeader, TableRow } from "@/components/ui/table";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
@@ -19,13 +19,16 @@ import { StockBalanceHint } from "@/components/erp/stock-balance-hint/stock-bala
 import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
+import { SortableTableHead } from "@/components/erp/report-view/sortable-table-head";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { inventoryApi } from "@/features/inventory/api/client";
 import { reportingApi } from "@/features/reporting/api/client";
 import { ApiError } from "@/lib/api-client";
+import { useSortedRows } from "@/lib/use-sorted-rows";
 import { formatCurrency } from "@/lib/format-currency";
+import { formatQty } from "@/lib/format-qty";
 import { formatDate } from "@/lib/format-date";
 import { reportExportHandlers } from "@/lib/report-export";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
@@ -241,7 +244,7 @@ function StockTab() {
       align: "end",
       sortable: true,
       sortValue: (r) => Number(r.qty_on_hand),
-      render: (r) => r.qty_on_hand,
+      render: (r) => formatQty(r.qty_on_hand),
     },
     {
       key: "moving_avg_cost",
@@ -363,7 +366,7 @@ function MovesTab() {
       sortValue: (r) => r.move_type,
       render: (r) => <Badge variant="secondary">{r.move_type}</Badge>,
     },
-    { key: "qty", header: t("inventory.moves.qty"), align: "end", sortable: true, sortValue: (r) => Number(r.qty), render: (r) => r.qty },
+    { key: "qty", header: t("inventory.moves.qty"), align: "end", sortable: true, sortValue: (r) => Number(r.qty), render: (r) => formatQty(r.qty) },
     {
       key: "unit_cost",
       header: t("inventory.moves.unit_cost"),
@@ -638,6 +641,23 @@ function CardexTab() {
   });
 
   const cardexProduct = ranAt ? products.find((p) => p.id === ranAt.productId) : undefined;
+  const { sort: cardexSort, toggleSort: toggleCardexSort, sortedRows: sortedCardexLines } = useSortedRows(
+    cardexQuery.data?.lines,
+    {
+      moved_at: (l) => l.moved_at,
+      move_type: (l) => l.move_type,
+      source: (l) => {
+        const key = sourceDocumentLabelKey(l.source_table);
+        return key ? t(key) : l.source_table;
+      },
+      document_number: (l) => l.document_number ?? "",
+      warehouse_name: (l) => l.warehouse_name ?? "",
+      signed_qty: (l) => Number(l.signed_qty),
+      unit_cost: (l) => Number(l.unit_cost),
+      running_qty: (l) => Number(l.running_qty),
+    }
+  );
+  const cardexLines = sortedCardexLines ?? cardexQuery.data?.lines ?? [];
 
   return (
     <ReportView
@@ -736,8 +756,8 @@ function CardexTab() {
       kpis={
         cardexQuery.data
           ? [
-              { label: t("inventory.cardex.opening_qty"), value: cardexQuery.data.opening_qty },
-              { label: t("inventory.cardex.closing_qty"), value: cardexQuery.data.closing_qty },
+              { label: t("inventory.cardex.opening_qty"), value: formatQty(cardexQuery.data.opening_qty) },
+              { label: t("inventory.cardex.closing_qty"), value: formatQty(cardexQuery.data.closing_qty) },
             ]
           : undefined
       }
@@ -753,22 +773,40 @@ function CardexTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("inventory.moves.date")}</TableHead>
-                <TableHead>{t("inventory.moves.type")}</TableHead>
-                <TableHead>{t("inventory.moves.source")}</TableHead>
-                <TableHead className="text-end">{t("inventory.moves.qty")}</TableHead>
-                <TableHead className="text-end">{t("inventory.moves.unit_cost")}</TableHead>
-                <TableHead className="text-end">{t("inventory.cardex.running_qty")}</TableHead>
+                <SortableTableHead sortKey="moved_at" sort={cardexSort} onSort={toggleCardexSort}>
+                  {t("inventory.moves.date")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="move_type" sort={cardexSort} onSort={toggleCardexSort}>
+                  {t("inventory.moves.type")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="source" sort={cardexSort} onSort={toggleCardexSort}>
+                  {t("inventory.moves.source")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="document_number" sort={cardexSort} onSort={toggleCardexSort}>
+                  {t("inventory.cardex.document_number")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="warehouse_name" sort={cardexSort} onSort={toggleCardexSort}>
+                  {t("inventory.stock.warehouse")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="signed_qty" sort={cardexSort} onSort={toggleCardexSort} align="end">
+                  {t("inventory.moves.qty")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="unit_cost" sort={cardexSort} onSort={toggleCardexSort} align="end">
+                  {t("inventory.moves.unit_cost")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="running_qty" sort={cardexSort} onSort={toggleCardexSort} align="end">
+                  {t("inventory.cardex.running_qty")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow className="text-muted-foreground">
-                <TableCell colSpan={5} className="italic">
+                <TableCell colSpan={7} className="italic">
                   {t("inventory.cardex.opening_qty")}
                 </TableCell>
-                <TableCell className="text-end font-mono">{cardexQuery.data.opening_qty}</TableCell>
+                <TableCell className="text-end font-mono">{formatQty(cardexQuery.data.opening_qty)}</TableCell>
               </TableRow>
-              {cardexQuery.data.lines.map((line) => {
+              {cardexLines.map((line) => {
                 const href = sourceDocumentHref(line.source_table, line.source_id);
                 const labelKey = sourceDocumentLabelKey(line.source_table);
                 const label = labelKey ? t(labelKey) : line.source_table;
@@ -787,19 +825,131 @@ function CardexTab() {
                         <span className="text-muted-foreground">{label}</span>
                       )}
                     </TableCell>
+                    <TableCell>
+                      {line.document_number ? (
+                        href ? (
+                          <Link href={href} className="font-medium underline-offset-4 hover:underline">
+                            {line.document_number}
+                          </Link>
+                        ) : (
+                          line.document_number
+                        )
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>{line.warehouse_name ?? <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell className={`text-end font-mono ${Number(line.signed_qty) < 0 ? "text-destructive" : ""}`}>
-                      {Number(line.signed_qty) > 0 ? `+${line.signed_qty}` : line.signed_qty}
+                      {Number(line.signed_qty) > 0 ? `+${formatQty(line.signed_qty)}` : formatQty(line.signed_qty)}
                     </TableCell>
                     <TableCell className="text-end">{formatCurrency(line.unit_cost)}</TableCell>
-                    <TableCell className="text-end font-mono font-semibold">{line.running_qty}</TableCell>
+                    <TableCell className="text-end font-mono font-semibold">{formatQty(line.running_qty)}</TableCell>
                   </TableRow>
                 );
               })}
               <TableRow className="font-semibold border-t-2">
-                <TableCell colSpan={5}>{t("inventory.cardex.closing_qty")}</TableCell>
-                <TableCell className="text-end font-mono">{cardexQuery.data.closing_qty}</TableCell>
+                <TableCell colSpan={7}>{t("inventory.cardex.closing_qty")}</TableCell>
+                <TableCell className="text-end font-mono">{formatQty(cardexQuery.data.closing_qty)}</TableCell>
               </TableRow>
             </TableBody>
+          </Table>
+        </>
+      )}
+    </ReportView>
+  );
+}
+
+function StockBalanceByProductTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const { products, label: productLabel } = useProductLabel();
+
+  const [productId, setProductId] = useState("");
+  const [ranAt, setRanAt] = useState<string | null>(null);
+
+  const balanceQuery = useQuery({
+    queryKey: ["stock-balance-by-product", companyId, ranAt],
+    queryFn: () => inventoryApi.getStockBalanceByProduct(companyId, ranAt!),
+    enabled: !!ranAt,
+  });
+  const balanceProduct = ranAt ? products.find((p) => p.id === ranAt) : undefined;
+
+  const { sort, toggleSort, sortedRows } = useSortedRows(balanceQuery.data?.by_warehouse, {
+    warehouse_name: (r) => r.warehouse_name,
+    qty_on_hand: (r) => Number(r.qty_on_hand),
+  });
+  const rows = sortedRows ?? balanceQuery.data?.by_warehouse ?? [];
+
+  return (
+    <ReportView
+      title={t("inventory.stock_balance.title")}
+      filterArea={
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs">{t("inventory.stock.product")}</Label>
+          <EntitySearchSelect
+            items={products.map((p) => ({
+              id: p.id,
+              label: p.name,
+              code: p.sku,
+              searchText: `${p.sku} ${p.name} ${p.name_ar ?? ""}`,
+            }))}
+            value={productId || null}
+            onChange={(v) => setProductId(v ?? "")}
+            placeholder={t("inventory.stock.product")}
+            className="w-64"
+          />
+        </div>
+      }
+      onApply={() => setRanAt(productId)}
+      isLoading={balanceQuery.isFetching}
+      isError={balanceQuery.isError}
+      errorMessage={balanceQuery.error instanceof ApiError ? balanceQuery.error.detail : undefined}
+      onRetry={() => balanceQuery.refetch()}
+      isEmpty={!!ranAt && !balanceQuery.isFetching && rows.length === 0}
+      kpis={
+        balanceQuery.data
+          ? [{ label: t("inventory.stock_balance.total_qty_on_hand"), value: formatQty(balanceQuery.data.total_qty_on_hand) }]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("inventory.stock_balance.select_product_hint")}</p>}
+      {ranAt && balanceQuery.data && (
+        <>
+          <div className="flex items-center gap-3">
+            <EntityImage src={balanceProduct?.image_path} name={productLabel(ranAt)} size="lg" shape="square" />
+            <h2 className="text-lg font-semibold">{productLabel(ranAt)}</h2>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortableTableHead sortKey="warehouse_name" sort={sort} onSort={toggleSort}>
+                  {t("inventory.stock.warehouse")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="qty_on_hand" sort={sort} onSort={toggleSort} align="end">
+                  {t("inventory.stock_balance.qty_on_hand")}
+                </SortableTableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.warehouse_id}>
+                  <TableCell>{row.warehouse_name}</TableCell>
+                  <TableCell
+                    className={`text-end font-mono tabular-nums ${Number(row.qty_on_hand) <= 0 ? "text-destructive" : ""}`}
+                  >
+                    {formatQty(row.qty_on_hand)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell className="font-bold">{t("inventory.stock_balance.total_qty_on_hand")}</TableCell>
+                <TableCell className="text-end font-bold font-mono tabular-nums">
+                  {formatQty(balanceQuery.data.total_qty_on_hand)}
+                </TableCell>
+              </TableRow>
+            </TableFooter>
           </Table>
         </>
       )}
@@ -842,7 +992,7 @@ function LowStockTab() {
       align: "end",
       sortable: true,
       sortValue: (r) => Number(r.qty_on_hand),
-      render: (r) => r.qty_on_hand,
+      render: (r) => formatQty(r.qty_on_hand),
     },
     {
       key: "reorder_point",
@@ -850,7 +1000,7 @@ function LowStockTab() {
       align: "end",
       sortable: true,
       sortValue: (r) => Number(r.reorder_point),
-      render: (r) => r.reorder_point,
+      render: (r) => formatQty(r.reorder_point),
     },
     {
       key: "shortfall",
@@ -858,7 +1008,7 @@ function LowStockTab() {
       align: "end",
       sortable: true,
       sortValue: (r) => Number(r.shortfall),
-      render: (r) => <Badge variant="destructive">{r.shortfall}</Badge>,
+      render: (r) => <Badge variant="destructive">{formatQty(r.shortfall)}</Badge>,
     },
   ];
 
@@ -895,8 +1045,16 @@ function ValuationTab() {
     enabled: !!ranAt,
   });
 
-  const rows = valuationQuery.data ?? [];
-  const totalValue = rows.reduce((sum, r) => sum + Number(r.total_value), 0);
+  const rawRows = valuationQuery.data ?? [];
+  const totalValue = rawRows.reduce((sum, r) => sum + Number(r.total_value), 0);
+  const { sort, toggleSort, sortedRows } = useSortedRows(rawRows, {
+    warehouse_name: (r) => r.warehouse_name,
+    product: (r) => `${r.product_code} ${r.product_name}`,
+    qty_on_hand: (r) => Number(r.qty_on_hand),
+    unit_cost: (r) => Number(r.unit_cost),
+    total_value: (r) => Number(r.total_value),
+  });
+  const rows = sortedRows ?? rawRows;
 
   return (
     <ReportView
@@ -954,11 +1112,21 @@ function ValuationTab() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("inventory.stock.warehouse")}</TableHead>
-                <TableHead>{t("inventory.stock.product")}</TableHead>
-                <TableHead className="text-end">{t("inventory.stock.qty_on_hand")}</TableHead>
-                <TableHead className="text-end">{t("inventory.valuation.unit_cost")}</TableHead>
-                <TableHead className="text-end font-semibold">{t("inventory.valuation.total_value")}</TableHead>
+                <SortableTableHead sortKey="warehouse_name" sort={sort} onSort={toggleSort}>
+                  {t("inventory.stock.warehouse")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="product" sort={sort} onSort={toggleSort}>
+                  {t("inventory.stock.product")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="qty_on_hand" sort={sort} onSort={toggleSort} align="end">
+                  {t("inventory.stock.qty_on_hand")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="unit_cost" sort={sort} onSort={toggleSort} align="end">
+                  {t("inventory.valuation.unit_cost")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="total_value" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("inventory.valuation.total_value")}
+                </SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -970,7 +1138,7 @@ function ValuationTab() {
                       {r.product_code} — {r.product_name}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-end tabular-nums">{r.qty_on_hand}</TableCell>
+                  <TableCell className="text-end tabular-nums">{formatQty(r.qty_on_hand)}</TableCell>
                   <TableCell className="text-end tabular-nums">{formatCurrency(r.unit_cost)}</TableCell>
                   <TableCell className="text-end tabular-nums font-semibold">{formatCurrency(r.total_value)}</TableCell>
                 </TableRow>
@@ -1062,6 +1230,7 @@ export default function InventoryPage() {
       {tab === "transfer" && <TransferTab />}
       {tab === "cycle-counts" && <CycleCountsTab />}
       {tab === "cardex" && <CardexTab />}
+      {tab === "stock-balance" && <StockBalanceByProductTab />}
       {tab === "valuation" && <ValuationTab />}
       {tab === "inventory-reconciliation" && <InventoryReconciliationTab />}
       {tab === "low-stock" && <LowStockTab />}
