@@ -646,6 +646,7 @@
   "inventory.cycle_counts.select_warehouse_hint": "Choose a warehouse above to pre-fill its current stock balance for counting.",
   "inventory.cycle_counts.no_balance_hint": "This warehouse has no stock balance yet — add a line manually below.",
   "inventory.cycle_counts.add_manual_line": "Add product manually",
+  "inventory.cycle_counts.download_pdf": "Download PDF",
   "inventory.cycle_counts.new": "New cycle count",
   "inventory.cycle_counts.create_title": "New Cycle Count",
   "inventory.cycle_counts.scheduled_date": "Scheduled date",

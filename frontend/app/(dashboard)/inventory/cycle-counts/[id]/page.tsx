@@ -1,9 +1,9 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +28,7 @@ export default function CycleCountDetailPage({ params }: { params: Promise<{ id:
   const queryClient = useQueryClient();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId);
+  const [downloading, setDownloading] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["cycle-count", companyId, id],
@@ -58,6 +59,25 @@ export default function CycleCountDetailPage({ params }: { params: Promise<{ id:
     onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
+  async function handleDownloadPdf() {
+    setDownloading(true);
+    try {
+      const { blob, filename } = await inventoryApi.downloadCycleCountPdf(companyId, id, locale);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || `${data?.cycle_count.number ?? "cycle-count"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error"));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data) return null;
 
@@ -68,10 +88,16 @@ export default function CycleCountDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="max-w-2xl space-y-4">
-      <Button variant="ghost" size="sm" onClick={() => router.push("/inventory?tab=cycle-counts")}>
-        <ArrowLeft className="h-4 w-4" />
-        {t("common.back")}
-      </Button>
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={() => router.push("/inventory?tab=cycle-counts")}>
+          <ArrowLeft className="h-4 w-4" />
+          {t("common.back")}
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={downloading}>
+          <Download className="h-4 w-4" />
+          {downloading ? t("common.loading") : t("inventory.cycle_counts.download_pdf")}
+        </Button>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">

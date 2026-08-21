@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.api.deps import (
@@ -70,6 +70,7 @@ from src.modules.inventory.infrastructure.repositories import (
     StockQuantRepository,
     WarehouseRepository,
 )
+from src.shared.documents.cycle_count_pdf import CycleCountDocument, CycleCountLineRow, render_cycle_count_pdf
 from src.shared.infrastructure.db.session import get_db, set_company_context
 from src.shared.reporting.company_name import resolve_company_name
 from src.shared.reporting.export_render import ReportColumn, ReportTable
@@ -479,6 +480,64 @@ async def get_cycle_count(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Cycle count not found")
     lines = await cycle_count_repo.get_lines(cycle_count_id)
     return CycleCountDetailResponse(cycle_count=cycle_count, lines=lines)
+
+
+@router.get("/cycle-counts/{cycle_count_id}/pdf")
+async def get_cycle_count_pdf(
+    cycle_count_id: UUID,
+    lang: Literal["ar", "en"] = "ar",
+    ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
+    cycle_count_repo: CycleCountRepository = Depends(get_cycle_count_repo),
+    product_repo: ProductRepository = Depends(get_product_repo),
+    location_repo: LocationRepository = Depends(get_location_repo),
+    warehouse_repo: WarehouseRepository = Depends(get_warehouse_repo),
+    company_repo: CompanyRepository = Depends(get_company_repo),
+):
+    """Owner request: a Cycle Count needs a real, printable/archivable
+    document -- retrievable and reviewable like every other document
+    type, not just an on-screen table. No VAT/ZATCA concerns (an
+    internal warehouse document, not a tax document), so this mirrors
+    `quotation_pdf.py`'s technique rather than the invoice one."""
+    cycle_count = await cycle_count_repo.get_by_id(cycle_count_id)
+    if cycle_count is None or cycle_count.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cycle count not found")
+    lines = await cycle_count_repo.get_lines(cycle_count_id)
+
+    warehouse = await warehouse_repo.get_by_id(cycle_count.warehouse_id)
+    company = await company_repo.get_by_id(ctx.company_id)
+
+    line_rows = []
+    for line in lines:
+        product = await product_repo.get_by_id(line.product_id)
+        location = await location_repo.get_by_id(line.location_id)
+        line_rows.append(
+            CycleCountLineRow(
+                product_name=product.name if product else "",
+                product_sku=product.sku if product else "",
+                location_name=location.name if location else "",
+                system_qty=line.system_qty,
+                counted_qty=line.counted_qty,
+                variance_qty=line.counted_qty - line.system_qty,
+            )
+        )
+
+    doc = CycleCountDocument(
+        number=cycle_count.number,
+        scheduled_date=cycle_count.scheduled_date,
+        status=cycle_count.status,
+        warehouse_name=warehouse.name if warehouse else "",
+        lines=line_rows,
+        company_name=company.legal_name if company else "",
+        company_name_ar=(company.legal_name_ar or company.legal_name) if company else "",
+        company_logo_path=company.logo_path if company else None,
+        lang=lang,
+    )
+    pdf_bytes = render_cycle_count_pdf(doc)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename={cycle_count.number}.pdf"},
+    )
 
 
 @router.post("/cycle-counts", response_model=CycleCountDetailResponse, status_code=status.HTTP_201_CREATED)

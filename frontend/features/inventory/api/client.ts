@@ -71,6 +71,9 @@ export const inventoryApi = {
   approveCycleCount: (companyId: string, branchId: string | null, id: string) =>
     apiClient.post<CycleCountDetail>(`${BASE}/cycle-counts/${id}:approve`, undefined, { companyId, branchId }),
 
+  downloadCycleCountPdf: (companyId: string, id: string, lang: string) =>
+    apiClient.getBlob(`${BASE}/cycle-counts/${id}/pdf?lang=${lang}`, { companyId }),
+
   getProductCardex: (
     companyId: string,
     params: { productId: string; dateFrom: string; dateTo: string; warehouseId?: string; sourceTable?: string }

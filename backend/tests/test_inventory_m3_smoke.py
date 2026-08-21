@@ -418,6 +418,44 @@ async def test_cycle_count_not_visible_across_companies(client):
     assert detail_resp.status_code == 404
 
 
+async def test_cycle_count_pdf_is_downloadable(client):
+    """Owner request: a Cycle Count needs a real, printable/archivable
+    document -- retrievable and reviewable like every other document
+    type in this codebase, not just an on-screen table."""
+    _, headers = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+
+    create_resp = await client.post(
+        "/api/v1/inventory/cycle-counts",
+        headers=headers,
+        json={
+            "warehouse_id": wh["warehouse"]["id"],
+            "scheduled_date": "2026-04-01",
+            "lines": [{"product_id": product_id, "location_id": location_id, "counted_qty": "5"}],
+        },
+    )
+    cycle_count_id = create_resp.json()["cycle_count"]["id"]
+    cycle_count_number = create_resp.json()["cycle_count"]["number"]
+
+    pdf_resp = await client.get(f"/api/v1/inventory/cycle-counts/{cycle_count_id}/pdf", headers=headers)
+    assert pdf_resp.status_code == 200, pdf_resp.text
+    assert pdf_resp.content[:4] == b"%PDF"
+    assert cycle_count_number in pdf_resp.headers["content-disposition"]
+
+    en_resp = await client.get(
+        f"/api/v1/inventory/cycle-counts/{cycle_count_id}/pdf", headers=headers, params={"lang": "en"}
+    )
+    assert en_resp.status_code == 200
+    assert en_resp.content[:4] == b"%PDF"
+
+
+async def test_cycle_count_pdf_requires_permission(client):
+    resp = await client.get("/api/v1/inventory/cycle-counts/00000000-0000-0000-0000-000000000001/pdf")
+    assert resp.status_code == 401
+
+
 async def test_cycle_count_gets_its_own_sequential_document_number(client):
     """Owner request: a Cycle Count reads as its own distinct document
     type (CC-######), the same convention every other document series in
