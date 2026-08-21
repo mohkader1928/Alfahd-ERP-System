@@ -145,8 +145,8 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             </p>
           )}
           <dl className="grid grid-cols-2 gap-2 text-sm">
-            <dt className="text-muted-foreground">Type</dt>
-            <dd className="capitalize">{invoice.invoice_type.replace("_", " ")}</dd>
+            <dt className="text-muted-foreground">{t("sales.invoice.type")}</dt>
+            <dd>{t(`sales.invoice.type_${invoice.invoice_type}`)}</dd>
             <dt className="text-muted-foreground">{t("sales.invoice.date")}</dt>
             <dd>{formatDate(invoice.invoice_date, locale)}</dd>
             <dt className="text-muted-foreground">{t("inventory.stock.warehouse")}</dt>

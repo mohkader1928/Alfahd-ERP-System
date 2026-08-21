@@ -102,8 +102,8 @@ export default function SalesInvoicesPage() {
       key: "invoice_type",
       header: t("sales.invoice.type"),
       sortable: true,
-      sortValue: (row) => row.invoice_type,
-      render: (row) => <span className="capitalize">{row.invoice_type.replace("_", " ")}</span>,
+      sortValue: (row) => t(`sales.invoice.type_${row.invoice_type}`),
+      render: (row) => t(`sales.invoice.type_${row.invoice_type}`),
     },
     {
       key: "invoice_date",
