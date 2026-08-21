@@ -426,8 +426,13 @@ class CycleCountService:
     async def create_cycle_count(
         self, *, company_id: UUID, warehouse_id: UUID, scheduled_date: date, lines: list[dict]
     ) -> CycleCount:
+        number = await self.cycle_count_repo.next_number(company_id)
         cycle_count = CycleCount(
-            id=uuid.uuid4(), company_id=company_id, warehouse_id=warehouse_id, scheduled_date=scheduled_date
+            id=uuid.uuid4(),
+            company_id=company_id,
+            warehouse_id=warehouse_id,
+            number=number,
+            scheduled_date=scheduled_date,
         )
         orm_lines = []
         for line in lines:

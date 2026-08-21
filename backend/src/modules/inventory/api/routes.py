@@ -173,9 +173,12 @@ async def receive_stock(
 
 @router.get("/stock/quants", response_model=list[StockQuantOut])
 async def list_stock_quants(
+    warehouse_id: UUID | None = None,
     ctx: AuthContext = Depends(require_permission("inventory.stock.view")),
     quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
 ):
+    if warehouse_id is not None:
+        return await quant_repo.list_by_warehouse(ctx.company_id, warehouse_id)
     return await quant_repo.list_by_company(ctx.company_id)
 
 
@@ -599,7 +602,7 @@ async def approve_cycle_count(
             branch_id=ctx.branch_id,
             journal_code="GEN",
             entry_date=cycle_count.scheduled_date,
-            reference=f"Cycle count {cycle_count.id}",
+            reference=cycle_count.number,
             lines=entry_lines,
             created_by=ctx.user_id,
             source_table="cycle_count",
@@ -634,7 +637,7 @@ async def approve_cycle_count(
             branch_id=ctx.branch_id,
             journal_code="GEN",
             entry_date=cycle_count.scheduled_date,
-            reference=f"Inventory valuation variance for cycle count {cycle_count.id}",
+            reference=f"Inventory valuation variance for {cycle_count.number}",
             lines=variance_lines,
             created_by=ctx.user_id,
             source_table="cycle_count",

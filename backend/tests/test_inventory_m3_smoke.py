@@ -315,6 +315,7 @@ async def test_cycle_count_posts_one_net_journal_entry_across_lines(client):
         },
     )
     cycle_count_id = create_resp.json()["cycle_count"]["id"]
+    cycle_count_number = create_resp.json()["cycle_count"]["number"]
 
     je_before = (await client.get("/api/v1/accounting/journal-entries", headers=headers)).json()
 
@@ -327,7 +328,9 @@ async def test_cycle_count_posts_one_net_journal_entry_across_lines(client):
     je_after = (await client.get("/api/v1/accounting/journal-entries", headers=headers)).json()
     new_entries = [e for e in je_after if e["id"] not in {j["id"] for j in je_before}]
     assert len(new_entries) == 1  # exactly one entry for the whole count, not two
-    assert new_entries[0]["reference"] == f"Cycle count {cycle_count_id}"
+    # Owner request: a Cycle Count reads as its own distinct document type
+    # (a real number, like every other document) instead of a raw UUID.
+    assert new_entries[0]["reference"] == cycle_count_number
 
     trial_balance = await client.get(
         "/api/v1/accounting/reports/trial-balance",
@@ -413,6 +416,75 @@ async def test_cycle_count_not_visible_across_companies(client):
     assert all(c["id"] != cycle_count_id for c in list_resp.json())
     detail_resp = await client.get(f"/api/v1/inventory/cycle-counts/{cycle_count_id}", headers=headers_b)
     assert detail_resp.status_code == 404
+
+
+async def test_cycle_count_gets_its_own_sequential_document_number(client):
+    """Owner request: a Cycle Count reads as its own distinct document
+    type (CC-######), the same convention every other document series in
+    this codebase already follows -- not a raw UUID with no human-
+    readable identifier at all."""
+    _, headers = await _bootstrap_and_login(client)
+    product_id = await _create_product(client, headers)
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+
+    first = await client.post(
+        "/api/v1/inventory/cycle-counts",
+        headers=headers,
+        json={
+            "warehouse_id": wh["warehouse"]["id"],
+            "scheduled_date": "2026-04-01",
+            "lines": [{"product_id": product_id, "location_id": location_id, "counted_qty": "5"}],
+        },
+    )
+    second = await client.post(
+        "/api/v1/inventory/cycle-counts",
+        headers=headers,
+        json={
+            "warehouse_id": wh["warehouse"]["id"],
+            "scheduled_date": "2026-04-02",
+            "lines": [{"product_id": product_id, "location_id": location_id, "counted_qty": "6"}],
+        },
+    )
+    assert first.json()["cycle_count"]["number"] == "CC-000001"
+    assert second.json()["cycle_count"]["number"] == "CC-000002"
+
+
+async def test_stock_quants_filter_by_warehouse_for_cycle_count_prefill(client):
+    """Owner request: picking a warehouse on the Cycle Count creation
+    screen should pre-populate the count sheet from that warehouse's own
+    real stock balance -- covers the /stock/quants?warehouse_id= filter
+    the frontend uses for that. Only nonzero quants come back (a zero
+    balance isn't worth auto-listing); a product in a DIFFERENT warehouse
+    must not leak into this one's list."""
+    _, headers = await _bootstrap_and_login(client)
+    product_a = await _create_product(client, headers)
+    product_b = await _create_product(client, headers)
+    wh_a = await _create_warehouse(client, headers)
+    wh_b_resp = await client.post(
+        "/api/v1/inventory/warehouses", headers=headers, json={"name": "Secondary", "is_default": False}
+    )
+    wh_b = wh_b_resp.json()
+
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_a, "location_id": wh_a["default_location"]["id"], "qty": "10", "unit_cost": "5.00"},
+    )
+    await client.post(
+        "/api/v1/inventory/stock/receive",
+        headers=headers,
+        json={"product_id": product_b, "location_id": wh_b["default_location"]["id"], "qty": "20", "unit_cost": "5.00"},
+    )
+
+    resp = await client.get(
+        "/api/v1/inventory/stock/quants", headers=headers, params={"warehouse_id": wh_a["warehouse"]["id"]}
+    )
+    assert resp.status_code == 200, resp.text
+    quants = resp.json()
+    assert len(quants) == 1
+    assert quants[0]["product_id"] == product_a
+    assert quants[0]["qty_on_hand"] == "10.000000"
 
 
 async def test_sales_invoice_deducts_stock_when_warehouse_configured(client):

@@ -74,7 +74,9 @@ export default function CycleCountDetailPage({ params }: { params: Promise<{ id:
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            {warehouseLabel}
+            <span>
+              {cycle_count.number} <span className="text-muted-foreground font-normal">— {warehouseLabel}</span>
+            </span>
             <Badge variant={statusVariant(cycle_count.status)}>{cycle_count.status}</Badge>
           </CardTitle>
         </CardHeader>

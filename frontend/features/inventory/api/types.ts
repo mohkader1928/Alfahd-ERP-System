@@ -69,6 +69,7 @@ export interface CycleCount {
   id: string;
   company_id: string;
   warehouse_id: string;
+  number: string;
   status: "draft" | "counted" | "approved";
   scheduled_date: string;
 }

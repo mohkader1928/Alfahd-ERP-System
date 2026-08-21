@@ -157,6 +157,26 @@ class StockQuantRepository:
         result = await self.session.execute(select(StockQuant).where(StockQuant.company_id == company_id))
         return list(result.scalars().all())
 
+    async def list_by_warehouse(self, company_id: UUID, warehouse_id: UUID) -> list[StockQuant]:
+        """Owner request (Cycle Count creation): every quant this
+        warehouse's own book balance says is nonzero, so picking a
+        warehouse pre-populates the count sheet with what's actually
+        supposed to be there instead of starting from a blank product
+        picker. Zero-qty quants are excluded -- a cycle count worth
+        auto-listing is one with a real book balance to verify; a
+        product physically found where none was expected is still
+        addable via the existing manual add-line control."""
+        result = await self.session.execute(
+            select(StockQuant)
+            .join(Location, Location.id == StockQuant.location_id)
+            .where(
+                StockQuant.company_id == company_id,
+                Location.warehouse_id == warehouse_id,
+                StockQuant.qty_on_hand != 0,
+            )
+        )
+        return list(result.scalars().all())
+
     async def qty_on_hand_for_product(self, company_id: UUID, product_id: UUID) -> Decimal:
         """Single-product total across every location — cheaper than
         `qty_on_hand_by_product` when only one product's low-stock
@@ -345,6 +365,26 @@ class StockMoveRepository:
 class CycleCountRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def next_number(self, company_id: UUID) -> str:
+        """CC-###### -- a Cycle Count is its own document type, same
+        precedent as every other document series in this codebase.
+        MAX-based (not COUNT-based): scans existing CC-prefixed numbers
+        for their real highest suffix, so it can never re-issue one
+        already taken regardless of historical gaps or interleaving --
+        see VendorBillRepository.next_number's docstring for the exact
+        live collision a COUNT-based approach caused elsewhere."""
+        result = await self.session.execute(
+            select(CycleCount.number).where(
+                CycleCount.company_id == company_id, CycleCount.number.like("CC-%")
+            )
+        )
+        max_seq = 0
+        for (number,) in result.all():
+            suffix = number.split("-", 1)[1] if "-" in number else ""
+            if suffix.isdigit():
+                max_seq = max(max_seq, int(suffix))
+        return f"CC-{max_seq + 1:06d}"
 
     async def add(self, cycle_count: CycleCount, lines: list[CycleCountLine]) -> CycleCount:
         self.session.add(cycle_count)

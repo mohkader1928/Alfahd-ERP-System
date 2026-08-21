@@ -129,6 +129,7 @@ class CycleCountOut(BaseModel):
     id: UUID
     company_id: UUID
     warehouse_id: UUID
+    number: str
     status: str
     scheduled_date: date
 

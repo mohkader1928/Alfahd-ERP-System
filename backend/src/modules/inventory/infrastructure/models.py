@@ -124,6 +124,7 @@ class CycleCount(Base):
     )
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     warehouse_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("warehouse.id"), nullable=False)
+    number: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
     scheduled_date: Mapped[date] = mapped_column(nullable=False)
 

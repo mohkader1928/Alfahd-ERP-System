@@ -566,6 +566,13 @@ function CycleCountsTab() {
 
   const columns: ERPColumn<CycleCount>[] = [
     {
+      key: "number",
+      header: t("inventory.cycle_counts.number"),
+      sortable: true,
+      sortValue: (r) => r.number,
+      render: (r) => <span className="font-medium">{r.number}</span>,
+    },
+    {
       key: "warehouse",
       header: t("inventory.stock.warehouse"),
       sortable: true,
@@ -599,7 +606,7 @@ function CycleCountsTab() {
       errorMessage={cycleCountsQuery.error instanceof ApiError ? cycleCountsQuery.error.detail : undefined}
       onRetry={() => cycleCountsQuery.refetch()}
       onRefresh={() => queryClient.invalidateQueries({ queryKey: ["cycle-counts", companyId] })}
-      searchText={(r) => `${warehouseLabel(r.warehouse_id)} ${r.status}`}
+      searchText={(r) => `${r.number} ${warehouseLabel(r.warehouse_id)} ${r.status}`}
       searchPlaceholder={t("list.search_placeholder")}
       emptyDescription={t("inventory.cycle_counts.empty_description")}
       getRowHref={(r) => `/inventory/cycle-counts/${r.id}`}

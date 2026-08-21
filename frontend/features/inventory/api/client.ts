@@ -28,7 +28,11 @@ export const inventoryApi = {
   listLocations: (companyId: string, warehouseId: string) =>
     apiClient.get<Location[]>(`${BASE}/warehouses/${warehouseId}/locations`, { companyId }),
 
-  listStockQuants: (companyId: string) => apiClient.get<StockQuant[]>(`${BASE}/stock/quants`, { companyId }),
+  listStockQuants: (companyId: string, warehouseId?: string) =>
+    apiClient.get<StockQuant[]>(
+      `${BASE}/stock/quants${warehouseId ? `?warehouse_id=${warehouseId}` : ""}`,
+      { companyId }
+    ),
 
   listLowStock: (companyId: string) => apiClient.get<LowStockRow[]>(`${BASE}/stock/low-stock`, { companyId }),
 
