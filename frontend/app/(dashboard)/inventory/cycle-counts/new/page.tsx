@@ -17,7 +17,22 @@ import { identityApi } from "@/features/identity/api/client";
 import { inventoryApi } from "@/features/inventory/api/client";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { formatQty } from "@/lib/format-qty";
 import { toastError, toastSuccess } from "@/lib/toast";
+
+// Owner-reported bug: the backend carries qty at 6 decimal places
+// (StockQuant is NUMERIC(18,6), kept that precise for moving-average
+// costing), so a raw "25.000000" pre-filled into the narrow Actual Qty
+// input overflowed and got visually clipped. Trims to at most 2 decimal
+// places, dropping trailing zeros for whole quantities -- same rule
+// formatQty already applies to every other quantity display in this
+// app, just without formatQty's toLocaleString grouping (a comma in an
+// editable numeric input would break re-parsing it as a plain number).
+function trimQtyForInput(value: string): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  return (Math.round(n * 100) / 100).toString();
+}
 
 interface Line {
   product_id: string;
@@ -80,7 +95,7 @@ export default function NewCycleCountPage() {
         product_id: q.product_id,
         location_id: q.location_id,
         system_qty: q.qty_on_hand,
-        counted_qty: q.qty_on_hand,
+        counted_qty: trimQtyForInput(q.qty_on_hand),
         auto: true,
       }))
     );
@@ -258,7 +273,7 @@ export default function NewCycleCountPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-end font-mono tabular-nums text-muted-foreground">
-                          {line.system_qty}
+                          {formatQty(line.system_qty)}
                         </TableCell>
                         <TableCell>
                           <Input

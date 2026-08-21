@@ -17,6 +17,7 @@ import { inventoryApi } from "@/features/inventory/api/client";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format-date";
+import { formatQty } from "@/lib/format-qty";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
 
@@ -102,8 +103,8 @@ export default function CycleCountDetailPage({ params }: { params: Promise<{ id:
                   <TableRow key={l.id}>
                     <TableCell>{productLabel(l.product_id)}</TableCell>
                     <TableCell>{locationLabel(l.location_id)}</TableCell>
-                    <TableCell className="text-end">{l.system_qty}</TableCell>
-                    <TableCell className="text-end">{l.counted_qty}</TableCell>
+                    <TableCell className="text-end">{formatQty(l.system_qty)}</TableCell>
+                    <TableCell className="text-end">{formatQty(l.counted_qty)}</TableCell>
                     <TableCell
                       className={cn(
                         "text-end",
@@ -111,7 +112,7 @@ export default function CycleCountDetailPage({ params }: { params: Promise<{ id:
                         variance === 0 && "text-muted-foreground"
                       )}
                     >
-                      {variance > 0 ? `+${variance}` : variance}
+                      {variance > 0 ? `+${formatQty(variance)}` : formatQty(variance)}
                     </TableCell>
                   </TableRow>
                 );
