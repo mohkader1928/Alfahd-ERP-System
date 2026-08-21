@@ -23,6 +23,8 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from weasyprint import HTML
 
+from src.shared.documents.signature_footer import SIGNATURE_FOOTER_CSS, render_signature_footer_html
+
 
 @dataclass(frozen=True)
 class ReportColumn:
@@ -80,6 +82,7 @@ def render_pdf(table: ReportTable) -> bytes:
   table {{ width: 100%; border-collapse: collapse; }}
   th, td {{ border: 1px solid #ccc; padding: 4px 6px; font-variant-numeric: tabular-nums; }}
   th {{ background: #f2f2f2; font-weight: 700; }}
+{SIGNATURE_FOOTER_CSS}
 </style>
 </head>
 <body>
@@ -90,6 +93,7 @@ def render_pdf(table: ReportTable) -> bytes:
     <thead><tr>{header_cells}</tr></thead>
     <tbody>{body_rows}{totals_row}</tbody>
   </table>
+  {render_signature_footer_html("ar" if table.rtl else "en")}
 </body>
 </html>"""
 

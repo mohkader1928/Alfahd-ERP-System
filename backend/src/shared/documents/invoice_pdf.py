@@ -24,6 +24,7 @@ import qrcode
 from weasyprint import HTML
 
 from src.shared.config.settings import get_settings
+from src.shared.documents.signature_footer import SIGNATURE_FOOTER_CSS, render_signature_footer_html
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,7 @@ def render_invoice_pdf(doc: InvoiceDocument) -> bytes:
   .totals tr.grand td {{ border-top: 2px solid #1a1a1a; font-weight: 700; font-size: 11pt; }}
   .footer {{ display: flex; justify-content: space-between; align-items: center; margin-top: 20pt; }}
   .qr {{ width: 90pt; height: 90pt; }}
+{SIGNATURE_FOOTER_CSS}
 </style>
 </head>
 <body>
@@ -214,6 +216,7 @@ def render_invoice_pdf(doc: InvoiceDocument) -> bytes:
   <div class="footer">
     {f'<img class="qr" src="{qr_uri}">' if qr_uri else "<span></span>"}
   </div>
+  {render_signature_footer_html(lang)}
 </body>
 </html>"""
 

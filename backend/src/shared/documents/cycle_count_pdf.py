@@ -20,6 +20,7 @@ from pathlib import Path
 from weasyprint import HTML
 
 from src.shared.config.settings import get_settings
+from src.shared.documents.signature_footer import SIGNATURE_FOOTER_CSS, render_signature_footer_html
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,7 @@ def render_cycle_count_pdf(doc: CycleCountDocument) -> bytes:
   td.num, th.num {{ text-align: end; }}
   .variance-pos {{ color: #0a7a2f; font-weight: 700; }}
   .variance-neg {{ color: #c0392b; font-weight: 700; }}
+{SIGNATURE_FOOTER_CSS}
 </style>
 </head>
 <body>
@@ -167,6 +169,7 @@ def render_cycle_count_pdf(doc: CycleCountDocument) -> bytes:
     </thead>
     <tbody>{line_rows}</tbody>
   </table>
+  {render_signature_footer_html(lang)}
 </body>
 </html>"""
 

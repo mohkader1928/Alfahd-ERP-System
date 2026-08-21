@@ -19,6 +19,7 @@ from pathlib import Path
 from weasyprint import HTML
 
 from src.shared.config.settings import get_settings
+from src.shared.documents.signature_footer import SIGNATURE_FOOTER_CSS, render_signature_footer_html
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,7 @@ def render_quotation_pdf(doc: QuotationDocument) -> bytes:
   .totals tr.grand td {{ border-top: 2px solid #1a1a1a; font-weight: 700; font-size: 11pt; }}
   .terms {{ font-size: 9.5pt; margin-top: 16pt; padding-top: 8pt; border-top: 1px solid #ccc; }}
   .terms .label {{ color: #666; font-size: 8.5pt; text-transform: uppercase; margin-bottom: 3pt; }}
+{SIGNATURE_FOOTER_CSS}
 </style>
 </head>
 <body>
@@ -175,6 +177,7 @@ def render_quotation_pdf(doc: QuotationDocument) -> bytes:
     </table>
   </div>
   {f'<div class="terms"><p class="label">{h(labels["payment_terms"])}</p><p>{h(doc.payment_terms)}</p></div>' if doc.payment_terms else ""}
+  {render_signature_footer_html(lang)}
 </body>
 </html>"""
 
