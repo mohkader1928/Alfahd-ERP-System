@@ -2093,6 +2093,10 @@ function VatReconciliationTab() {
       {!ranAt && <p className="text-sm text-muted-foreground">{t("sales.reports.run_hint")}</p>}
       {r && (
         <>
+          <ReportPrintHeader
+            reportTitle={t("accounting.vat_reconciliation.title")}
+            dateRangeLabel={`${r.date_from} – ${r.date_to}`}
+          />
           <p className="mb-4 text-sm text-muted-foreground">{t("accounting.vat_reconciliation.hint")}</p>
           <div className="flex items-center gap-3">
             <Badge variant={r.matched ? "default" : "destructive"} className="text-sm">
