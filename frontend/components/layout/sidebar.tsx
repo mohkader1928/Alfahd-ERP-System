@@ -13,7 +13,23 @@ function isLinkActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavLinkItem({ item, pathname, indent }: { item: NavLink; pathname: string; indent?: boolean }) {
+function NavLinkItem({
+  item,
+  pathname,
+  indent,
+  iconColor,
+}: {
+  item: NavLink;
+  pathname: string;
+  indent?: boolean;
+  /** Owner request: a child link inside a group now takes on its
+   * parent module's own color (passed down by NavGroupItem below) so
+   * "دليل الحسابات" reads violet right alongside "المحاسبة" itself —
+   * one color per module, not a rainbow of unrelated per-item colors.
+   * Falls back to the item's own iconColor for the few top-level links
+   * (Dashboard) that aren't inside a group at all. */
+  iconColor?: string;
+}) {
   const { t } = useI18n();
   const active = isLinkActive(pathname, item.href);
   const Icon = item.icon;
@@ -28,7 +44,7 @@ function NavLinkItem({ item, pathname, indent }: { item: NavLink; pathname: stri
           : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
       )}
     >
-      <Icon className={cn("h-4 w-4 shrink-0", item.iconColor)} />
+      <Icon className={cn("h-4 w-4 shrink-0", iconColor ?? item.iconColor)} />
       {t(item.labelKey)}
     </Link>
   );
@@ -64,7 +80,7 @@ function NavGroupItem({ group, pathname }: { group: NavGroup; pathname: string }
       {open && (
         <div className="space-y-1 py-1">
           {group.children.map((child) => (
-            <NavLinkItem key={child.href} item={child} pathname={pathname} indent />
+            <NavLinkItem key={child.href} item={child} pathname={pathname} indent iconColor={group.iconColor} />
           ))}
         </div>
       )}
