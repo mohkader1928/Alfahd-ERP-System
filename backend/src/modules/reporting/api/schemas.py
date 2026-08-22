@@ -97,6 +97,16 @@ class VatSummaryOut(BaseModel):
     net_vat_payable: Decimal
 
 
+class VatReconciliationOut(BaseModel):
+    date_from: date
+    date_to: date
+    summary_net_vat_payable: Decimal
+    gl_net_vat_payable: Decimal
+    difference: Decimal
+    tolerance: Decimal
+    matched: bool
+
+
 class VatDetailRowOut(BaseModel):
     document_date: date
     movement_type: str

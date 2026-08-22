@@ -106,6 +106,16 @@ export interface VatSummary {
   net_vat_payable: string;
 }
 
+export interface VatReconciliation {
+  date_from: string;
+  date_to: string;
+  summary_net_vat_payable: string;
+  gl_net_vat_payable: string;
+  difference: string;
+  tolerance: string;
+  matched: boolean;
+}
+
 export interface VatDetailRow {
   document_date: string;
   movement_type: "invoice" | "credit_note" | "bill";

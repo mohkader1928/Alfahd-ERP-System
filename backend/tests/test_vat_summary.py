@@ -148,13 +148,26 @@ async def test_vat_summary_nets_output_and_input_vat(client):
     assert Decimal(body["net_vat_payable"]) > 0
 
 
-async def test_vat_summary_excludes_vendor_debit_notes_from_purchases(client):
-    """Regression for a real reported bug (same defect class as the
-    Dashboard's Purchases KPI): this report's purchases_stmt summed every
-    posted VendorBill regardless of `bill_type`, so a Vendor Debit Note
-    (a return to the vendor, positive `total_amount` mirroring the bill it
-    reverses) inflated purchases_total/input_vat instead of being
-    excluded, exactly like the sales side already excludes credit notes."""
+async def test_vat_summary_nets_vendor_debit_notes_against_purchases(client):
+    """Regression for two real reported bugs from the same root cause:
+    1) (2026-08-19) this report's purchases_stmt summed every posted
+       VendorBill regardless of `bill_type`, so a Vendor Debit Note
+       inflated purchases_total/input_vat by double-counting it on top
+       of the original bill.
+    2) (2026-08-22) the fix for #1 excluded debit notes from
+       purchases_stmt entirely instead of netting them the way the sales
+       side already nets credit notes (`output_vat = sales.vat -
+       credit_note.vat`) -- stopping the double-count, but also silently
+       dropping the debit note's real VAT reversal, which
+       `issue_debit_note`'s own JE always posts to the GL's VAT Payable
+       account regardless. Trial Balance's VAT Payable (computed from the
+       GL) and this report (computed independently from source documents)
+       diverged by the debit note's own tax_amount -- SAR 16,822,500 on a
+       real company with 19 debit notes in the period.
+
+    A full debit note against a bill must net input VAT to exactly zero
+    for that bill -- the same "fully returned = zero net" outcome the
+    sales side already produces for a fully credit-noted invoice."""
     today = date.today()
     _, headers = await _bootstrap_and_login(client)
     bill = await _post_vendor_bill(client, headers, bill_date=today.isoformat())
@@ -174,11 +187,83 @@ async def test_vat_summary_excludes_vendor_debit_notes_from_purchases(client):
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    # Purchases/input VAT reflect only the original standard bill -- the
-    # debit note must not add a second, ghost purchase on top of it.
-    assert Decimal(body["purchases_subtotal"]) == Decimal(bill["subtotal_amount"])
-    assert Decimal(body["input_vat"]) == Decimal(bill["tax_amount"])
-    assert Decimal(body["purchases_total"]) == Decimal(bill["total_amount"])
+    # A full return nets purchases/input VAT to zero -- not "only the
+    # original bill" (the old, buggy behavior) and not double-counted.
+    assert Decimal(body["purchases_subtotal"]) == 0
+    assert Decimal(body["input_vat"]) == 0
+    assert Decimal(body["purchases_total"]) == 0
+
+
+async def test_vat_summary_nets_partial_vendor_debit_note(client):
+    """The full-return case above can't distinguish "netted" from
+    "excluded-but-happens-to-be-zero"; a PARTIAL debit note (half the
+    original bill, via the freeform-lines endpoint) proves the netting
+    arithmetic itself: input VAT must be the original bill's VAT minus
+    the partial debit note's own VAT, not the full bill's VAT untouched
+    (the old, buggy "exclude" behavior)."""
+    today = date.today()
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    await _ensure_default_warehouse(client, headers)
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": today.isoformat(),
+            "lines": [{"product_id": product_id, "qty": "10", "unit_price": "100.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_detail = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()
+    po_line_id = po_detail["lines"][0]["id"]
+    gr_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "10"}]},
+    )
+    assert gr_resp.status_code == 201, gr_resp.text
+    bill_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/vendor-bills",
+        headers=headers,
+        json={"vendor_reference": "PARTIAL-DN", "lines": [{"purchase_order_line_id": po_line_id, "qty": "10", "unit_price": "100.00"}]},
+    )
+    bill_id = bill_resp.json()["id"]
+    approve_resp = await client.post(f"/api/v1/purchasing/vendor-bills/{bill_id}:approve", headers=headers)
+    bill = approve_resp.json()
+    # 10 units @ 100.00 = 1000.00 subtotal, 15% VAT = 150.00.
+    assert Decimal(bill["tax_amount"]) == Decimal("150.0000")
+
+    debit_resp = await client.post(
+        "/api/v1/purchasing/vendor-bills:return",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "original_bill_id": bill_id,
+            "reason": "Partial return, 4 of 10 units",
+            "restock": True,
+            "lines": [{"product_id": product_id, "qty": "4", "unit_price": "100.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    assert debit_resp.status_code == 201, debit_resp.text
+    debit_note = debit_resp.json()
+    # 4 units @ 100.00 = 400.00 subtotal, 15% VAT = 60.00.
+    assert Decimal(debit_note["tax_amount"]) == Decimal("60.0000")
+
+    resp = await client.get(
+        "/api/v1/reporting/vat-summary",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    body = resp.json()
+
+    # 150.00 (full bill) - 60.00 (partial return) = 90.00, not 150.00
+    # (the old "exclude debit notes entirely" bug).
+    assert Decimal(body["input_vat"]) == Decimal("90.0000")
+    assert Decimal(body["purchases_subtotal"]) == Decimal("600.0000")  # 1000 - 400
 
 
 async def test_vat_summary_excludes_out_of_range_and_unposted(client):
@@ -301,10 +386,12 @@ async def test_vat_detail_credit_note_carries_negated_amounts(client):
     assert output_vat == Decimal(summary["output_vat"])
 
 
-async def test_vat_detail_excludes_vendor_debit_notes(client):
-    """Same scope as /vat-summary's purchases_stmt: vendor debit notes
-    stay out of the detail listing too, so the two reports never disagree
-    about what counts toward input VAT."""
+async def test_vat_detail_includes_debit_notes_and_reconciles_to_summary(client):
+    """Vendor debit notes now appear in the detail listing (negated,
+    same contra convention as sales credit notes), and the sum of every
+    input-direction line must reproduce /vat-summary's input_vat exactly
+    -- the two reports must never disagree about what counts toward
+    input VAT (the real gap this was built to close)."""
     today = date.today()
     _, headers = await _bootstrap_and_login(client)
     bill = await _post_vendor_bill(client, headers, bill_date=today.isoformat())
@@ -312,6 +399,7 @@ async def test_vat_detail_excludes_vendor_debit_notes(client):
         f"/api/v1/purchasing/vendor-bills/{bill['id']}:debit-note", headers=headers, json={"reason": "Full return"}
     )
     assert debit_resp.status_code == 201, debit_resp.text
+    debit_note = debit_resp.json()
 
     detail_resp = await client.get(
         "/api/v1/reporting/vat-detail",
@@ -319,8 +407,18 @@ async def test_vat_detail_excludes_vendor_debit_notes(client):
         params={"date_from": today.isoformat(), "date_to": today.isoformat()},
     )
     lines = detail_resp.json()
-    assert all(l["movement_type"] != "debit_note" for l in lines)
-    assert sum(1 for l in lines if l["direction"] == "input") == 1
+    debit_line = next(l for l in lines if l["movement_type"] == "debit_note")
+    assert debit_line["document_id"] == debit_note["id"]
+    assert Decimal(debit_line["vat_amount"]) == -Decimal(debit_note["tax_amount"])
+
+    summary_resp = await client.get(
+        "/api/v1/reporting/vat-summary",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    summary = summary_resp.json()
+    input_vat = sum(Decimal(l["vat_amount"]) for l in lines if l["direction"] == "input")
+    assert input_vat == Decimal(summary["input_vat"]) == 0  # full return nets to zero
 
 
 async def test_vat_detail_export_pdf_and_excel(client):
@@ -348,5 +446,61 @@ async def test_vat_detail_export_pdf_and_excel(client):
 async def test_vat_detail_requires_permission(client):
     resp = await client.get(
         "/api/v1/reporting/vat-detail", params={"date_from": "2026-01-01", "date_to": "2026-12-31"}
+    )
+    assert resp.status_code == 401
+
+
+async def test_vat_reconciliation_matches_when_no_debit_or_credit_notes(client):
+    """Standing-prevention report (Owner request #4): a plain invoice +
+    bill, no returns involved, must reconcile exactly -- the baseline
+    case that should always match."""
+    today = date.today()
+    _, headers = await _bootstrap_and_login(client)
+    await _issue_sale(client, headers, invoice_date=today.isoformat())
+    await _post_vendor_bill(client, headers, bill_date=today.isoformat())
+
+    resp = await client.get(
+        "/api/v1/reporting/vat-reconciliation",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["matched"] is True
+    assert Decimal(body["difference"]) == 0
+    assert Decimal(body["summary_net_vat_payable"]) == Decimal(body["gl_net_vat_payable"])
+
+
+async def test_vat_reconciliation_matches_with_debit_and_credit_notes(client):
+    """The actual regression: before the netting fix, a debit note alone
+    would have opened a real gap here. With the fix, this must still
+    read MATCHED even with both a credit note and a debit note in the
+    period -- proving the reconciliation report itself would have
+    caught the original bug had it existed at the time."""
+    today = date.today()
+    _, headers = await _bootstrap_and_login(client)
+    invoice = await _issue_sale(client, headers, invoice_date=today.isoformat())
+    await client.post(
+        f"/api/v1/sales/invoices/{invoice['id']}:credit-note", headers=headers, json={"reason": "Full return"}
+    )
+    bill = await _post_vendor_bill(client, headers, bill_date=today.isoformat())
+    await client.post(
+        f"/api/v1/purchasing/vendor-bills/{bill['id']}:debit-note", headers=headers, json={"reason": "Full return"}
+    )
+
+    resp = await client.get(
+        "/api/v1/reporting/vat-reconciliation",
+        headers=headers,
+        params={"date_from": today.isoformat(), "date_to": today.isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["matched"] is True, body
+    assert Decimal(body["difference"]) == 0
+
+
+async def test_vat_reconciliation_requires_permission(client):
+    resp = await client.get(
+        "/api/v1/reporting/vat-reconciliation", params={"date_from": "2026-01-01", "date_to": "2026-12-31"}
     )
     assert resp.status_code == 401

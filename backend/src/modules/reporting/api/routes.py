@@ -29,6 +29,7 @@ from src.modules.reporting.api.schemas import (
     SalesByProductRow,
     SearchResultRow,
     VatDetailRowOut,
+    VatReconciliationOut,
     VatSummaryOut,
 )
 from src.modules.reporting.application.services import (
@@ -450,6 +451,25 @@ async def vat_detail(
         rtl=lang == "ar",
     )
     return build_export_response(format, "vat-detail", table)
+
+
+@router.get("/vat-reconciliation", response_model=VatReconciliationOut)
+async def vat_reconciliation(
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("reporting.vat.view")),
+    service: VatReportingService = Depends(get_vat_reporting_service),
+):
+    """Owner-reported finding (شركة المحمود, 2026-08-22): VAT Summary and
+    the Trial Balance's VAT Payable (2200) balance had silently drifted
+    apart by SAR 16,822,500 -- vendor debit notes were excluded from
+    /vat-summary's input VAT instead of netted, while their real VAT
+    reversal always posted to the GL regardless. Surfaces that
+    comparison directly, every time, instead of relying on someone
+    noticing two separate reports disagree -- the same MATCHED/NOT
+    MATCHED discipline Inventory Valuation's and Fixed Assets'
+    reconciliation reports already established."""
+    return await service.get_reconciliation(company_id=ctx.company_id, date_from=date_from, date_to=date_to)
 
 
 # ── Inventory Valuation ────────────────────────────────────────────────────────

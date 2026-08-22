@@ -907,10 +907,16 @@ function TrialBalanceTab() {
                       {Number(row.period_credit) > 0 ? formatCurrency(row.period_credit) : "—"}
                     </TableCell>
                     {/* Closing */}
-                    <TableCell className={`text-end font-mono border-s${isAbnormal ? " text-amber-600 dark:text-amber-400" : ""}`}>
+                    <TableCell
+                      className={`text-end font-mono border-s${isAbnormal ? " text-amber-600 dark:text-amber-400" : ""}`}
+                      title={isAbnormal ? t("accounting.tb.abnormal_balance_hint") : undefined}
+                    >
                       {drBalance > 0 ? formatCurrency(drBalance) : "—"}
                     </TableCell>
-                    <TableCell className={`text-end font-mono${isAbnormal ? " text-amber-600 dark:text-amber-400" : ""}`}>
+                    <TableCell
+                      className={`text-end font-mono${isAbnormal ? " text-amber-600 dark:text-amber-400" : ""}`}
+                      title={isAbnormal ? t("accounting.tb.abnormal_balance_hint") : undefined}
+                    >
                       {crBalance > 0 ? formatCurrency(crBalance) : "—"}
                     </TableCell>
                   </TableRow>
@@ -929,6 +935,12 @@ function TrialBalanceTab() {
             </TableBody>
           </Table>
           </div>
+          {rows.some((row) => tbBalanceCells(row).isAbnormal) && (
+            <p className="mt-3 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+              <span className="inline-block h-3 w-3 shrink-0 rounded-sm bg-yellow-50 ring-1 ring-inset ring-amber-400 dark:bg-yellow-950/20" />
+              {t("accounting.tb.abnormal_balance_hint")}
+            </p>
+          )}
         </>
       )}
     </ReportView>
@@ -2032,6 +2044,70 @@ function VatDetailTab() {
   );
 }
 
+function VatReconciliationTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+
+  const reconQuery = useQuery({
+    queryKey: ["vat-reconciliation", companyId, ranAt?.from, ranAt?.to],
+    queryFn: () => reportingApi.vatReconciliation(companyId, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+  const r = reconQuery.data;
+
+  return (
+    <ReportView
+      title={t("accounting.vat_reconciliation.title")}
+      filterArea={
+        <>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.vat.date_from")}</Label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t("accounting.vat.date_to")}</Label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+        </>
+      }
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onReset={() => setRanAt(null)}
+      isLoading={reconQuery.isFetching}
+      isError={reconQuery.isError}
+      errorMessage={String(reconQuery.error ?? "")}
+      onRetry={() => reconQuery.refetch()}
+      kpis={
+        r
+          ? [
+              { label: t("accounting.vat_reconciliation.summary_net"), value: formatCurrency(r.summary_net_vat_payable) },
+              { label: t("accounting.vat_reconciliation.gl_net"), value: formatCurrency(r.gl_net_vat_payable) },
+              { label: t("accounting.vat_reconciliation.difference"), value: formatCurrency(r.difference) },
+            ]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("sales.reports.run_hint")}</p>}
+      {r && (
+        <>
+          <p className="mb-4 text-sm text-muted-foreground">{t("accounting.vat_reconciliation.hint")}</p>
+          <div className="flex items-center gap-3">
+            <Badge variant={r.matched ? "default" : "destructive"} className="text-sm">
+              {r.matched ? t("accounting.vat_reconciliation.matched") : t("accounting.vat_reconciliation.mismatched")}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {t("accounting.vat_reconciliation.tolerance")}: {formatCurrency(r.tolerance)}
+            </span>
+          </div>
+        </>
+      )}
+    </ReportView>
+  );
+}
+
 function SubledgerLinesTable({ lines }: { lines: SubledgerLine[] }) {
   const { t, locale } = useI18n();
   const { sort, toggleSort, sortedRows } = useSortedRows(lines, {
@@ -3088,6 +3164,7 @@ export default function AccountingPage() {
       {tab === "equity-statement" && <EquityStatementTab />}
       {tab === "vat-summary" && <VatSummaryTab />}
       {tab === "vat-detail" && <VatDetailTab />}
+      {tab === "vat-reconciliation" && <VatReconciliationTab />}
       {tab === "customer-subledger" && <CustomerSubledgerTab initialPartnerId={deepLinkPartnerId} />}
       {tab === "vendor-subledger" && <VendorSubledgerTab initialPartnerId={deepLinkPartnerId} />}
       {tab === "ar-aging" && <ArAgingTab />}

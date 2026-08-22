@@ -9,6 +9,7 @@ import type {
   SalesByProductRow,
   SearchResultRow,
   VatDetailRow,
+  VatReconciliation,
   VatSummary,
 } from "./types";
 
@@ -59,6 +60,11 @@ export const reportingApi = {
 
   vatDetail: (companyId: string, dateFrom: string, dateTo: string) =>
     apiClient.get<VatDetailRow[]>(`${BASE}/vat-detail?date_from=${dateFrom}&date_to=${dateTo}`, { companyId }),
+
+  vatReconciliation: (companyId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<VatReconciliation>(`${BASE}/vat-reconciliation?date_from=${dateFrom}&date_to=${dateTo}`, {
+      companyId,
+    }),
 
   // ── Inventory Valuation ────────────────────────────────────────────────────────
 

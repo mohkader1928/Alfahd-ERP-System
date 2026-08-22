@@ -188,6 +188,13 @@ export const NAV_CONFIG: NavEntry[] = [
       },
       {
         type: "link",
+        href: "/accounting?tab=vat-reconciliation",
+        labelKey: "accounting.vat_reconciliation.title",
+        icon: Scale,
+        permission: "reporting.vat.view",
+      },
+      {
+        type: "link",
         href: "/accounting?tab=customer-subledger",
         labelKey: "accounting.tabs.customer_subledger",
         icon: BookUser,

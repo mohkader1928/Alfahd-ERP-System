@@ -677,6 +677,13 @@ class SearchService:
         return results
 
 
+ACCOUNT_CODE_VAT_PAYABLE = "2200"
+# Same small, fixed, explicit tolerance as Inventory/Fixed Assets
+# reconciliation — large enough to absorb genuinely unavoidable
+# sub-cent rounding, never large enough to mask a real gap.
+VAT_RECONCILIATION_TOLERANCE = Decimal("1.00")
+
+
 class VatReportingService:
     """VAT/Tax Summary — explicitly named in the Owner's original Bundle E
     spec, and the standard baseline every Saudi business needs before
@@ -686,8 +693,13 @@ class VatReportingService:
     books (`journal_entry_id is not None`) — the same "real accounting
     impact, not just a draft" filter AR/AP Aging already applies."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, journal_entry_repo: JournalEntryRepository | None = None):
         self.session = session
+        # Optional so existing call sites/tests building this service
+        # without a journal_entry_repo (vat_summary/vat_detail never
+        # needed one) keep working unchanged — only get_reconciliation
+        # uses it, same precedent as InventoryValuationReportService.
+        self.journal_entry_repo = journal_entry_repo
 
     async def vat_summary(self, *, company_id: UUID, date_from: date, date_to: date) -> dict:
         sales_stmt = select(
@@ -712,15 +724,27 @@ class VatReportingService:
             SalesInvoice.invoice_date >= date_from,
             SalesInvoice.invoice_date <= date_to,
         )
-        # Dashboard-bug sibling fix: this query used to sum every posted
-        # VendorBill regardless of `bill_type`, so a Vendor Debit Note
-        # (bill_type="debit_note", a return to the vendor stored with the
-        # same positive amount as the bill it reverses) was being ADDED to
-        # input VAT/purchases instead of excluded -- the same defect found
-        # in the Dashboard's purchases KPI (VendorBillRepository.
-        # sum_total_in_range). Mirrors the sales side's own convention
-        # (credit notes excluded from the gross total) and
-        # PurchaseReportingService.by_vendor's existing bill_type filter.
+        # Dashboard-bug sibling fix (2026-08-19): this query used to sum
+        # every posted VendorBill regardless of `bill_type`, so a Vendor
+        # Debit Note (bill_type="debit_note", a return to the vendor
+        # stored with the same positive amount as the bill it reverses)
+        # was being ADDED to input VAT/purchases instead of netted out --
+        # the same defect found in the Dashboard's purchases KPI
+        # (VendorBillRepository.sum_total_in_range). That fix excluded
+        # debit notes from `purchases_stmt` entirely (`bill_type ==
+        # "standard"`) rather than actually mirroring the sales side's own
+        # convention as its own comment claimed -- credit notes on the
+        # sales side are NOT excluded, they're queried separately and
+        # SUBTRACTED (`output_vat = sales_row.vat - credit_row.vat`).
+        # Excluding debit notes outright stops the double-count but
+        # silently drops their real VAT reversal from the figure, which
+        # `issue_debit_note`'s own JE always posts to the GL's VAT
+        # account regardless -- a second real, reported gap (Trial
+        # Balance's VAT Payable vs this report, SAR 16,822,500 on a real
+        # company) from the exact same root cause as the double-count fix
+        # was meant to close, just the opposite direction of the same
+        # asymmetry. Netting debit notes here the same way credit notes
+        # already are closes both.
         purchases_stmt = select(
             func.coalesce(func.sum(VendorBill.subtotal_amount), 0).label("subtotal"),
             func.coalesce(func.sum(VendorBill.tax_amount), 0).label("vat"),
@@ -732,17 +756,29 @@ class VatReportingService:
             VendorBill.bill_date >= date_from,
             VendorBill.bill_date <= date_to,
         )
+        debit_note_stmt = select(
+            func.coalesce(func.sum(VendorBill.subtotal_amount), 0).label("subtotal"),
+            func.coalesce(func.sum(VendorBill.tax_amount), 0).label("vat"),
+            func.coalesce(func.sum(VendorBill.total_amount), 0).label("total"),
+        ).where(
+            VendorBill.company_id == company_id,
+            VendorBill.journal_entry_id.is_not(None),
+            VendorBill.bill_type == "debit_note",
+            VendorBill.bill_date >= date_from,
+            VendorBill.bill_date <= date_to,
+        )
 
         sales_row = (await self.session.execute(sales_stmt)).one()
         credit_row = (await self.session.execute(credit_note_stmt)).one()
         purchases_row = (await self.session.execute(purchases_stmt)).one()
+        debit_row = (await self.session.execute(debit_note_stmt)).one()
 
         sales_subtotal = Decimal(str(sales_row.subtotal)) - Decimal(str(credit_row.subtotal))
         output_vat = Decimal(str(sales_row.vat)) - Decimal(str(credit_row.vat))
         sales_total = Decimal(str(sales_row.total)) - Decimal(str(credit_row.total))
-        purchases_subtotal = Decimal(str(purchases_row.subtotal))
-        input_vat = Decimal(str(purchases_row.vat))
-        purchases_total = Decimal(str(purchases_row.total))
+        purchases_subtotal = Decimal(str(purchases_row.subtotal)) - Decimal(str(debit_row.subtotal))
+        input_vat = Decimal(str(purchases_row.vat)) - Decimal(str(debit_row.vat))
+        purchases_total = Decimal(str(purchases_row.total)) - Decimal(str(debit_row.total))
 
         return {
             "sales_subtotal": sales_subtotal,
@@ -756,15 +792,16 @@ class VatReportingService:
 
     async def vat_detail(self, *, company_id: UUID, date_from: date, date_to: date) -> list[dict]:
         """Per-document breakdown behind `vat_summary` -- every posted sales
-        invoice, sales credit note, and (standard) vendor bill in the
-        period, so the Owner can trace the net VAT payable figure back to
-        the individual documents that make it up rather than trusting a
-        single netted number. Same document scope as `vat_summary`
-        (vendor debit notes stay excluded from input VAT there -- see that
-        method's docstring -- so they're excluded here too, to avoid a
-        detail view whose totals don't reconcile to the summary's). Credit
-        notes carry negated amounts (same contra convention `vat_summary`
-        already applies when subtracting `credit_row` from `sales_row`), so
+        invoice, sales credit note, vendor bill, and vendor debit note in
+        the period, so the Owner can trace the net VAT payable figure back
+        to the individual documents that make it up rather than trusting a
+        single netted number. Same document scope as `vat_summary` (both
+        net debit/credit notes against their forward counterparts rather
+        than excluding either side -- see that method's docstring for the
+        real reconciliation gap excluding debit notes caused). Credit
+        notes and debit notes both carry negated amounts (same contra
+        convention `vat_summary` already applies when subtracting
+        `credit_row`/`debit_row` from `sales_row`/`purchases_row`), so
         summing any column here reproduces the exact totals `vat_summary`
         returns."""
 
@@ -818,10 +855,51 @@ class VatReportingService:
             VendorBill, VendorBill.bill_date, VendorBill.bill_type == "standard",
             "bill", "input", negate=False,
         )
+        debit_note_rows = await _rows(
+            VendorBill, VendorBill.bill_date, VendorBill.bill_type == "debit_note",
+            "debit_note", "input", negate=True,
+        )
 
-        lines = invoice_rows + credit_note_rows + bill_rows
+        lines = invoice_rows + credit_note_rows + bill_rows + debit_note_rows
         lines.sort(key=lambda r: (r["document_date"], r["number"]))
         return lines
+
+    async def get_reconciliation(self, *, company_id: UUID, date_from: date, date_to: date) -> dict:
+        """Ties VAT Summary to the GL it's supposed to be a subledger of —
+        the same standing-prevention discipline already applied to
+        Inventory Valuation and Fixed Assets (both have their own
+        `get_reconciliation`). `vat_summary` computes output/input VAT
+        independently from source documents (SalesInvoice/VendorBill);
+        the GL side reads the real posted journal_entry_line rows for the
+        VAT Payable (2200) account over the exact same period, exactly
+        like Trial Balance does. The two are computed via entirely
+        different paths and can silently drift apart whenever a new
+        document type's own VAT treatment isn't mirrored in both places —
+        exactly what happened with vendor debit notes (see
+        `vat_summary`'s own docstring for the real gap this closed, SAR
+        16,822,500 on a real company) — so this exists specifically to
+        catch the next one immediately instead of only when someone
+        happens to compare the two reports by hand. Never adjusts either
+        number to force a match — a real gap is shown as a real gap."""
+        assert self.journal_entry_repo is not None
+        summary = await self.vat_summary(company_id=company_id, date_from=date_from, date_to=date_to)
+
+        rows = await self.journal_entry_repo.trial_balance(company_id, date_from, date_to, None)
+        vat_row = next((r for r in rows if r["account_code"] == ACCOUNT_CODE_VAT_PAYABLE), None)
+        gl_net_vat_payable = (
+            (vat_row["period_credit"] - vat_row["period_debit"]) if vat_row is not None else Decimal("0")
+        )
+
+        difference = summary["net_vat_payable"] - gl_net_vat_payable
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "summary_net_vat_payable": summary["net_vat_payable"],
+            "gl_net_vat_payable": gl_net_vat_payable,
+            "difference": difference,
+            "tolerance": VAT_RECONCILIATION_TOLERANCE,
+            "matched": abs(difference) <= VAT_RECONCILIATION_TOLERANCE,
+        }
 
 
 # ── Inventory Valuation ────────────────────────────────────────────────────────

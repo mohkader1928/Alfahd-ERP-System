@@ -45,7 +45,7 @@ def get_search_service(db: AsyncSession = Depends(get_db)) -> SearchService:
 
 
 def get_vat_reporting_service(db: AsyncSession = Depends(get_db)) -> VatReportingService:
-    return VatReportingService(db)
+    return VatReportingService(db, JournalEntryRepository(db))
 
 
 def get_inventory_valuation_service(db: AsyncSession = Depends(get_db)) -> InventoryValuationReportService:
