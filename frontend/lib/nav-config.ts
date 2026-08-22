@@ -42,6 +42,19 @@ export interface NavLink {
   labelKey: string;
   icon: LucideIcon;
   /**
+   * Owner request: each top-level module reads as its own colored "app"
+   * in the sidebar (Sales, Accounting, Inventory, Purchasing, ...)
+   * instead of every icon sharing one muted gray — a fixed Tailwind text-
+   * color class, deliberately theme-independent (this app's own accent
+   * hue is user-selectable via the "app color" picker, so a per-module
+   * identity color has to survive every one of those choices rather than
+   * being derived from a theme token). Only ever set on a top-level entry
+   * (the Dashboard link itself, and each NavGroup below) — a child link
+   * inside a group intentionally has no color of its own, so the module's
+   * identity reads once at the group header, not once per line.
+   */
+  iconColor?: string;
+  /**
    * Hardening Issue #5: the permission code(s) gating the page this link
    * leads to (matching the underlying list endpoint's own
    * `require_permission(...)`). A link with no `permission` is always
@@ -57,6 +70,8 @@ export interface NavGroup {
   type: "group";
   labelKey: string;
   icon: LucideIcon;
+  /** See NavLink.iconColor — same theme-independent per-module color, applied to this group's own header icon. */
+  iconColor?: string;
   children: NavLink[];
 }
 
@@ -79,11 +94,19 @@ export type NavEntry = NavLink | NavGroup;
  * dedicated Master Data screens below.
  */
 export const NAV_CONFIG: NavEntry[] = [
-  { type: "link", href: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, permission: "reporting.dashboard.view" },
+  {
+    type: "link",
+    href: "/dashboard",
+    labelKey: "nav.dashboard",
+    icon: LayoutDashboard,
+    iconColor: "text-blue-600",
+    permission: "reporting.dashboard.view",
+  },
   {
     type: "group",
     labelKey: "nav.sales",
     icon: ShoppingCart,
+    iconColor: "text-emerald-600",
     children: [
       { type: "link", href: "/sales/quotations", labelKey: "nav.sales.quotations", icon: FileText, permission: "sales.quotation.create" },
       { type: "link", href: "/sales/orders", labelKey: "nav.sales.orders", icon: FileText, permission: "sales.order.view" },
@@ -97,6 +120,7 @@ export const NAV_CONFIG: NavEntry[] = [
     type: "group",
     labelKey: "nav.accounting",
     icon: Calculator,
+    iconColor: "text-violet-600",
     children: [
       { type: "link", href: "/accounting?tab=accounts", labelKey: "accounting.tabs.accounts", icon: BookOpen, permission: "accounting.chart_of_accounts.view" },
       {
@@ -217,6 +241,7 @@ export const NAV_CONFIG: NavEntry[] = [
     type: "group",
     labelKey: "nav.fixed_assets",
     icon: Landmark,
+    iconColor: "text-amber-600",
     children: [
       { type: "link", href: "/fixed-assets", labelKey: "accounting.tabs.fixed_assets", icon: Landmark, permission: "fixed_assets.view" },
       { type: "link", href: "/fixed-assets/categories", labelKey: "fixed_assets.categories.title", icon: FolderTree, permission: "fixed_assets.view" },
@@ -241,6 +266,7 @@ export const NAV_CONFIG: NavEntry[] = [
     type: "group",
     labelKey: "nav.inventory",
     icon: Boxes,
+    iconColor: "text-cyan-600",
     children: [
       { type: "link", href: "/inventory?tab=warehouses", labelKey: "inventory.tabs.warehouses", icon: Warehouse, permission: "inventory.warehouse.view" },
       { type: "link", href: "/inventory?tab=stock", labelKey: "inventory.tabs.stock", icon: PackageSearch, permission: "inventory.stock.view" },
@@ -270,6 +296,7 @@ export const NAV_CONFIG: NavEntry[] = [
     type: "group",
     labelKey: "nav.purchasing",
     icon: Truck,
+    iconColor: "text-rose-600",
     children: [
       { type: "link", href: "/purchasing", labelKey: "nav.purchasing.orders_bills", icon: Truck, permission: "purchasing.order.view" },
       { type: "link", href: "/purchasing/returns", labelKey: "nav.purchasing.returns", icon: Undo2, permission: "purchasing.vendor_bill.view" },
@@ -281,6 +308,7 @@ export const NAV_CONFIG: NavEntry[] = [
     type: "group",
     labelKey: "nav.master_data",
     icon: Package,
+    iconColor: "text-fuchsia-600",
     children: [
       { type: "link", href: "/master-data/products", labelKey: "nav.master_data.products", icon: Package, permission: "product.view" },
       { type: "link", href: "/master-data/categories", labelKey: "nav.master_data.categories", icon: FolderTree, permission: "product_category.view" },
@@ -295,6 +323,7 @@ export const NAV_CONFIG: NavEntry[] = [
     type: "group",
     labelKey: "settings.title",
     icon: Settings,
+    iconColor: "text-slate-500",
     children: [
       { type: "link", href: "/settings/company", labelKey: "settings.section.company", icon: Building2, permission: "company.view" },
       { type: "link", href: "/settings/security", labelKey: "settings.section.security", icon: ShieldCheck, permission: "role.manage" },
