@@ -19,6 +19,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Saudi ERP",
   description: "Core Nucleus — Saudi ERP System",
+  icons: {
+    icon: [{ url: "/erp-icon.png", type: "image/png" }],
+    shortcut: "/erp-icon.ico",
+  },
 };
 
 export default function RootLayout({
