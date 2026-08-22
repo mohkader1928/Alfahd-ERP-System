@@ -1895,6 +1895,7 @@ function VatDetailTab() {
 
   const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [movementType, setMovementType] = useState<string>("all");
   const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
 
   const reportQuery = useQuery({
@@ -1902,18 +1903,29 @@ function VatDetailTab() {
     queryFn: () => reportingApi.vatDetail(companyId, ranAt!.from, ranAt!.to),
     enabled: !!ranAt,
   });
-  const rows: VatDetailRow[] = reportQuery.data ?? [];
+  const allRows: VatDetailRow[] = reportQuery.data ?? [];
+  const rows = movementType === "all" ? allRows : allRows.filter((r) => r.movement_type === movementType);
 
-  const totals = rows.reduce(
-    (acc, r) => ({
-      subtotal: acc.subtotal + Number(r.subtotal_amount),
-      vat: acc.vat + Number(r.vat_amount),
-      total: acc.total + Number(r.total_amount),
-      output_vat: acc.output_vat + (r.direction === "output" ? Number(r.vat_amount) : 0),
-      input_vat: acc.input_vat + (r.direction === "input" ? Number(r.vat_amount) : 0),
-    }),
-    { subtotal: 0, vat: 0, total: 0, output_vat: 0, input_vat: 0 }
-  );
+  function sumLines(lines: VatDetailRow[]) {
+    return lines.reduce(
+      (acc, r) => ({
+        subtotal: acc.subtotal + Number(r.subtotal_amount),
+        vat: acc.vat + Number(r.vat_amount),
+        total: acc.total + Number(r.total_amount),
+        output_vat: acc.output_vat + (r.direction === "output" ? Number(r.vat_amount) : 0),
+        input_vat: acc.input_vat + (r.direction === "input" ? Number(r.vat_amount) : 0),
+      }),
+      { subtotal: 0, vat: 0, total: 0, output_vat: 0, input_vat: 0 }
+    );
+  }
+  // The KPI cards (and the net VAT payable figure) always reflect the
+  // period's TRUE totals regardless of the document-type filter below --
+  // only the table rows (and the table's own footer row) narrow down.
+  // Same convention the Customer/Vendor Subledger's own movement-type
+  // filter already established (its opening/closing balance KPIs read
+  // straight from the unfiltered API response, not the filtered lines).
+  const totals = sumLines(allRows);
+  const tableTotals = sumLines(rows);
   const netPayable = totals.output_vat - totals.input_vat;
 
   const { sort, toggleSort, sortedRows } = useSortedRows(rows, {
@@ -1939,6 +1951,25 @@ function VatDetailTab() {
           <div className="space-y-1">
             <Label className="text-xs">{t("accounting.vat.date_to")}</Label>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          </div>
+          <div className="w-44 space-y-1">
+            <Label className="text-xs">{t("accounting.sub.type")}</Label>
+            <Select value={movementType} onValueChange={(v) => setMovementType(v ?? "all")}>
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value: string) =>
+                    value === "all" ? t("accounting.sub.type_all") : t(`accounting.sub.movement_type.${value}`)
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("accounting.sub.type_all")}</SelectItem>
+                <SelectItem value="invoice">{t("accounting.sub.movement_type.invoice")}</SelectItem>
+                <SelectItem value="credit_note">{t("accounting.sub.movement_type.credit_note")}</SelectItem>
+                <SelectItem value="bill">{t("accounting.sub.movement_type.bill")}</SelectItem>
+                <SelectItem value="debit_note">{t("accounting.sub.movement_type.debit_note")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </>
       }
@@ -2005,7 +2036,8 @@ function VatDetailTab() {
             </TableHeader>
             <TableBody>
               {displayRows.map((row) => {
-                const href = sourceDocumentHref(row.movement_type === "bill" ? "vendor_bill" : "sales_invoice", row.document_id);
+                const isVendorSide = row.movement_type === "bill" || row.movement_type === "debit_note";
+                const href = sourceDocumentHref(isVendorSide ? "vendor_bill" : "sales_invoice", row.document_id);
                 return (
                   <TableRow key={row.document_id}>
                     <TableCell>{formatDate(row.document_date, locale)}</TableCell>
@@ -2032,9 +2064,9 @@ function VatDetailTab() {
             <TableFooter>
               <TableRow>
                 <TableCell colSpan={4} className="font-bold">{t("sales.reports.totals")}</TableCell>
-                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.subtotal)}</TableCell>
-                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.vat)}</TableCell>
-                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.total)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(tableTotals.subtotal)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(tableTotals.vat)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(tableTotals.total)}</TableCell>
               </TableRow>
             </TableFooter>
           </Table>
@@ -2263,7 +2295,11 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
             <Label className="text-xs">{t("accounting.sub.type")}</Label>
             <Select value={movementType} onValueChange={(v) => setMovementType(v ?? "all")}>
               <SelectTrigger className="w-full">
-                <SelectValue />
+                <SelectValue>
+                  {(value: string) =>
+                    value === "all" ? t("accounting.sub.type_all") : t(`accounting.sub.movement_type.${value}`)
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("accounting.sub.type_all")}</SelectItem>
@@ -2389,7 +2425,11 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
             <Label className="text-xs">{t("accounting.sub.type")}</Label>
             <Select value={movementType} onValueChange={(v) => setMovementType(v ?? "all")}>
               <SelectTrigger className="w-full">
-                <SelectValue />
+                <SelectValue>
+                  {(value: string) =>
+                    value === "all" ? t("accounting.sub.type_all") : t(`accounting.sub.movement_type.${value}`)
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("accounting.sub.type_all")}</SelectItem>

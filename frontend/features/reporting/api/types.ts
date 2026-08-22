@@ -118,7 +118,7 @@ export interface VatReconciliation {
 
 export interface VatDetailRow {
   document_date: string;
-  movement_type: "invoice" | "credit_note" | "bill";
+  movement_type: "invoice" | "credit_note" | "bill" | "debit_note";
   direction: "output" | "input";
   document_id: string;
   number: string;
