@@ -891,6 +891,22 @@ function TrialBalanceTab() {
                       ) : (
                         row.account_name
                       )}
+                      {/* Owner-reported confusion (twice, on real data):
+                          this balance compared against the VAT Summary
+                          report by eye, run for a different date range,
+                          looked like a bug but wasn't. Rather than
+                          relying on the on-screen date label alone, jump
+                          straight to the dedicated reconciliation report
+                          -- same period, one click, no manual comparison
+                          left to get wrong. */}
+                      {row.account_code === "2200" && ranAt && (
+                        <Link
+                          href={`/accounting?tab=vat-reconciliation&date_from=${ranAt.from}&date_to=${ranAt.to}`}
+                          className="ms-2 text-xs text-primary underline-offset-4 hover:underline"
+                        >
+                          {t("accounting.tb.verify_vat_link")}
+                        </Link>
+                      )}
                     </TableCell>
                     {/* Opening */}
                     <TableCell className="text-end font-mono border-s">
@@ -2079,10 +2095,22 @@ function VatDetailTab() {
 function VatReconciliationTab() {
   const { t } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  // Owner-reported confusion (twice, on real data): Trial Balance's VAT
+  // Payable balance compared by eye against VAT Summary's own figure,
+  // for two different date ranges, looked like a bug but wasn't. Trial
+  // Balance's "verify" link jumps here with the exact same range it was
+  // showing, via ?date_from=&date_to= — read once on mount so the report
+  // runs immediately with zero extra clicks, closing the loop instead of
+  // relying on someone noticing the date differs between two tabs.
+  const searchParams = useSearchParams();
+  const urlDateFrom = searchParams.get("date_from");
+  const urlDateTo = searchParams.get("date_to");
 
-  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 8) + "01");
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+  const [dateFrom, setDateFrom] = useState(() => urlDateFrom ?? new Date().toISOString().slice(0, 8) + "01");
+  const [dateTo, setDateTo] = useState(() => urlDateTo ?? new Date().toISOString().slice(0, 10));
+  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(() =>
+    urlDateFrom && urlDateTo ? { from: urlDateFrom, to: urlDateTo } : null
+  );
 
   const reconQuery = useQuery({
     queryKey: ["vat-reconciliation", companyId, ranAt?.from, ranAt?.to],

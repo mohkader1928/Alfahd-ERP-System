@@ -501,6 +501,7 @@
   "accounting.tb.credit": "Credit",
   "accounting.tb.drill_down_hint": "Click to view General Ledger for this account",
   "accounting.tb.abnormal_balance_hint": "Rows highlighted in yellow carry their balance on the unusual side for that account type — this is a legitimate accounting outcome, not necessarily an error. Example: the \"VAT Payable\" (liability) account shows a debit balance when input VAT (purchases) exceeds output VAT (sales) for the period, meaning the business is in a refund position rather than owing tax.",
+  "accounting.tb.verify_vat_link": "🔍 Verify in Reconciliation Report",
   "accounting.reports.detail_level": "Detail Level",
   "accounting.reports.detail_level_1": "Level 1 — Main Categories",
   "accounting.reports.detail_level_2": "Level 2",
