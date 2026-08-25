@@ -17,6 +17,8 @@ from src.modules.inventory.infrastructure.models import (
     StockLayer,
     StockMove,
     StockQuant,
+    StockTransfer,
+    StockTransferLine,
     Warehouse,
 )
 
@@ -408,5 +410,52 @@ class CycleCountRepository:
     async def list_by_company(self, company_id: UUID) -> list[CycleCount]:
         result = await self.session.execute(
             select(CycleCount).where(CycleCount.company_id == company_id).order_by(CycleCount.scheduled_date.desc())
+        )
+        return list(result.scalars().all())
+
+
+class StockTransferRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def next_number(self, company_id: UUID) -> str:
+        """TRF-###### -- same MAX-based pattern as CycleCountRepository.
+        next_number (see its own docstring for why MAX, not COUNT)."""
+        result = await self.session.execute(
+            select(StockTransfer.number).where(
+                StockTransfer.company_id == company_id, StockTransfer.number.like("TRF-%")
+            )
+        )
+        max_seq = 0
+        for (number,) in result.all():
+            suffix = number.split("-", 1)[1] if "-" in number else ""
+            if suffix.isdigit():
+                max_seq = max(max_seq, int(suffix))
+        return f"TRF-{max_seq + 1:06d}"
+
+    async def add(self, transfer: StockTransfer, lines: list[StockTransferLine]) -> StockTransfer:
+        self.session.add(transfer)
+        await self.session.flush()
+        for line in lines:
+            line.stock_transfer_id = transfer.id
+            self.session.add(line)
+        await self.session.flush()
+        return transfer
+
+    async def get_by_id(self, transfer_id: UUID) -> StockTransfer | None:
+        result = await self.session.execute(select(StockTransfer).where(StockTransfer.id == transfer_id))
+        return result.scalar_one_or_none()
+
+    async def get_lines(self, transfer_id: UUID) -> list[StockTransferLine]:
+        result = await self.session.execute(
+            select(StockTransferLine).where(StockTransferLine.stock_transfer_id == transfer_id)
+        )
+        return list(result.scalars().all())
+
+    async def list_by_company(self, company_id: UUID) -> list[StockTransfer]:
+        result = await self.session.execute(
+            select(StockTransfer)
+            .where(StockTransfer.company_id == company_id)
+            .order_by(StockTransfer.transfer_date.desc(), StockTransfer.id.desc())
         )
         return list(result.scalars().all())

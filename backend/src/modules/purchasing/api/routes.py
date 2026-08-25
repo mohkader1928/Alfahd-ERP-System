@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.modules.identity.infrastructure.repositories import AuditLogRepository
 from src.modules.purchasing.api.deps import (
     get_company_valuation_method,
+    get_goods_receipt_repo,
     get_goods_receipt_service,
     get_idempotency_key_repo,
     get_purchase_order_repo,
@@ -22,6 +23,7 @@ from src.modules.purchasing.api.schemas import (
     DebitNoteCreateRequest,
     DebitNoteLinesCreateRequest,
     GoodsReceiptCreateRequest,
+    GoodsReceiptDetailResponse,
     GoodsReceiptOut,
     PurchaseOrderCreateRequest,
     PurchaseOrderDetailResponse,
@@ -39,6 +41,7 @@ from src.modules.purchasing.application.services import (
 )
 from src.modules.purchasing.domain.entities import ThreeWayMatchError
 from src.modules.purchasing.infrastructure.repositories import (
+    GoodsReceiptRepository,
     PurchaseOrderRepository,
     VendorBillRepository,
 )
@@ -103,6 +106,31 @@ async def list_vendor_bills(
         limit=page_params.page_size,
     )
     return Page(items=items, total=total, page=page_params.page, page_size=page_params.page_size)
+
+
+@router.get("/goods-receipts", response_model=Page[GoodsReceiptOut])
+async def list_goods_receipts(
+    page_params: PageParams = Depends(),
+    ctx: AuthContext = Depends(require_permission("purchasing.goods_receipt.view")),
+    receipt_repo: GoodsReceiptRepository = Depends(get_goods_receipt_repo),
+):
+    items, total = await receipt_repo.list_by_company_page(
+        ctx.company_id, offset=page_params.offset, limit=page_params.page_size
+    )
+    return Page(items=items, total=total, page=page_params.page, page_size=page_params.page_size)
+
+
+@router.get("/goods-receipts/{receipt_id}", response_model=GoodsReceiptDetailResponse)
+async def get_goods_receipt(
+    receipt_id: UUID,
+    ctx: AuthContext = Depends(require_permission("purchasing.goods_receipt.view")),
+    receipt_repo: GoodsReceiptRepository = Depends(get_goods_receipt_repo),
+):
+    receipt = await receipt_repo.get_by_id(receipt_id)
+    if receipt is None or receipt.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Goods receipt not found")
+    lines = await receipt_repo.get_lines(receipt_id)
+    return GoodsReceiptDetailResponse(receipt=receipt, lines=lines)
 
 
 @router.get("/vendor-bills/{bill_id}", response_model=VendorBillDetailResponse)

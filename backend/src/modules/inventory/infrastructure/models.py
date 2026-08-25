@@ -144,3 +144,38 @@ class CycleCountLine(Base):
     system_qty: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
     counted_qty: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
     stock_move_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("stock_move.id"), nullable=True)
+
+
+class StockTransfer(Base):
+    __tablename__ = "stock_transfer"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    source_warehouse_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("warehouse.id"), nullable=False)
+    dest_warehouse_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("warehouse.id"), nullable=False)
+    number: Mapped[str] = mapped_column(Text, nullable=False)
+    transfer_date: Mapped[date] = mapped_column(nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
+
+
+class StockTransferLine(Base):
+    __tablename__ = "stock_transfer_line"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    stock_transfer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("stock_transfer.id"), nullable=False
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_location_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("location.id"), nullable=False)
+    dest_location_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("location.id"), nullable=False)
+    qty: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
+    issue_move_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("stock_move.id"), nullable=True)
+    receive_move_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("stock_move.id"), nullable=True
+    )

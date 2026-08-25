@@ -116,6 +116,7 @@ PERMISSION_CATALOG = [
     ("inventory.stock.receive", "action"),
     ("inventory.stock.view", "screen"),
     ("inventory.transfer.create", "action"),
+    ("inventory.transfer.view", "screen"),
     ("inventory.cycle_count.manage", "action"),
     # M4 — Purchasing
     ("purchasing.order.create", "action"),
@@ -126,6 +127,7 @@ PERMISSION_CATALOG = [
     ("purchasing.order.short_close", "action"),
     ("purchasing.order.reopen", "action"),
     ("purchasing.goods_receipt.create", "action"),
+    ("purchasing.goods_receipt.view", "screen"),
     ("purchasing.vendor_bill.create", "action"),
     ("purchasing.vendor_bill.update", "action"),
     ("purchasing.vendor_bill.view", "screen"),

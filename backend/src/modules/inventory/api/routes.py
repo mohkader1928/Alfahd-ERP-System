@@ -3,6 +3,7 @@ Goods Receipt yet — M4 will wire Purchasing's receipt into
 `InventoryValuationService.receive_stock`; `/stock/receive` is a direct
 stand-in used for initial stock entry until then)."""
 
+import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Literal
@@ -33,6 +34,7 @@ from src.modules.inventory.api.deps import (
     get_stock_layer_repo,
     get_stock_move_repo,
     get_stock_quant_repo,
+    get_stock_transfer_repo,
     get_warehouse_repo,
     require_permission,
 )
@@ -51,6 +53,8 @@ from src.modules.inventory.api.schemas import (
     StockMoveOut,
     StockQuantOut,
     StockReceiveRequest,
+    StockTransferDetailResponse,
+    StockTransferOut,
     TransferCreateRequest,
     WarehouseCreateRequest,
     WarehouseCreateResponse,
@@ -62,12 +66,14 @@ from src.modules.inventory.application.services import (
     WarehouseService,
 )
 from src.modules.inventory.domain.entities import InsufficientStockError
+from src.modules.inventory.infrastructure.models import StockTransfer, StockTransferLine
 from src.modules.inventory.infrastructure.repositories import (
     CycleCountRepository,
     LocationRepository,
     StockLayerRepository,
     StockMoveRepository,
     StockQuantRepository,
+    StockTransferRepository,
     WarehouseRepository,
 )
 from src.shared.documents.cycle_count_pdf import CycleCountDocument, CycleCountLineRow, render_cycle_count_pdf
@@ -407,11 +413,11 @@ async def _resolve_cardex_document_numbers(
     if "vendor_bill" in ids_by_table:
         numbers.update(await vendor_bill_repo.numbers_for_ids(list(ids_by_table["vendor_bill"])))
     if "goods_receipt_line" in ids_by_table:
-        numbers.update(await goods_receipt_repo.numbers_for_lines(list(ids_by_table["goods_receipt_line"])))
+        numbers.update(await goods_receipt_repo.numbers_for_ids(list(ids_by_table["goods_receipt_line"])))
     return numbers
 
 
-@router.post("/transfers", response_model=list[StockMoveOut], status_code=status.HTTP_201_CREATED)
+@router.post("/transfers", response_model=StockTransferDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_transfer(
     payload: TransferCreateRequest,
     db: AsyncSession = Depends(get_db),
@@ -419,16 +425,34 @@ async def create_transfer(
     quant_repo: StockQuantRepository = Depends(get_stock_quant_repo),
     layer_repo: StockLayerRepository = Depends(get_stock_layer_repo),
     move_repo: StockMoveRepository = Depends(get_stock_move_repo),
+    transfer_repo: StockTransferRepository = Depends(get_stock_transfer_repo),
     valuation_method: str = Depends(get_company_valuation_method),
 ):
     """UC-INV-01 — a transfer is an issue at the source + a receipt at the
     destination, at the same cost (no valuation gain/loss on an internal
-    move, per Phase 6 §5)."""
+    move, per Phase 6 §5). Persisted as a real StockTransfer/
+    StockTransferLine document (previously the two StockMove legs shared a
+    throwaway, never-persisted UUID -- no document a user could look up,
+    list, or link to)."""
     service = InventoryValuationService(quant_repo, layer_repo, move_repo)
+    number = await transfer_repo.next_number(ctx.company_id)
+    transfer = StockTransfer(
+        id=uuid.uuid4(),
+        company_id=ctx.company_id,
+        source_warehouse_id=payload.source_warehouse_id,
+        dest_warehouse_id=payload.dest_warehouse_id,
+        number=number,
+        transfer_date=date.today(),
+    )
+    line = StockTransferLine(
+        id=uuid.uuid4(),
+        company_id=ctx.company_id,
+        product_id=payload.product_id,
+        source_location_id=payload.source_location_id,
+        dest_location_id=payload.dest_location_id,
+        qty=payload.qty,
+    )
     try:
-        import uuid as _uuid
-
-        transfer_id = _uuid.uuid4()
         issue_move, cost = await service.issue_stock(
             company_id=ctx.company_id,
             product_id=payload.product_id,
@@ -436,7 +460,7 @@ async def create_transfer(
             qty=payload.qty,
             valuation_method=valuation_method,
             source_table="stock_transfer",
-            source_id=transfer_id,
+            source_id=transfer.id,
             move_type="transfer",
         )
         unit_cost = cost / payload.qty if payload.qty > 0 else 0
@@ -452,13 +476,37 @@ async def create_transfer(
             unit_cost=unit_cost,
             valuation_method=valuation_method,
             source_table="stock_transfer",
-            source_id=transfer_id,
+            source_id=transfer.id,
         )
     except (ValueError, InsufficientStockError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
+    line.issue_move_id = issue_move.id
+    line.receive_move_id = receive_move.id
+    await transfer_repo.add(transfer, [line])
     await db.commit()
-    return [issue_move, receive_move]
+    return StockTransferDetailResponse(transfer=transfer, lines=[line])
+
+
+@router.get("/transfers", response_model=list[StockTransferOut])
+async def list_transfers(
+    ctx: AuthContext = Depends(require_permission("inventory.transfer.view")),
+    transfer_repo: StockTransferRepository = Depends(get_stock_transfer_repo),
+):
+    return await transfer_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/transfers/{transfer_id}", response_model=StockTransferDetailResponse)
+async def get_transfer(
+    transfer_id: UUID,
+    ctx: AuthContext = Depends(require_permission("inventory.transfer.view")),
+    transfer_repo: StockTransferRepository = Depends(get_stock_transfer_repo),
+):
+    transfer = await transfer_repo.get_by_id(transfer_id)
+    if transfer is None or transfer.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stock transfer not found")
+    lines = await transfer_repo.get_lines(transfer_id)
+    return StockTransferDetailResponse(transfer=transfer, lines=lines)
 
 
 @router.get("/cycle-counts", response_model=list[CycleCountOut])

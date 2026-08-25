@@ -281,6 +281,13 @@ export const NAV_CONFIG: NavEntry[] = [
       { type: "link", href: "/inventory?tab=transfer", labelKey: "inventory.tabs.transfer", icon: Truck, permission: "inventory.transfer.create" },
       {
         type: "link",
+        href: "/inventory?tab=transfers",
+        labelKey: "inventory.tabs.transfers",
+        icon: FileText,
+        permission: "inventory.transfer.view",
+      },
+      {
+        type: "link",
         href: "/inventory?tab=cycle-counts",
         labelKey: "inventory.tabs.cycle_counts",
         icon: ClipboardCheck,

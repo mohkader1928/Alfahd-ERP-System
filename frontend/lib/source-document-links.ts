@@ -3,12 +3,11 @@
  * (already stored on every posted entry since the earliest modules, just
  * never surfaced until now) to a real page, where one exists today.
  *
- * `sales_invoice`, `payment`, and (Bundle C) `vendor_bill` have a real
- * detail screen. Everything else (goods_receipt, goods_receipt_line,
- * cycle_count_line, ...) returns no href — callers must show the source
- * type as plain text in that case rather than a broken link. Extending
- * this map is the only change needed once a module gains its own detail
- * page.
+ * `manual_receipt` is the only source type with no entry here — it has no
+ * real detail page, deliberately: it's document-less by design (see this
+ * file's own history for why). Callers show the source type as plain text
+ * in that case rather than a broken link. Extending this map is the only
+ * change needed once a module gains its own detail page.
  */
 const SOURCE_DOCUMENT_HREF: Record<string, (id: string) => string> = {
   sales_invoice: (id) => `/sales/invoices/${id}`,
@@ -19,6 +18,11 @@ const SOURCE_DOCUMENT_HREF: Record<string, (id: string) => string> = {
   // count's id (not the line's own id), so they resolve the same way.
   cycle_count_line: (id) => `/inventory/cycle-counts/${id}`,
   fixed_asset: (id) => `/fixed-assets/card?asset=${id}`,
+  goods_receipt: (id) => `/purchasing/goods-receipts/${id}`,
+  // Same target as goods_receipt -- these rows now carry the parent
+  // GoodsReceipt's own id (not the PO line's), so they resolve the same way.
+  goods_receipt_line: (id) => `/purchasing/goods-receipts/${id}`,
+  stock_transfer: (id) => `/inventory/transfers/${id}`,
   // Global Search result types (Professional Workspace Layer) — not JE
   // source documents, but the same "type -> real detail page" map.
   partner: (id) => `/master-data/partners/${id}`,

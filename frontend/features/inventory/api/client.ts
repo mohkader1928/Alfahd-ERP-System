@@ -10,6 +10,8 @@ import type {
   StockBalanceByProduct,
   StockMove,
   StockQuant,
+  StockTransfer,
+  StockTransferDetail,
   Warehouse,
   WarehouseCreateResult,
 } from "./types";
@@ -55,8 +57,20 @@ export const inventoryApi = {
 
   createTransfer: (
     companyId: string,
-    payload: { product_id: string; source_location_id: string; dest_location_id: string; qty: string }
-  ) => apiClient.post<StockMove[]>(`${BASE}/transfers`, payload, { companyId }),
+    payload: {
+      product_id: string;
+      source_warehouse_id: string;
+      dest_warehouse_id: string;
+      source_location_id: string;
+      dest_location_id: string;
+      qty: string;
+    }
+  ) => apiClient.post<StockTransferDetail>(`${BASE}/transfers`, payload, { companyId }),
+
+  listTransfers: (companyId: string) => apiClient.get<StockTransfer[]>(`${BASE}/transfers`, { companyId }),
+
+  getTransfer: (companyId: string, id: string) =>
+    apiClient.get<StockTransferDetail>(`${BASE}/transfers/${id}`, { companyId }),
 
   listCycleCounts: (companyId: string) => apiClient.get<CycleCount[]>(`${BASE}/cycle-counts`, { companyId }),
 

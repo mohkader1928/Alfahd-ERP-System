@@ -11,6 +11,7 @@ from src.modules.inventory.infrastructure.repositories import (
     StockLayerRepository,
     StockMoveRepository,
     StockQuantRepository,
+    StockTransferRepository,
     WarehouseRepository,
 )
 from src.shared.infrastructure.db.session import get_db
@@ -39,6 +40,10 @@ def get_stock_move_repo(db: AsyncSession = Depends(get_db)) -> StockMoveReposito
 
 def get_cycle_count_repo(db: AsyncSession = Depends(get_db)) -> CycleCountRepository:
     return CycleCountRepository(db)
+
+
+def get_stock_transfer_repo(db: AsyncSession = Depends(get_db)) -> StockTransferRepository:
+    return StockTransferRepository(db)
 
 
 async def get_company_valuation_method(

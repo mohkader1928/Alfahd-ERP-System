@@ -34,7 +34,14 @@ import { reportExportHandlers } from "@/lib/report-export";
 import { sourceDocumentHref, sourceDocumentLabelKey } from "@/lib/source-document-links";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
-import type { CycleCount, LowStockRow, StockMove, StockQuant, Warehouse } from "@/features/inventory/api/types";
+import type {
+  CycleCount,
+  LowStockRow,
+  StockMove,
+  StockQuant,
+  StockTransfer,
+  Warehouse,
+} from "@/features/inventory/api/types";
 import Link from "next/link";
 
 const CARDEX_SOURCE_TABLES = [
@@ -443,14 +450,17 @@ function TransferTab() {
     mutationFn: () =>
       inventoryApi.createTransfer(companyId, {
         product_id: productId,
+        source_warehouse_id: sourceWarehouseId,
+        dest_warehouse_id: destWarehouseId,
         source_location_id: sourceLocationsQuery.data![0].id,
         dest_location_id: destLocationsQuery.data![0].id,
         qty,
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["stock-quants", companyId] });
       queryClient.invalidateQueries({ queryKey: ["stock-moves", companyId] });
-      toastSuccess(t("toast.success_title"), t("inventory.transfer.save"));
+      queryClient.invalidateQueries({ queryKey: ["transfers", companyId] });
+      toastSuccess(t("toast.success_title"), result.transfer.number);
       setQty("1");
     },
     onError: (err) => {
@@ -619,6 +629,67 @@ function CycleCountsTab() {
         href: "/inventory/cycle-counts/new",
         permission: "inventory.cycle_count.manage",
       }}
+    />
+  );
+}
+
+function TransfersTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const queryClient = useQueryClient();
+  const { label: warehouseLabel } = useWarehouseLabel();
+
+  const transfersQuery = useQuery({
+    queryKey: ["transfers", companyId],
+    queryFn: () => inventoryApi.listTransfers(companyId),
+  });
+
+  const columns: ERPColumn<StockTransfer>[] = [
+    {
+      key: "number",
+      header: t("inventory.transfers.number"),
+      sortable: true,
+      sortValue: (r) => r.number,
+      render: (r) => <span className="font-medium">{r.number}</span>,
+    },
+    {
+      key: "source_warehouse",
+      header: t("inventory.transfer.source"),
+      sortable: true,
+      sortValue: (r) => warehouseLabel(r.source_warehouse_id),
+      render: (r) => warehouseLabel(r.source_warehouse_id),
+    },
+    {
+      key: "dest_warehouse",
+      header: t("inventory.transfer.dest"),
+      sortable: true,
+      sortValue: (r) => warehouseLabel(r.dest_warehouse_id),
+      render: (r) => warehouseLabel(r.dest_warehouse_id),
+    },
+    {
+      key: "transfer_date",
+      header: t("inventory.transfers.date"),
+      sortable: true,
+      sortValue: (r) => r.transfer_date,
+      render: (r) => formatDate(r.transfer_date, locale),
+    },
+  ];
+
+  return (
+    <ERPListView
+      title={t("inventory.transfers.title")}
+      columns={columns}
+      rows={transfersQuery.data}
+      rowKey={(r) => r.id}
+      isLoading={transfersQuery.isLoading}
+      isError={transfersQuery.isError}
+      errorMessage={transfersQuery.error instanceof ApiError ? transfersQuery.error.detail : undefined}
+      onRetry={() => transfersQuery.refetch()}
+      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["transfers", companyId] })}
+      searchText={(r) => `${r.number} ${warehouseLabel(r.source_warehouse_id)} ${warehouseLabel(r.dest_warehouse_id)}`}
+      searchPlaceholder={t("list.search_placeholder")}
+      emptyDescription={t("inventory.transfers.empty_description")}
+      getRowHref={(r) => `/inventory/transfers/${r.id}`}
     />
   );
 }
@@ -1239,6 +1310,7 @@ export default function InventoryPage() {
       {tab === "stock" && <StockTab />}
       {tab === "moves" && <MovesTab />}
       {tab === "transfer" && <TransferTab />}
+      {tab === "transfers" && <TransfersTab />}
       {tab === "cycle-counts" && <CycleCountsTab />}
       {tab === "cardex" && <CardexTab />}
       {tab === "stock-balance" && <StockBalanceByProductTab />}

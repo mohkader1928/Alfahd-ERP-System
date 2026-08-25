@@ -84,6 +84,20 @@ class GoodsReceiptOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GoodsReceiptLineOut(BaseModel):
+    id: UUID
+    purchase_order_line_id: UUID
+    product_id: UUID
+    qty: Decimal
+
+    model_config = {"from_attributes": True}
+
+
+class GoodsReceiptDetailResponse(BaseModel):
+    receipt: GoodsReceiptOut
+    lines: list[GoodsReceiptLineOut]
+
+
 class VendorBillLineIn(BaseModel):
     purchase_order_line_id: UUID
     qty: Decimal

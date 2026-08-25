@@ -94,6 +94,30 @@ export interface CycleCountLineIn {
   counted_qty: string;
 }
 
+export interface StockTransfer {
+  id: string;
+  source_warehouse_id: string;
+  dest_warehouse_id: string;
+  number: string;
+  transfer_date: string;
+  note: string | null;
+}
+
+export interface StockTransferLine {
+  id: string;
+  product_id: string;
+  source_location_id: string;
+  dest_location_id: string;
+  qty: string;
+  issue_move_id: string | null;
+  receive_move_id: string | null;
+}
+
+export interface StockTransferDetail {
+  transfer: StockTransfer;
+  lines: StockTransferLine[];
+}
+
 export interface CardexLine {
   id: string;
   moved_at: string;

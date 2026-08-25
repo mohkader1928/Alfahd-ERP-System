@@ -2,6 +2,7 @@ import { apiClient } from "@/lib/api-client";
 import type { Page } from "@/lib/pagination";
 import type {
   GoodsReceipt,
+  GoodsReceiptDetail,
   PurchaseOrder,
   PurchaseOrderDetail,
   PurchaseOrderLineIn,
@@ -87,6 +88,12 @@ export const purchasingApi = {
     orderId: string,
     payload: { lines: { purchase_order_line_id: string; qty: string }[] }
   ) => apiClient.post<GoodsReceipt>(`${BASE}/orders/${orderId}/goods-receipts`, payload, { companyId, branchId }),
+
+  listGoodsReceipts: (companyId: string, page = 1, pageSize = 50) =>
+    apiClient.get<Page<GoodsReceipt>>(`${BASE}/goods-receipts?page=${page}&page_size=${pageSize}`, { companyId }),
+
+  getGoodsReceipt: (companyId: string, id: string) =>
+    apiClient.get<GoodsReceiptDetail>(`${BASE}/goods-receipts/${id}`, { companyId }),
 
   registerVendorBill: (
     companyId: string,

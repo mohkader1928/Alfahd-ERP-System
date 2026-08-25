@@ -167,18 +167,38 @@ class GoodsReceiptRepository:
         count = result.scalar_one()
         return f"GR-{count + 1:06d}"
 
-    async def numbers_for_lines(self, line_ids: list[UUID]) -> dict[UUID, str]:
-        """Owner request (Product Cardex detail): a `stock_move` whose
-        `source_table` is "goods_receipt_line" carries a GoodsReceiptLine id
-        in `source_id`, not the receipt itself -- this joins through to the
-        parent GoodsReceipt's own `number` in one batched query rather than
-        one lookup per cardex line."""
-        if not line_ids:
+    async def list_by_company_page(
+        self, company_id: UUID, *, offset: int = 0, limit: int = 50
+    ) -> tuple[list[GoodsReceipt], int]:
+        """Same LIMIT/OFFSET + COUNT(*) shape as PurchaseOrderRepository/
+        VendorBillRepository's own list_by_company_page."""
+        count_result = await self.session.execute(
+            select(func.count()).select_from(GoodsReceipt).where(GoodsReceipt.company_id == company_id)
+        )
+        total = count_result.scalar_one()
+
+        rows_result = await self.session.execute(
+            select(GoodsReceipt)
+            .where(GoodsReceipt.company_id == company_id)
+            .order_by(GoodsReceipt.receipt_date.desc(), GoodsReceipt.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(rows_result.scalars().all()), total
+
+    async def numbers_for_ids(self, receipt_ids: list[UUID]) -> dict[UUID, str]:
+        """Owner request (Product Cardex detail), same shape as
+        SalesInvoiceRepository/VendorBillRepository's own numbers_for_ids.
+        A `stock_move` whose `source_table` is "goods_receipt_line" carries
+        the parent GoodsReceipt's own id in `source_id` (services.py's
+        record_receipt tags it directly -- not the GoodsReceiptLine's id,
+        which this method previously assumed via a since-removed join that
+        could never match, silently leaving every goods-receipt cardex row
+        without a document number)."""
+        if not receipt_ids:
             return {}
         result = await self.session.execute(
-            select(GoodsReceiptLine.id, GoodsReceipt.number)
-            .join(GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id)
-            .where(GoodsReceiptLine.id.in_(line_ids))
+            select(GoodsReceipt.id, GoodsReceipt.number).where(GoodsReceipt.id.in_(receipt_ids))
         )
         return {row[0]: row[1] for row in result.all()}
 

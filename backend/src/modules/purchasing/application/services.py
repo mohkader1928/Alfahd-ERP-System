@@ -436,7 +436,15 @@ class GoodsReceiptService:
                     unit_cost=po_line.unit_price,
                     valuation_method=valuation_method,
                     source_table="goods_receipt_line",
-                    source_id=po_line.id,
+                    # The parent GoodsReceipt's own id, not the PO line's --
+                    # lets the UI link a movement row to
+                    # /purchasing/goods-receipts/{id} (the only page that
+                    # exists; there's no per-PO-line detail page). This also
+                    # fixes GoodsReceiptRepository.numbers_for_ids, which
+                    # could never resolve a document number for these rows
+                    # before (it looked up by GoodsReceiptLine.id, but the
+                    # value here was always a PurchaseOrderLine id).
+                    source_id=receipt.id,
                 )
                 total_value += qty * po_line.unit_price
                 total_valuation_variance += variance

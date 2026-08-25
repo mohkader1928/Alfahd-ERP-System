@@ -12,13 +12,14 @@ import { Can } from "@/components/erp/permissions/can";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
+import { inventoryApi } from "@/features/inventory/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
 import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
 import { toastError, toastSuccess } from "@/lib/toast";
-import type { PurchaseOrder, VendorBill } from "@/features/purchasing/api/types";
+import type { GoodsReceipt, PurchaseOrder, VendorBill } from "@/features/purchasing/api/types";
 
 const PO_STATUSES = ["draft", "pending_approval", "confirmed", "partially_received", "done", "closed", "cancelled"];
 const BILL_STATUSES = ["draft", "matched", "mismatched", "approved", "posted"];
@@ -266,6 +267,71 @@ function VendorBillsTab() {
   );
 }
 
+function useWarehouseLabelForGoodsReceipts() {
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const warehousesQuery = useQuery({
+    queryKey: ["warehouses", companyId],
+    queryFn: () => inventoryApi.listWarehouses(companyId),
+  });
+  return (warehouseId: string) => warehousesQuery.data?.find((w) => w.id === warehouseId)?.name ?? warehouseId;
+}
+
+function GoodsReceiptsTab() {
+  const { t, locale } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const queryClient = useQueryClient();
+  const warehouseLabel = useWarehouseLabelForGoodsReceipts();
+
+  const receiptsQuery = useQuery({
+    queryKey: ["goods-receipts", companyId],
+    queryFn: () => purchasingApi.listGoodsReceipts(companyId, 1, 200),
+  });
+  const receipts = receiptsQuery.data?.items;
+
+  const columns: ERPColumn<GoodsReceipt>[] = [
+    { key: "number", header: t("purchasing.orders.number"), sortable: true, sortValue: (r) => r.number, render: (r) => r.number },
+    {
+      key: "warehouse",
+      header: t("inventory.stock.warehouse"),
+      sortable: true,
+      sortValue: (r) => warehouseLabel(r.warehouse_id),
+      render: (r) => warehouseLabel(r.warehouse_id),
+    },
+    {
+      key: "receipt_date",
+      header: t("purchasing.orders.date"),
+      sortable: true,
+      sortValue: (r) => r.receipt_date,
+      render: (r) => formatDate(r.receipt_date, locale),
+    },
+    {
+      key: "status",
+      header: t("purchasing.orders.status"),
+      sortable: true,
+      sortValue: (r) => r.status,
+      render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge>,
+    },
+  ];
+
+  return (
+    <ERPListView
+      title={t("purchasing.goods_receipts.title")}
+      columns={columns}
+      rows={receipts}
+      rowKey={(r) => r.id}
+      isLoading={receiptsQuery.isLoading}
+      isError={receiptsQuery.isError}
+      errorMessage={receiptsQuery.error instanceof ApiError ? receiptsQuery.error.detail : undefined}
+      onRetry={() => receiptsQuery.refetch()}
+      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["goods-receipts", companyId] })}
+      searchText={(r) => `${r.number} ${warehouseLabel(r.warehouse_id)}`}
+      searchPlaceholder={t("list.search_placeholder")}
+      emptyDescription={t("purchasing.goods_receipts.empty_description")}
+      getRowHref={(r) => `/purchasing/goods-receipts/${r.id}`}
+    />
+  );
+}
+
 export default function PurchasingPage() {
   const { t } = useI18n();
   // See the same note in accounting/page.tsx — Base UI's Tabs.Panel doesn't
@@ -279,9 +345,11 @@ export default function PurchasingPage() {
         <TabsList>
           <TabsTrigger value="orders">{t("purchasing.orders.title")}</TabsTrigger>
           <TabsTrigger value="bills">{t("purchasing.vendor_bills.title")}</TabsTrigger>
+          <TabsTrigger value="goods-receipts">{t("purchasing.goods_receipts.title")}</TabsTrigger>
         </TabsList>
         <TabsContent value="orders">{tab === "orders" && <OrdersTab />}</TabsContent>
         <TabsContent value="bills">{tab === "bills" && <VendorBillsTab />}</TabsContent>
+        <TabsContent value="goods-receipts">{tab === "goods-receipts" && <GoodsReceiptsTab />}</TabsContent>
       </Tabs>
     </div>
   );

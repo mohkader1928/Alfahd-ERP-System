@@ -97,9 +97,39 @@ class StockMoveOut(BaseModel):
 
 class TransferCreateRequest(BaseModel):
     product_id: UUID
+    source_warehouse_id: UUID
+    dest_warehouse_id: UUID
     source_location_id: UUID
     dest_location_id: UUID
     qty: Decimal
+
+
+class StockTransferLineOut(BaseModel):
+    id: UUID
+    product_id: UUID
+    source_location_id: UUID
+    dest_location_id: UUID
+    qty: Decimal
+    issue_move_id: UUID | None
+    receive_move_id: UUID | None
+
+    model_config = {"from_attributes": True}
+
+
+class StockTransferOut(BaseModel):
+    id: UUID
+    source_warehouse_id: UUID
+    dest_warehouse_id: UUID
+    number: str
+    transfer_date: date
+    note: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class StockTransferDetailResponse(BaseModel):
+    transfer: StockTransferOut
+    lines: list[StockTransferLineOut]
 
 
 class CycleCountLineIn(BaseModel):

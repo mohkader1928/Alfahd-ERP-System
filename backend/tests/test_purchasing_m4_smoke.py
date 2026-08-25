@@ -134,6 +134,68 @@ async def test_full_procure_to_pay_cycle_matched(client):
     assert rows2["2200"]["total_debit"] == "300.0000"  # Input VAT on the bill
 
 
+async def test_goods_receipt_list_detail_and_stock_move_source_id(client):
+    """Regression: the goods-receipt-tagged StockMove's source_id must be
+    the GoodsReceipt's own id (so /purchasing/goods-receipts/{id} can be
+    linked from Cardex/Moves/Journal-Entry rows), not the PurchaseOrderLine's
+    id it was previously tagged with -- which also silently broke
+    GoodsReceiptRepository.numbers_for_ids (it could never match). Also
+    covers the new GET /goods-receipts (list) and GET /goods-receipts/{id}
+    (detail) routes, which didn't exist before this change."""
+    _, headers = await _bootstrap_and_login(client)
+    vendor_id = await _create_vendor(client, headers)
+    product_id = await _create_product(client, headers)
+    await _create_warehouse(client, headers)
+
+    po_resp = await client.post(
+        "/api/v1/purchasing/orders",
+        headers=headers,
+        json={
+            "partner_id": vendor_id,
+            "order_date": "2026-05-01",
+            "lines": [{"product_id": product_id, "qty": "50", "unit_price": "10.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+        },
+    )
+    order_id = po_resp.json()["id"]
+    await client.post(f"/api/v1/purchasing/orders/{order_id}:confirm", headers=headers)
+    po_line_id = (await client.get(f"/api/v1/purchasing/orders/{order_id}", headers=headers)).json()["lines"][0]["id"]
+
+    receipt_resp = await client.post(
+        f"/api/v1/purchasing/orders/{order_id}/goods-receipts",
+        headers=headers,
+        json={"lines": [{"purchase_order_line_id": po_line_id, "qty": "50"}]},
+    )
+    assert receipt_resp.status_code == 201
+    receipt = receipt_resp.json()
+
+    list_resp = await client.get("/api/v1/purchasing/goods-receipts", headers=headers)
+    assert list_resp.status_code == 200
+    assert any(r["id"] == receipt["id"] for r in list_resp.json()["items"])
+
+    detail_resp = await client.get(f"/api/v1/purchasing/goods-receipts/{receipt['id']}", headers=headers)
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["receipt"]["number"] == receipt["number"]
+    assert detail["lines"][0]["purchase_order_line_id"] == po_line_id
+    assert detail["lines"][0]["qty"] == "50.000000"
+
+    moves = (
+        await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})
+    ).json()
+    receipt_move = next(m for m in moves if m["source_table"] == "goods_receipt_line")
+    assert receipt_move["source_id"] == receipt["id"]
+
+    cardex = (
+        await client.get(
+            "/api/v1/inventory/stock/cardex",
+            headers=headers,
+            params={"product_id": product_id, "date_from": "2026-01-01", "date_to": "2026-12-31"},
+        )
+    ).json()
+    receipt_line = next(row for row in cardex["lines"] if row["source_table"] == "goods_receipt_line")
+    assert receipt_line["document_number"] == receipt["number"]
+
+
 async def test_vendor_bill_price_mismatch_blocks_approval(client):
     _, headers = await _bootstrap_and_login(client)
     vendor_id = await _create_vendor(client, headers)

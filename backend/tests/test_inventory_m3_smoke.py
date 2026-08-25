@@ -167,11 +167,13 @@ async def test_transfer_moves_stock_between_locations(client):
     _, headers = await _bootstrap_and_login(client)
     product_id = await _create_product(client, headers)
     wh = await _create_warehouse(client, headers)
+    source_warehouse_id = wh["warehouse"]["id"]
     source_location_id = wh["default_location"]["id"]
 
     wh2_resp = await client.post(
         "/api/v1/inventory/warehouses", headers=headers, json={"name": "Secondary Warehouse", "is_default": False}
     )
+    dest_warehouse_id = wh2_resp.json()["warehouse"]["id"]
     dest_location_id = wh2_resp.json()["default_location"]["id"]
 
     await client.post(
@@ -185,19 +187,42 @@ async def test_transfer_moves_stock_between_locations(client):
         headers=headers,
         json={
             "product_id": product_id,
+            "source_warehouse_id": source_warehouse_id,
+            "dest_warehouse_id": dest_warehouse_id,
             "source_location_id": source_location_id,
             "dest_location_id": dest_location_id,
             "qty": "8",
         },
     )
     assert transfer_resp.status_code == 201
-    moves = transfer_resp.json()
-    assert len(moves) == 2
+    body = transfer_resp.json()
+    assert body["transfer"]["number"] == "TRF-000001"
+    assert len(body["lines"]) == 1
+    assert body["lines"][0]["issue_move_id"] is not None
+    assert body["lines"][0]["receive_move_id"] is not None
 
     quants = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
     by_location = {q["location_id"]: q["qty_on_hand"] for q in quants}
     assert by_location[source_location_id] == "12.000000"
     assert by_location[dest_location_id] == "8.000000"
+
+    # Regression: the transfer must be a real, persisted, listable/linkable
+    # document -- both StockMove legs' source_id equal the transfer's own
+    # id (so a movement row can link to /inventory/transfers/{id}).
+    list_resp = await client.get("/api/v1/inventory/transfers", headers=headers)
+    assert list_resp.status_code == 200
+    assert any(t["number"] == "TRF-000001" for t in list_resp.json())
+
+    detail_resp = await client.get(f"/api/v1/inventory/transfers/{body['transfer']['id']}", headers=headers)
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["transfer"]["number"] == "TRF-000001"
+
+    moves = (
+        await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})
+    ).json()
+    transfer_moves = [m for m in moves if m["source_table"] == "stock_transfer"]
+    assert len(transfer_moves) == 2
+    assert all(m["source_id"] == body["transfer"]["id"] for m in transfer_moves)
 
 
 async def test_transfer_blocks_when_insufficient_stock(client):
@@ -215,6 +240,8 @@ async def test_transfer_blocks_when_insufficient_stock(client):
         headers=headers,
         json={
             "product_id": product_id,
+            "source_warehouse_id": wh["warehouse"]["id"],
+            "dest_warehouse_id": wh2_resp.json()["warehouse"]["id"],
             "source_location_id": source_location_id,
             "dest_location_id": dest_location_id,
             "qty": "5",
@@ -664,13 +691,18 @@ async def test_fifo_valuation_consumes_oldest_layer_first(client):
         headers=headers,
         json={
             "product_id": product_id,
+            "source_warehouse_id": wh["warehouse"]["id"],
+            "dest_warehouse_id": wh2_resp.json()["warehouse"]["id"],
             "source_location_id": location_id,
             "dest_location_id": dest_location_id,
             "qty": "12",
         },
     )
     assert transfer_resp.status_code == 201
-    moves = transfer_resp.json()
+
+    moves = (
+        await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})
+    ).json()
     issue_move = next(m for m in moves if m["source_location_id"] == location_id)
     # Weighted unit cost of the issued 12 units: 66.00 / 12 = 5.50
     assert issue_move["unit_cost"] == "5.5000"
@@ -834,7 +866,14 @@ async def test_cardex_warehouse_filter_scopes_transfer_legs(client):
     await client.post(
         "/api/v1/inventory/transfers",
         headers=headers,
-        json={"product_id": product_id, "source_location_id": location_a, "dest_location_id": location_b, "qty": "8"},
+        json={
+            "product_id": product_id,
+            "source_warehouse_id": wh_a["warehouse"]["id"],
+            "dest_warehouse_id": wh_b["warehouse"]["id"],
+            "source_location_id": location_a,
+            "dest_location_id": location_b,
+            "qty": "8",
+        },
     )
 
     today = date.today().isoformat()

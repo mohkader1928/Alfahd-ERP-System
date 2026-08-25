@@ -45,6 +45,18 @@ export interface GoodsReceipt {
   receipt_date: string;
 }
 
+export interface GoodsReceiptLine {
+  id: string;
+  purchase_order_line_id: string;
+  product_id: string;
+  qty: string;
+}
+
+export interface GoodsReceiptDetail {
+  receipt: GoodsReceipt;
+  lines: GoodsReceiptLine[];
+}
+
 export interface VendorBill {
   id: string;
   company_id: string;
