@@ -759,3 +759,35 @@ async def test_customer_subledger_and_ar_aging_export_pdf_and_excel(client):
     )
     assert aging_xlsx.status_code == 200
     assert aging_xlsx.content[:2] == b"PK"
+
+
+async def test_vendor_subledger_export_survives_arabic_partner_name(client):
+    """Regression (Owner-reported live on Almahmoud Trading Co.: exporting
+    vendor "شركة القارات الخمسة"'s subledger silently "didn't work"):
+    build_export_response() embeds the partner name straight into the
+    Content-Disposition header, and HTTP header values are Latin-1 only --
+    Starlette raises UnicodeEncodeError constructing the Response itself
+    the instant that name has any non-Latin-1 character, which is any
+    Arabic name. Every prior export test used an ASCII-only name (e.g.
+    "Export Customer" above), so this was never exercised. Covers every
+    report route through this shared helper, not just Vendor Subledger."""
+    _, headers = await _bootstrap_and_login(client)
+    today = date.today()
+    _bill_id, _bill_total, vendor_id = await _issue_vendor_bill(client, headers, "شركة القارات الخمسة")
+
+    sub_pdf = await client.get(
+        f"/api/v1/payments/subledger/vendor/{vendor_id}",
+        headers=headers,
+        params={"date_from": str(today), "date_to": str(today), "format": "pdf"},
+    )
+    assert sub_pdf.status_code == 200, sub_pdf.text
+    assert sub_pdf.content[:4] == b"%PDF"
+    assert "filename*=UTF-8''" in sub_pdf.headers["content-disposition"]
+
+    sub_xlsx = await client.get(
+        f"/api/v1/payments/subledger/vendor/{vendor_id}",
+        headers=headers,
+        params={"date_from": str(today), "date_to": str(today), "format": "xlsx"},
+    )
+    assert sub_xlsx.status_code == 200, sub_xlsx.text
+    assert sub_xlsx.content[:2] == b"PK"
