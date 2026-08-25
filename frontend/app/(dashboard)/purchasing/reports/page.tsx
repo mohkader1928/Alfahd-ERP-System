@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import {
   Table,
   TableBody,
@@ -82,25 +82,17 @@ function ByVendorTab() {
         <>
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("purchasing.reports.select_supplier")}</Label>
-            <Select value={partnerId} onValueChange={(v) => setPartnerId((v as string) ?? ALL_SUPPLIERS)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("purchasing.reports.select_supplier")}>
-                  {(value: string) =>
-                    value === ALL_SUPPLIERS
-                      ? t("purchasing.reports.all_suppliers")
-                      : (partnersQuery.data?.find((p) => p.id === value)?.name ?? value)
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_SUPPLIERS}>{t("purchasing.reports.all_suppliers")}</SelectItem>
-                {partnersQuery.data?.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EntitySearchSelect
+              items={(partnersQuery.data ?? []).map((p) => ({
+                id: p.id,
+                label: p.name,
+                code: p.partner_code,
+                searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
+              }))}
+              value={partnerId === ALL_SUPPLIERS ? null : partnerId}
+              onChange={(v) => setPartnerId(v ?? ALL_SUPPLIERS)}
+              placeholder={t("purchasing.reports.all_suppliers")}
+            />
           </div>
           <div className="flex flex-col gap-1">
             <Label className="text-xs">{t("sales.reports.date_from")}</Label>

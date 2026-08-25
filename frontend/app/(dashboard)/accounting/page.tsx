@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
+import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { ReportView } from "@/components/erp/report-view/report-view";
 import { ReportPrintHeader } from "@/components/erp/report-view/report-print-header";
 import { SortableTableHead } from "@/components/erp/report-view/sortable-table-head";
@@ -1048,23 +1049,17 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
         <>
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.gl.select_account")}</Label>
-            <Select value={accountId} onValueChange={(v) => setAccountId(v ?? "")}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("accounting.gl.select_account")}>
-                  {(value: string) => {
-                    const acc = accountsQuery.data?.find((a) => a.id === value);
-                    return acc ? `${acc.code} — ${acc.name}` : value;
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {accountsQuery.data?.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.code} — {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EntitySearchSelect
+              items={(accountsQuery.data ?? []).map((a) => ({
+                id: a.id,
+                label: a.name,
+                code: a.code,
+                searchText: `${a.code} ${a.name} ${a.name_ar ?? ""}`,
+              }))}
+              value={accountId || null}
+              onChange={(v) => setAccountId(v ?? "")}
+              placeholder={t("accounting.gl.select_account")}
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t("accounting.tb.date_from")}</Label>
@@ -2313,20 +2308,17 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
         <>
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.sub.select_customer")}</Label>
-            <Select value={partnerId} onValueChange={(v) => setPartnerId(v ?? "")}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("accounting.sub.select_customer")}>
-                  {(value: string) => partnersQuery.data?.find((p) => p.id === value)?.name ?? value}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {partnersQuery.data?.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EntitySearchSelect
+              items={(partnersQuery.data ?? []).map((p) => ({
+                id: p.id,
+                label: p.name,
+                code: p.partner_code,
+                searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
+              }))}
+              value={partnerId || null}
+              onChange={(v) => setPartnerId(v ?? "")}
+              placeholder={t("accounting.sub.select_customer")}
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t("accounting.tb.date_from")}</Label>
@@ -2443,20 +2435,17 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
         <>
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.sub.select_vendor")}</Label>
-            <Select value={partnerId} onValueChange={(v) => setPartnerId(v ?? "")}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("accounting.sub.select_vendor")}>
-                  {(value: string) => partnersQuery.data?.find((p) => p.id === value)?.name ?? value}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {partnersQuery.data?.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <EntitySearchSelect
+              items={(partnersQuery.data ?? []).map((p) => ({
+                id: p.id,
+                label: p.name,
+                code: p.partner_code,
+                searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
+              }))}
+              value={partnerId || null}
+              onChange={(v) => setPartnerId(v ?? "")}
+              placeholder={t("accounting.sub.select_vendor")}
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t("accounting.tb.date_from")}</Label>
