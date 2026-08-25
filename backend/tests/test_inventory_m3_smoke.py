@@ -275,6 +275,59 @@ async def test_cycle_count_posts_adjustment_and_journal_entry(client):
     assert detail["lines"][0]["stock_move_id"] is not None
 
 
+async def test_cycle_count_positive_find_with_no_prior_quant_uses_cost_price(client):
+    """Regression (Owner-reported live on Almahmoud Trading Co.'s Jeddah
+    warehouse count CC-000008): a cycle-count line for a product/location
+    that has NEVER been received into before (no StockQuant row at all --
+    not merely qty_on_hand=0) has system_qty=0 by construction
+    (create_cycle_count's own fallback). If the physical count then finds
+    some quantity there, approval previously crashed with
+    AttributeError('NoneType' has no attribute 'moving_avg_cost') because
+    the approve endpoint dereferenced quant_repo.get(...) unconditionally
+    instead of falling back like receive_stock/issue_stock do. The fix
+    values the found quantity at the product's cost_price when no prior
+    valuation history exists."""
+    _, headers = await _bootstrap_and_login(client)
+    product_resp = await client.post(
+        "/api/v1/identity/products",
+        headers=headers,
+        json={"sku": f"SKU-{unique_vat()[:8]}", "name": "Found Item", "sales_price": "30.00", "cost_price": "15.00"},
+    )
+    assert product_resp.status_code == 201
+    product_id = product_resp.json()["id"]
+    wh = await _create_warehouse(client, headers)
+    location_id = wh["default_location"]["id"]
+
+    create_resp = await client.post(
+        "/api/v1/inventory/cycle-counts",
+        headers=headers,
+        json={
+            "warehouse_id": wh["warehouse"]["id"],
+            "scheduled_date": "2026-04-01",
+            "lines": [{"product_id": product_id, "location_id": location_id, "counted_qty": "8"}],
+        },
+    )
+    assert create_resp.status_code == 201
+    cycle_count_id = create_resp.json()["cycle_count"]["id"]
+    assert create_resp.json()["lines"][0]["system_qty"] == "0.000000"
+
+    approve_resp = await client.post(f"/api/v1/inventory/cycle-counts/{cycle_count_id}:approve", headers=headers)
+    assert approve_resp.status_code == 200
+    assert approve_resp.json()["cycle_count"]["status"] == "approved"
+
+    quants = (await client.get("/api/v1/inventory/stock/quants", headers=headers)).json()
+    assert quants[0]["qty_on_hand"] == "8.000000"
+    assert quants[0]["moving_avg_cost"] == "15.000000"
+
+    trial_balance = await client.get(
+        "/api/v1/accounting/reports/trial-balance",
+        headers=headers,
+        params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+    )
+    rows = {row["account_code"]: row for row in trial_balance.json()}
+    assert rows["1300"]["total_debit"] == "120.0000"  # 8 units * 15.00 found
+
+
 async def test_cycle_count_posts_one_net_journal_entry_across_lines(client):
     """A cycle count with multiple lines must post exactly ONE journal
     entry for the whole count, sized to the NET value of every line's

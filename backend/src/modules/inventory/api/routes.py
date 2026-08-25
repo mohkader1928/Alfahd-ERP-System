@@ -577,6 +577,7 @@ async def approve_cycle_count(
     journal_repo: JournalRepository = Depends(get_journal_repo),
     entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
     period_repo: FiscalPeriodRepository = Depends(get_fiscal_period_repo),
+    product_repo: ProductRepository = Depends(get_product_repo),
     valuation_method: str = Depends(get_company_valuation_method),
 ):
     """FR-INV-006: posts a Stock Move (and matching journal entry, FR-INV-005)
@@ -615,12 +616,31 @@ async def approve_cycle_count(
         if diff == 0:
             continue
         if diff > 0:
+            # A positive count on a product/location that has never had a
+            # StockQuant row (found stock nobody had formally received into
+            # this location before) previously crashed here with an
+            # AttributeError ('NoneType' has no attribute 'moving_avg_cost')
+            # -- unlike receive_stock/issue_stock, which both auto-create
+            # the quant via get_or_create_for_update, this lookup used the
+            # non-creating `get()` and dereferenced it unconditionally.
+            # Owner-reported live on Almahmoud Trading Co.'s Jeddah
+            # warehouse count CC-000008: 8 of 16 lines were first-time
+            # counts with no prior quant. Fall back to the product's
+            # standard cost_price (NOT NULL, defaults to 0) as the
+            # valuation basis when there's no moving-average history yet.
+            existing_quant = await quant_repo.get(line.product_id, line.location_id)
+            if existing_quant is not None:
+                unit_cost = existing_quant.moving_avg_cost
+            else:
+                product = await product_repo.get_by_id(line.product_id)
+                unit_cost = product.cost_price if product else Decimal("0")
+
             move, variance = await inv_service.receive_stock(
                 company_id=ctx.company_id,
                 product_id=line.product_id,
                 location_id=line.location_id,
                 qty=diff,
-                unit_cost=(await quant_repo.get(line.product_id, line.location_id)).moving_avg_cost,
+                unit_cost=unit_cost,
                 valuation_method=valuation_method,
                 source_table="cycle_count_line",
                 source_id=line.id,
