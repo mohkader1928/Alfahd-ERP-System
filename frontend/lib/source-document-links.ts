@@ -15,6 +15,10 @@ const SOURCE_DOCUMENT_HREF: Record<string, (id: string) => string> = {
   payment: (id) => `/payments/${id}`,
   vendor_bill: (id) => `/purchasing/bills/${id}`,
   cycle_count: (id) => `/inventory/cycle-counts/${id}`,
+  // Same target as cycle_count -- these rows now carry the parent cycle
+  // count's id (not the line's own id), so they resolve the same way.
+  cycle_count_line: (id) => `/inventory/cycle-counts/${id}`,
+  fixed_asset: (id) => `/fixed-assets/card?asset=${id}`,
   // Global Search result types (Professional Workspace Layer) — not JE
   // source documents, but the same "type -> real detail page" map.
   partner: (id) => `/master-data/partners/${id}`,
@@ -40,6 +44,7 @@ const SOURCE_DOCUMENT_LABEL_KEY: Record<string, string> = {
   cycle_count: "accounting.source.cycle_count",
   manual_receipt: "accounting.source.manual_receipt",
   stock_transfer: "accounting.source.stock_transfer",
+  fixed_asset: "accounting.source.fixed_asset",
 };
 
 export function sourceDocumentLabelKey(sourceTable: string | null): string | null {

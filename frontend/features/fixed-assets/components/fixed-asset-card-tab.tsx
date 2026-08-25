@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableFooter, TableHeader, TableRow } from "@/components/ui/table";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
@@ -255,7 +256,18 @@ export function FixedAssetCardTab({ initialAssetId }: { initialAssetId?: string 
                 <TableRow key={i}>
                   <TableCell>{formatDate(line.date, locale)}</TableCell>
                   <TableCell>{t(`fixed_assets.card.movement.${line.movement_type}`)}</TableCell>
-                  <TableCell>{line.reference}</TableCell>
+                  <TableCell>
+                    {line.journal_entry_id ? (
+                      <Link
+                        href={`/accounting/journal-entries/${line.journal_entry_id}`}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {line.reference}
+                      </Link>
+                    ) : (
+                      line.reference
+                    )}
+                  </TableCell>
                   <TableCell className="text-end font-mono">{formatCurrency(line.running_cost)}</TableCell>
                   <TableCell className="text-end font-mono">
                     {formatCurrency(line.running_accumulated_depreciation)}

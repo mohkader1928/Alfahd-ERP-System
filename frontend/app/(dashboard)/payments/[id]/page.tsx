@@ -17,11 +17,13 @@ import { paymentsApi } from "@/features/payments/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import type { PaymentAllocation } from "@/features/payments/api/types";
 import { formatCurrency } from "@/lib/format-currency";
+import { sourceDocumentHref } from "@/lib/source-document-links";
 
 // Resolves a real invoice number (never a raw UUID) for sales-invoice
-// allocations; vendor bills have no detail screen yet (see
-// docs/17f-subledgers-and-aging.md's known limitations), so they show a
-// short, clearly-labeled reference instead of the full id.
+// allocations. Vendor-bill allocations link out via the shared
+// sourceDocumentHref helper -- purchasing/bills/[id] now exists, matching
+// every other screen (General Ledger, Subledgers, VAT Detail) that already
+// resolves vendor_bill sources through this same map.
 function AllocationDocumentCell({ allocation, companyId }: { allocation: PaymentAllocation; companyId: string }) {
   const { t } = useI18n();
   const invoiceQuery = useQuery({
@@ -37,10 +39,16 @@ function AllocationDocumentCell({ allocation, companyId }: { allocation: Payment
       </Link>
     );
   }
-  return (
-    <span className="text-muted-foreground">
-      {t("payments.allocation.vendor_bill")} {allocation.vendor_bill_id?.slice(0, 8)}
-    </span>
+  const vendorBillHref = allocation.vendor_bill_id
+    ? sourceDocumentHref("vendor_bill", allocation.vendor_bill_id)
+    : null;
+  const vendorBillLabel = `${t("payments.allocation.vendor_bill")} ${allocation.vendor_bill_id?.slice(0, 8) ?? ""}`;
+  return vendorBillHref ? (
+    <Link href={vendorBillHref} className="underline-offset-4 hover:underline">
+      {vendorBillLabel}
+    </Link>
+  ) : (
+    <span className="text-muted-foreground">{vendorBillLabel}</span>
   );
 }
 

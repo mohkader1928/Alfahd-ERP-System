@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableFooter, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
@@ -120,7 +121,11 @@ export function FixedAssetsDepreciationScheduleTab() {
               {lines.map((line, i) => (
                 <TableRow key={i}>
                   <TableCell>{formatDate(line.period_month, locale)}</TableCell>
-                  <TableCell className="font-mono">{line.asset_code}</TableCell>
+                  <TableCell className="font-mono">
+                    <Link href={`/fixed-assets/card?asset=${line.asset_id}`} className="underline-offset-4 hover:underline">
+                      {line.asset_code}
+                    </Link>
+                  </TableCell>
                   <TableCell>{line.asset_name}</TableCell>
                   <TableCell className="text-end font-mono">{formatCurrency(line.amount)}</TableCell>
                 </TableRow>

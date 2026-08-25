@@ -643,7 +643,13 @@ async def approve_cycle_count(
                 unit_cost=unit_cost,
                 valuation_method=valuation_method,
                 source_table="cycle_count_line",
-                source_id=line.id,
+                # The parent cycle count's id, not the line's own -- lets
+                # the UI link a movement row straight to
+                # /inventory/cycle-counts/{id} (the only page that exists;
+                # there's no per-line detail page). source_table stays
+                # "cycle_count_line" unchanged -- receive_stock's move_type
+                # inference and existing tests string-match on it.
+                source_id=cycle_count.id,
             )
             net_value += move.qty * move.unit_cost
             net_valuation_variance += variance
@@ -655,7 +661,7 @@ async def approve_cycle_count(
                 qty=abs(diff),
                 valuation_method=valuation_method,
                 source_table="cycle_count_line",
-                source_id=line.id,
+                source_id=cycle_count.id,  # see comment on the receive_stock call above
                 move_type="adjustment",
             )
             net_value -= cost

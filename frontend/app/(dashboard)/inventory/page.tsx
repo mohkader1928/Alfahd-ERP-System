@@ -39,7 +39,11 @@ import Link from "next/link";
 
 const CARDEX_SOURCE_TABLES = [
   "sales_invoice",
-  "goods_receipt",
+  // Real StockMove rows for a receipt are always tagged "goods_receipt_line"
+  // (backend/src/modules/purchasing/application/services.py) -- "goods_receipt"
+  // itself is never used on a StockMove, so this filter previously always
+  // returned zero rows.
+  "goods_receipt_line",
   "manual_receipt",
   "stock_transfer",
   "cycle_count_line",

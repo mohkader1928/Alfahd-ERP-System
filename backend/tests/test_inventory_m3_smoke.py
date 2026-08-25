@@ -274,6 +274,18 @@ async def test_cycle_count_posts_adjustment_and_journal_entry(client):
     assert detail["lines"][0]["counted_qty"] == "7.000000"
     assert detail["lines"][0]["stock_move_id"] is not None
 
+    # Regression: the movement's source_id must be the parent cycle count's
+    # own id (so the UI can link straight to /inventory/cycle-counts/{id}),
+    # not the line's id -- and source_table/move_type must stay untouched
+    # ("cycle_count_line" / "adjustment"), since receive_stock's move_type
+    # inference string-matches on source_table specifically.
+    moves = (
+        await client.get("/api/v1/inventory/stock/moves", headers=headers, params={"product_id": product_id})
+    ).json()
+    adjustment_move = next(m for m in moves if m["source_table"] == "cycle_count_line")
+    assert adjustment_move["source_id"] == cycle_count_id
+    assert adjustment_move["move_type"] == "adjustment"
+
 
 async def test_cycle_count_positive_find_with_no_prior_quant_uses_cost_price(client):
     """Regression (Owner-reported live on Almahmoud Trading Co.'s Jeddah

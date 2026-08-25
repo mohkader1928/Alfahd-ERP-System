@@ -562,6 +562,27 @@ function JournalEntriesTab() {
       ),
     },
     {
+      key: "source",
+      header: t("accounting.sub.source"),
+      sortable: true,
+      sortValue: (r) => {
+        const key = sourceDocumentLabelKey(r.source_table);
+        return key ? t(key) : "";
+      },
+      render: (r) => {
+        const labelKey = sourceDocumentLabelKey(r.source_table);
+        if (!labelKey) return <span className="text-muted-foreground">—</span>;
+        const href = sourceDocumentHref(r.source_table, r.source_id);
+        return href ? (
+          <Link href={href} className="underline-offset-4 hover:underline">
+            {t(labelKey)}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">{t(labelKey)}</span>
+        );
+      },
+    },
+    {
       key: "status",
       header: t("accounting.je.status"),
       sortable: true,
