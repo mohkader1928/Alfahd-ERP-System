@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Label } from "@/components/ui/label";
@@ -46,6 +46,16 @@ function ByVendorTab() {
     queryFn: () => reportingApi.purchasesBySupplier(companyId, ranAt!.from, ranAt!.to, ranAt?.partner),
     enabled: !!ranAt,
   });
+  const partnerItems = useMemo(
+    () =>
+      (partnersQuery.data ?? []).map((p) => ({
+        id: p.id,
+        label: p.name,
+        code: p.partner_code,
+        searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
+      })),
+    [partnersQuery.data]
+  );
 
   const rows: PurchaseByVendorRow[] = reportQuery.data ?? [];
 
@@ -83,12 +93,7 @@ function ByVendorTab() {
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("purchasing.reports.select_supplier")}</Label>
             <EntitySearchSelect
-              items={(partnersQuery.data ?? []).map((p) => ({
-                id: p.id,
-                label: p.name,
-                code: p.partner_code,
-                searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
-              }))}
+              items={partnerItems}
               value={partnerId === ALL_SUPPLIERS ? null : partnerId}
               onChange={(v) => setPartnerId(v ?? ALL_SUPPLIERS)}
               placeholder={t("purchasing.reports.all_suppliers")}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1041,6 +1041,21 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
       accountingApi.generalLedger(companyId, ranAt!.account, ranAt!.from, ranAt!.to, ranAt!.costCenter || undefined),
     enabled: !!ranAt,
   });
+  // Memoized so the array reference only changes when the underlying data
+  // actually does -- an inline .map() here would rebuild a brand-new array
+  // on every render of this tab (e.g. every keystroke in the date fields),
+  // which is exactly the kind of prop-identity churn a controlled
+  // Combobox's internal value-sync effects should never be fed.
+  const accountItems = useMemo(
+    () =>
+      (accountsQuery.data ?? []).map((a) => ({
+        id: a.id,
+        label: a.name,
+        code: a.code,
+        searchText: `${a.code} ${a.name} ${a.name_ar ?? ""}`,
+      })),
+    [accountsQuery.data]
+  );
 
   return (
     <ReportView
@@ -1050,12 +1065,7 @@ function GeneralLedgerTab({ initialAccountId }: { initialAccountId?: string }) {
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.gl.select_account")}</Label>
             <EntitySearchSelect
-              items={(accountsQuery.data ?? []).map((a) => ({
-                id: a.id,
-                label: a.name,
-                code: a.code,
-                searchText: `${a.code} ${a.name} ${a.name_ar ?? ""}`,
-              }))}
+              items={accountItems}
               value={accountId || null}
               onChange={(v) => setAccountId(v ?? "")}
               placeholder={t("accounting.gl.select_account")}
@@ -2300,6 +2310,16 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
     queryFn: () => paymentsApi.customerSubledger(companyId, ranAt!.partner, ranAt!.from, ranAt!.to),
     enabled: !!ranAt,
   });
+  const partnerItems = useMemo(
+    () =>
+      (partnersQuery.data ?? []).map((p) => ({
+        id: p.id,
+        label: p.name,
+        code: p.partner_code,
+        searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
+      })),
+    [partnersQuery.data]
+  );
 
   return (
     <ReportView
@@ -2309,12 +2329,7 @@ function CustomerSubledgerTab({ initialPartnerId }: { initialPartnerId?: string 
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.sub.select_customer")}</Label>
             <EntitySearchSelect
-              items={(partnersQuery.data ?? []).map((p) => ({
-                id: p.id,
-                label: p.name,
-                code: p.partner_code,
-                searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
-              }))}
+              items={partnerItems}
               value={partnerId || null}
               onChange={(v) => setPartnerId(v ?? "")}
               placeholder={t("accounting.sub.select_customer")}
@@ -2427,6 +2442,16 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
     queryFn: () => paymentsApi.vendorSubledger(companyId, ranAt!.partner, ranAt!.from, ranAt!.to),
     enabled: !!ranAt,
   });
+  const partnerItems = useMemo(
+    () =>
+      (partnersQuery.data ?? []).map((p) => ({
+        id: p.id,
+        label: p.name,
+        code: p.partner_code,
+        searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
+      })),
+    [partnersQuery.data]
+  );
 
   return (
     <ReportView
@@ -2436,12 +2461,7 @@ function VendorSubledgerTab({ initialPartnerId }: { initialPartnerId?: string })
           <div className="w-64 space-y-1">
             <Label className="text-xs">{t("accounting.sub.select_vendor")}</Label>
             <EntitySearchSelect
-              items={(partnersQuery.data ?? []).map((p) => ({
-                id: p.id,
-                label: p.name,
-                code: p.partner_code,
-                searchText: `${p.partner_code} ${p.name} ${p.name_ar ?? ""}`,
-              }))}
+              items={partnerItems}
               value={partnerId || null}
               onChange={(v) => setPartnerId(v ?? "")}
               placeholder={t("accounting.sub.select_vendor")}
