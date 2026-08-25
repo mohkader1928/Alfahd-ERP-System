@@ -1234,6 +1234,17 @@ function FinancialSection({
 }) {
   const { t } = useI18n();
   const totalNum = Number(total) * sign;
+  // A row/section total is "contra" when its raw (pre-sign) balance sits on
+  // the wrong side for its category -- e.g. an expense account (debit-normal)
+  // that closed net-credit, such as an inventory-count period with more
+  // surplus found than shortage written off. `sign` only controls the
+  // subtraction display direction, so it cancels out of this check; the raw
+  // amount's sign alone tells us whether the underlying balance is normal
+  // or reversed. Shown in parentheses + a muted red accent -- the standard
+  // financial-statement convention for a contra amount, unlike color alone
+  // which disappears in print/export/for colorblind readers.
+  const fmtSigned = (raw: number, displayValue: number) =>
+    raw < 0 ? `(${formatCurrency(Math.abs(displayValue))})` : formatCurrency(Math.abs(displayValue));
   return (
     <tbody>
       {/* Section header */}
@@ -1245,6 +1256,7 @@ function FinancialSection({
       {/* Account rows */}
       {rows.map((row) => {
         const amount = Number(row.amount) * sign;
+        const isContra = Number(row.amount) < 0;
         return (
           <tr key={row.account_id}>
             <td className="ps-4 py-0.5 font-mono text-xs text-muted-foreground w-20 align-top">
@@ -1263,8 +1275,11 @@ function FinancialSection({
                 row.account_name
               )}
             </td>
-            <td className="py-0.5 text-end font-mono text-sm tabular-nums text-muted-foreground">
-              {formatCurrency(Math.abs(amount))}
+            <td
+              className={`py-0.5 text-end font-mono text-sm tabular-nums ${isContra ? "text-destructive" : "text-muted-foreground"}`}
+              title={isContra ? t("accounting.is.contra_balance_hint") : undefined}
+            >
+              {fmtSigned(Number(row.amount), amount)}
             </td>
           </tr>
         );
@@ -1279,7 +1294,9 @@ function FinancialSection({
       >
         <td className="py-1" />
         <td className="py-1 text-sm font-sans">{totalLabel}</td>
-        <td className="py-1 text-end font-mono tabular-nums">{formatCurrency(Math.abs(totalNum))}</td>
+        <td className={`py-1 text-end font-mono tabular-nums ${Number(total) < 0 ? "text-destructive" : ""}`}>
+          {fmtSigned(Number(total), totalNum)}
+        </td>
       </tr>
     </tbody>
   );

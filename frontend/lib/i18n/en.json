@@ -324,6 +324,7 @@
   "accounting.is.total_opex": "Total Operating Expenses",
   "accounting.is.operating_income": "Operating Income",
   "accounting.is.net_income": "Net Income",
+  "accounting.is.contra_balance_hint": "This account has a credit balance within an expense section (e.g. a net inventory surplus) — shown in parentheses as the reduction it actually represents.",
   "accounting.bs.as_of_date": "As of",
   "accounting.bs.run": "Run report",
   "accounting.bs.assets": "Assets",

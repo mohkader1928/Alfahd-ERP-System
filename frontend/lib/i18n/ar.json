@@ -324,6 +324,7 @@
   "accounting.is.total_opex": "إجمالي المصروفات التشغيلية",
   "accounting.is.operating_income": "الدخل التشغيلي",
   "accounting.is.net_income": "صافي الدخل",
+  "accounting.is.contra_balance_hint": "هذا الحساب برصيد دائن ضمن قسم المصروفات (مثل صافي زيادة في المخزون) — يُعرض بين قوسين لأنه في الواقع تخفيض للمصروفات.",
   "accounting.bs.as_of_date": "كما في",
   "accounting.bs.run": "تشغيل التقرير",
   "accounting.bs.assets": "الأصول",
