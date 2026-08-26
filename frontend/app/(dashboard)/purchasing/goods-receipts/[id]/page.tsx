@@ -9,11 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { inventoryApi } from "@/features/inventory/api/client";
 import { purchasingApi } from "@/features/purchasing/api/client";
+import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format-date";
 import { statusVariant } from "@/lib/status-variant";
 
@@ -28,7 +31,7 @@ export default function GoodsReceiptDetailPage({ params }: { params: Promise<{ i
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
   const branchId = useAuthStore((s) => s.activeBranchId);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["goods-receipt", companyId, id],
     queryFn: () => purchasingApi.getGoodsReceipt(companyId, id),
   });
@@ -41,8 +44,17 @@ export default function GoodsReceiptDetailPage({ params }: { params: Promise<{ i
     queryFn: () => inventoryApi.listWarehouses(companyId),
   });
 
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!data) return null;
+  // A stale link (e.g. a Cardex/Moves row from before this page existed,
+  // or before the source_id backfill) landing on an id that 404s must
+  // say so -- silently falling through to `return null` here previously
+  // rendered a completely blank page with no error, no retry, nothing.
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return <NotFoundState label={t("purchasing.goods_receipts.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !data) return <Skeleton className="h-40 w-full" />;
 
   const { receipt, lines } = data;
   const productLabel = (productId: string) => productsQuery.data?.find((p) => p.id === productId)?.name ?? productId;
