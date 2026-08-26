@@ -3,6 +3,7 @@ name: erp-nucleus
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: erp
       POSTGRES_PASSWORD: erp_dev_password
@@ -19,6 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "16379:6379"
     healthcheck:
@@ -51,6 +53,7 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
+    restart: unless-stopped
     env_file:
       - ../backend/.env
     ports:
@@ -68,6 +71,7 @@ services:
       context: ../backend
       dockerfile: Dockerfile
     command: celery -A src.workers.celery_app worker --loglevel=info
+    restart: unless-stopped
     env_file:
       - ../backend/.env
     volumes:

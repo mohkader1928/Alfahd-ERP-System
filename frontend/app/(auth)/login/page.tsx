@@ -12,7 +12,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { decodeAccessToken, firstAuthorizedCompany } from "@/lib/jwt";
-import { ApiError } from "@/lib/api-client";
+import { friendlyApiErrorMessage } from "@/lib/api-client";
 
 const SYSTEM_ADMIN_EMAIL = "moh.kader1928@gmail.com";
 
@@ -38,14 +38,14 @@ export default function LoginPage() {
       }
       applyTokens(result.access_token, result.refresh_token);
     },
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => setError(friendlyApiErrorMessage(err, t)),
   });
 
   const verify2faMutation = useMutation({
     mutationFn: () =>
       identityApi.verify2fa({ email, password, totp_code: totpCode, company_code: companyCode }),
     onSuccess: (result) => applyTokens(result.access_token, result.refresh_token),
-    onError: (err) => setError(err instanceof ApiError ? err.detail : t("common.error")),
+    onError: (err) => setError(friendlyApiErrorMessage(err, t)),
   });
 
   function applyTokens(accessToken: string, refreshToken: string) {

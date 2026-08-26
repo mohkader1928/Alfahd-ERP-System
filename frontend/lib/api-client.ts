@@ -22,13 +22,30 @@ export class ApiError extends Error {
   }
 }
 
+// fetch() itself throws (TypeError) rather than resolving when the request
+// never reaches a server at all -- offline, DNS failure, connection
+// refused/reset. No real HTTP response means no real HTTP status, so 0 is
+// used as an unambiguous sentinel (no server ever returns it) to let
+// friendlyApiErrorMessage tell this case apart from a genuine 4xx/5xx.
+const NETWORK_ERROR_STATUS = 0;
+
+function networkError(): ApiError {
+  return new ApiError(NETWORK_ERROR_STATUS, "Network Error", "network_error");
+}
+
 /**
  * The backend's SMTP-not-configured error (src/shared/email/mailer.py)
  * is a deployment/config state, not a bug — surfaced here as a translated,
- * actionable message instead of the raw English backend string.
+ * actionable message instead of the raw English backend string. A network
+ * error is likewise a distinct, actionable case: the request never reached
+ * a server at all, so "something went wrong" is misleading -- the user
+ * needs to know it's connectivity, not their input.
  */
 export function friendlyApiErrorMessage(error: unknown, t: (key: string) => string): string {
   if (error instanceof ApiError) {
+    if (error.status === NETWORK_ERROR_STATUS) {
+      return t("errors.network_error");
+    }
     if (error.detail.includes("SMTP_HOST")) {
       return t("errors.smtp_not_configured");
     }
@@ -100,11 +117,16 @@ async function request<T>(path: string, options: RequestOptions = {}, isRetry = 
   if (companyId) finalHeaders["X-Company-Id"] = companyId;
   if (branchId) finalHeaders["X-Branch-Id"] = branchId;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...rest,
-    headers: finalHeaders,
-    body: isFormData ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...rest,
+      headers: finalHeaders,
+      body: isFormData ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw networkError();
+  }
 
   if (response.status === 204) {
     return undefined as T;
@@ -155,7 +177,12 @@ async function requestBlob(
   if (companyId) finalHeaders["X-Company-Id"] = companyId;
   if (branchId) finalHeaders["X-Branch-Id"] = branchId;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...rest, headers: finalHeaders });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { ...rest, headers: finalHeaders });
+  } catch {
+    throw networkError();
+  }
 
   if (response.status === 401 && !skipAuth && !isRetry) {
     try {
