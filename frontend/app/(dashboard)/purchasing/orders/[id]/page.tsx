@@ -14,6 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Can } from "@/components/erp/permissions/can";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -39,7 +41,7 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
   const [remainingPromptOpen, setRemainingPromptOpen] = useState(false);
   const [shortCloseReason, setShortCloseReason] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["purchase-order", companyId, id],
     queryFn: () => purchasingApi.getOrder(companyId, id),
   });
@@ -161,8 +163,13 @@ export default function PurchaseOrderDetailPage({ params }: { params: Promise<{ 
     onError: handleError,
   });
 
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!data) return null;
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return <NotFoundState label={t("purchasing.orders.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !data) return <Skeleton className="h-40 w-full" />;
 
   const { order, lines } = data;
   const productLabel = (productId: string) => productsQuery.data?.find((p) => p.id === productId)?.name ?? productId;

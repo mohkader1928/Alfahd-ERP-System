@@ -13,6 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { StockBalanceHint } from "@/components/erp/stock-balance-hint/stock-balance-hint";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
@@ -52,7 +54,7 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
   // itself, not sync it in an effect.
   const [loadedForId, setLoadedForId] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error: queryError, refetch } = useQuery({
     queryKey: ["sales-order", companyId, id],
     queryFn: () => salesApi.getSalesOrder(companyId, id),
   });
@@ -120,8 +122,13 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
     setLines((prev) => prev.filter((_, i) => i !== index));
   }
 
-  if (isLoading || !loaded) return <Skeleton className="h-60 w-full" />;
-  if (!data) return null;
+  if (isError && queryError instanceof ApiError && queryError.status === 404) {
+    return <NotFoundState label={t("sales.orders.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !loaded || !data) return <Skeleton className="h-60 w-full" />;
   const { order, lines: orderLines } = data;
   const canEdit = (order.status === "draft" || order.status === "confirmed") && orderLines.every((l) => Number(l.qty_invoiced) === 0);
   if (!canEdit) {

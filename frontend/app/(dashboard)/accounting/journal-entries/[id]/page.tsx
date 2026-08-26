@@ -11,6 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import Link from "next/link";
 import { Can } from "@/components/erp/permissions/can";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
@@ -27,7 +29,7 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
   const queryClient = useQueryClient();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["journal-entry", companyId, id],
     queryFn: () => accountingApi.getJournalEntry(companyId, id),
   });
@@ -64,8 +66,13 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
     onError: (err) => toastError(t("toast.error_title"), err instanceof ApiError ? err.detail : t("common.error")),
   });
 
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!data) return null;
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return <NotFoundState label={t("accounting.je.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !data) return <Skeleton className="h-40 w-full" />;
 
   const { entry, lines } = data;
   const accountLabel = (accountId: string) => {

@@ -14,6 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { Can } from "@/components/erp/permissions/can";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -36,7 +38,7 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
   const [cancelReason, setCancelReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["sales-order", companyId, id],
     queryFn: () => salesApi.getSalesOrder(companyId, id),
   });
@@ -100,8 +102,13 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
     onError: handleError,
   });
 
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!data) return null;
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return <NotFoundState label={t("sales.orders.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !data) return <Skeleton className="h-40 w-full" />;
 
   const { order, lines } = data;
   const productLabel = (productId: string) => productsQuery.data?.find((p) => p.id === productId)?.name ?? productId;

@@ -11,6 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Can } from "@/components/erp/permissions/can";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -44,7 +46,7 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
   );
   const [editError, setEditError] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["vendor-bill", companyId, id],
     queryFn: () => purchasingApi.getVendorBill(companyId, id),
   });
@@ -131,8 +133,13 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
     setEditLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   }
 
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!data) return null;
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return <NotFoundState label={t("purchasing.vendor_bills.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !data) return <Skeleton className="h-40 w-full" />;
 
   const { bill, lines } = data;
   const productLabel = (productId: string) => productsQuery.data?.find((p) => p.id === productId)?.name ?? productId;

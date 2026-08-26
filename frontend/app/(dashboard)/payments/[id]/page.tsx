@@ -11,11 +11,14 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Can } from "@/components/erp/permissions/can";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { paymentsApi } from "@/features/payments/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import type { PaymentAllocation } from "@/features/payments/api/types";
+import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { sourceDocumentHref } from "@/lib/source-document-links";
 
@@ -62,13 +65,18 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
   const router = useRouter();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["payment", companyId, id],
     queryFn: () => paymentsApi.getPayment(companyId, id),
   });
 
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!data) return null;
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return <NotFoundState label={t("payments.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !data) return <Skeleton className="h-40 w-full" />;
 
   const { payment, allocations } = data;
 

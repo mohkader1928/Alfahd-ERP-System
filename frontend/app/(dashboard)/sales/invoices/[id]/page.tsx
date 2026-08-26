@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Can } from "@/components/erp/permissions/can";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -45,7 +47,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const [emailOverride, setEmailOverride] = useState("");
   const [downloading, setDownloading] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["invoice", companyId, id],
     queryFn: () => salesApi.getInvoice(companyId, id),
   });
@@ -95,8 +97,13 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
     onError: (err) => toastError(t("toast.error_title"), friendlyApiErrorMessage(err, t)),
   });
 
-  if (isLoading) return <Skeleton className="h-60 w-full" />;
-  if (!data) return null;
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return <NotFoundState label={t("sales.invoice.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !data) return <Skeleton className="h-60 w-full" />;
 
   const { invoice, zatca_submission } = data;
 

@@ -14,6 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { Can } from "@/components/erp/permissions/can";
+import { ErrorState } from "@/components/erp/states/error-state";
+import { NotFoundState } from "@/components/erp/states/not-found";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -36,7 +38,7 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
   const [emailOverride, setEmailOverride] = useState("");
   const [downloading, setDownloading] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["quotation", companyId, id],
     queryFn: () => salesApi.getQuotation(companyId, id),
   });
@@ -89,8 +91,13 @@ export default function QuotationDetailPage({ params }: { params: Promise<{ id: 
     onError: (err) => toastError(t("toast.error_title"), friendlyApiErrorMessage(err, t)),
   });
 
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!data) return null;
+  if (isError && error instanceof ApiError && error.status === 404) {
+    return <NotFoundState label={t("sales.quotations.not_found")} />;
+  }
+  if (isError) {
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+  if (isLoading || !data) return <Skeleton className="h-40 w-full" />;
   const { quotation, lines } = data;
   const productOf = (productId: string) => productsQuery.data?.find((p) => p.id === productId);
 
