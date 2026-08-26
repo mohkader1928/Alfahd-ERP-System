@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Can } from "@/components/erp/permissions/can";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -104,6 +105,9 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
 
   if (isError && error instanceof ApiError && error.status === 404) {
     return <NotFoundState label={t("sales.orders.not_found")} />;
+  }
+  if (isError && error instanceof ApiError && error.status === 403) {
+    return <PermissionDenied />;
   }
   if (isError) {
     return <ErrorState onRetry={() => refetch()} />;

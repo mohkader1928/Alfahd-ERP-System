@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Can } from "@/components/erp/permissions/can";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -135,6 +136,9 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
 
   if (isError && error instanceof ApiError && error.status === 404) {
     return <NotFoundState label={t("purchasing.vendor_bills.not_found")} />;
+  }
+  if (isError && error instanceof ApiError && error.status === 403) {
+    return <PermissionDenied />;
   }
   if (isError) {
     return <ErrorState onRetry={() => refetch()} />;

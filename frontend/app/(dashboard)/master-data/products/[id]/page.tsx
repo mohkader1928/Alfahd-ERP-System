@@ -15,6 +15,7 @@ import { CategorySelect } from "@/components/erp/category-select/category-select
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -49,6 +50,9 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
 
   if (productQuery.isError && productQuery.error instanceof ApiError && productQuery.error.status === 404) {
     return <NotFoundState label={t("master_data.products.not_found")} />;
+  }
+  if (productQuery.isError && productQuery.error instanceof ApiError && productQuery.error.status === 403) {
+    return <PermissionDenied />;
   }
   if (productQuery.isError) {
     return <ErrorState onRetry={() => productQuery.refetch()} />;

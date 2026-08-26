@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -52,6 +53,13 @@ export default function RoleDetailPage({ params }: { params: Promise<{ roleId: s
     return (
       <SettingsShell>
         <NotFoundState label={t("settings.security.role_not_found")} />
+      </SettingsShell>
+    );
+  }
+  if (roleQuery.isError && roleQuery.error instanceof ApiError && roleQuery.error.status === 403) {
+    return (
+      <SettingsShell>
+        <PermissionDenied />
       </SettingsShell>
     );
   }

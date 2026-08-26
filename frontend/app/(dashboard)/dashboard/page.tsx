@@ -9,11 +9,14 @@ import { SalesTrendChart } from "@/components/erp/dashboard/sales-trend-chart";
 import { QuarterlySalesChart } from "@/components/erp/dashboard/quarterly-sales-chart";
 import { RecentActivityFeed } from "@/components/erp/dashboard/recent-activity-feed";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCompanyName } from "@/hooks/use-company-name";
+import { useMyPermissions } from "@/hooks/use-permissions";
+import { ApiError } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format-currency";
 import { formatDate } from "@/lib/format-date";
 import { reportingApi } from "@/features/reporting/api/client";
@@ -45,27 +48,38 @@ export default function DashboardPage() {
   const { name: companyName, company, isLoading: companyLoading } = useCompanyName();
   const { start, end } = currentFiscalYearRange(company?.fiscal_year_start_month ?? 1);
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["dashboard", companyId, start, end],
     queryFn: () => reportingApi.getDashboard(companyId, start, end),
     enabled: !companyLoading,
   });
+  const { can } = useMyPermissions();
+
+  if (isError && error instanceof ApiError && error.status === 403) {
+    return <PermissionDenied />;
+  }
 
   // Hardening Sub-stage 1 redesign: each KPI gets a fixed categorical
   // accent (dataviz skill slots 1-5, colorblind-safe) so the five cards
   // are scannable at a glance instead of five identical gray rectangles —
   // never cycled/random, the same KPI always reads the same color+icon.
-  const cards = [
+  // Each also carries the permission code for the module its own figure
+  // (or its href's destination) belongs to -- a role scoped to one module
+  // sees only that module's tiles, instead of a tile whose value it can't
+  // see or whose click 403s.
+  const allCards = [
     {
       key: "dashboard.period_sales",
       value: data?.period_sales_total,
       icon: TrendingUp,
+      permission: "reporting.sales.view",
       accent: "bg-[#2a78d6]/15 text-[#2a78d6] dark:bg-[#3987e5]/20 dark:text-[#3987e5]",
     },
     {
       key: "dashboard.period_purchases",
       value: data?.period_purchases_total,
       icon: ShoppingCart,
+      permission: "reporting.purchasing.view",
       accent: "bg-[#eb6834]/15 text-[#eb6834] dark:bg-[#d95926]/20 dark:text-[#d95926]",
     },
     {
@@ -73,6 +87,7 @@ export default function DashboardPage() {
       value: data?.receivables_balance,
       href: "/accounting?tab=ar-aging",
       icon: FileText,
+      permission: "payment.aging.view",
       accent: "bg-[#1baf7a]/15 text-[#1baf7a] dark:bg-[#199e70]/20 dark:text-[#199e70]",
     },
     {
@@ -80,6 +95,7 @@ export default function DashboardPage() {
       value: data?.payables_balance,
       href: "/accounting?tab=ap-aging",
       icon: Landmark,
+      permission: "payment.aging.view",
       accent: "bg-[#eda100]/15 text-[#eda100] dark:bg-[#c98500]/20 dark:text-[#c98500]",
     },
     {
@@ -87,11 +103,14 @@ export default function DashboardPage() {
       value: data?.cash_balance,
       href: "/accounting?tab=trial-balance",
       icon: Wallet,
+      permission: "accounting.reports.trial_balance.view",
       accent: "bg-[#e87ba4]/15 text-[#e87ba4] dark:bg-[#d55181]/20 dark:text-[#d55181]",
     },
   ];
+  const cards = allCards.filter((card) => can(card.permission));
 
   const pendingApprovals = data?.pending_approvals_count ?? 0;
+  const canViewPurchasing = can("purchasing.order.view");
 
   return (
     <div className="space-y-6">
@@ -118,7 +137,7 @@ export default function DashboardPage() {
         ))}
       </DashboardGrid>
 
-      {!isLoading && pendingApprovals > 0 && (
+      {!isLoading && pendingApprovals > 0 && canViewPurchasing && (
         <Link href="/purchasing">
           <Card className="border-amber-300 bg-amber-50 transition-colors hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/30 dark:hover:bg-amber-950/50">
             <CardContent className="flex items-center gap-3 py-4">
@@ -170,31 +189,39 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("dashboard.quick_actions.title")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <Link href="/sales/quotations">
-              <Button variant="outline" className="w-full justify-start gap-2">
-                <FileText className="h-4 w-4" />
-                {t("dashboard.quick_actions.new_quotation")}
-              </Button>
-            </Link>
-            <Link href="/purchasing/orders/new">
-              <Button variant="outline" className="w-full justify-start gap-2">
-                <ShoppingCart className="h-4 w-4" />
-                {t("dashboard.quick_actions.new_purchase_order")}
-              </Button>
-            </Link>
-            <Link href="/payments">
-              <Button variant="outline" className="w-full justify-start gap-2">
-                <Wallet className="h-4 w-4" />
-                {t("dashboard.quick_actions.record_payment")}
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+        {(can("sales.quotation.create") || can("purchasing.order.create") || can("payment.create")) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{t("dashboard.quick_actions.title")}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              {can("sales.quotation.create") && (
+                <Link href="/sales/quotations">
+                  <Button variant="outline" className="w-full justify-start gap-2">
+                    <FileText className="h-4 w-4" />
+                    {t("dashboard.quick_actions.new_quotation")}
+                  </Button>
+                </Link>
+              )}
+              {can("purchasing.order.create") && (
+                <Link href="/purchasing/orders/new">
+                  <Button variant="outline" className="w-full justify-start gap-2">
+                    <ShoppingCart className="h-4 w-4" />
+                    {t("dashboard.quick_actions.new_purchase_order")}
+                  </Button>
+                </Link>
+              )}
+              {can("payment.create") && (
+                <Link href="/payments">
+                  <Button variant="outline" className="w-full justify-start gap-2">
+                    <Wallet className="h-4 w-4" />
+                    {t("dashboard.quick_actions.record_payment")}
+                  </Button>
+                </Link>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card>

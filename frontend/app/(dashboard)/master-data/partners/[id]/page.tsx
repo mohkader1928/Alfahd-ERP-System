@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { EmptyState } from "@/components/erp/states/empty-state";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -35,6 +36,9 @@ export default function PartnerDetailPage({ params }: { params: Promise<{ id: st
 
   if (partnerQuery.isError && partnerQuery.error instanceof ApiError && partnerQuery.error.status === 404) {
     return <NotFoundState label={t("master_data.partners.not_found")} />;
+  }
+  if (partnerQuery.isError && partnerQuery.error instanceof ApiError && partnerQuery.error.status === 403) {
+    return <PermissionDenied />;
   }
   if (partnerQuery.isError) {
     return <ErrorState onRetry={() => partnerQuery.refetch()} />;

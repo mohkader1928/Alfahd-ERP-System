@@ -15,6 +15,7 @@ import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity
 import { StockBalanceHint } from "@/components/erp/stock-balance-hint/stock-balance-hint";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
@@ -116,6 +117,9 @@ export default function EditPurchaseOrderPage({ params }: { params: Promise<{ id
 
   if (isError && queryError instanceof ApiError && queryError.status === 404) {
     return <NotFoundState label={t("purchasing.orders.not_found")} />;
+  }
+  if (isError && queryError instanceof ApiError && queryError.status === 403) {
+    return <PermissionDenied />;
   }
   if (isError) {
     return <ErrorState onRetry={() => refetch()} />;

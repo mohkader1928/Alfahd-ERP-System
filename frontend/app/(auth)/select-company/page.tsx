@@ -9,6 +9,7 @@ import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { decodeAccessToken } from "@/lib/jwt";
 import { identityApi } from "@/features/identity/api/client";
+import { resolveLandingRoute } from "@/lib/landing-route";
 
 interface CompanyEntry {
   companyId: string;
@@ -77,7 +78,7 @@ export default function SelectCompanyPage() {
     // a picker with nothing useful in it.
     if (entries.length === 1) {
       setActiveCompany(entries[0].companyId, entries[0].branchId);
-      router.replace("/dashboard");
+      resolveLandingRoute(entries[0].companyId, entries[0].branchId).then((route) => router.replace(route));
     } else if (entries.length === 0) {
       router.replace("/login");
     }
@@ -86,9 +87,9 @@ export default function SelectCompanyPage() {
 
   if (!hasHydrated || !accessToken || entries.length <= 1) return null;
 
-  function handleSelect(entry: CompanyEntry) {
+  async function handleSelect(entry: CompanyEntry) {
     setActiveCompany(entry.companyId, entry.branchId);
-    router.push("/dashboard");
+    router.push(await resolveLandingRoute(entry.companyId, entry.branchId));
   }
 
   return (

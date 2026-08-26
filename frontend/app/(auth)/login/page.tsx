@@ -13,6 +13,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
 import { decodeAccessToken, firstAuthorizedCompany } from "@/lib/jwt";
 import { friendlyApiErrorMessage } from "@/lib/api-client";
+import { resolveLandingRoute } from "@/lib/landing-route";
 
 const SYSTEM_ADMIN_EMAIL = "moh.kader1928@gmail.com";
 
@@ -48,7 +49,7 @@ export default function LoginPage() {
     onError: (err) => setError(friendlyApiErrorMessage(err, t)),
   });
 
-  function applyTokens(accessToken: string, refreshToken: string) {
+  async function applyTokens(accessToken: string, refreshToken: string) {
     setTokens(accessToken, refreshToken);
     const authorizedCompanies = decodeAccessToken(accessToken)?.authorized_companies ?? [];
     // More than one company: no default is assumed — the picker decides,
@@ -58,8 +59,12 @@ export default function LoginPage() {
       return;
     }
     const active = firstAuthorizedCompany(accessToken);
-    if (active) setActiveCompany(active.companyId, active.branchId);
-    router.push("/dashboard");
+    if (!active) {
+      router.push("/dashboard");
+      return;
+    }
+    setActiveCompany(active.companyId, active.branchId);
+    router.push(await resolveLandingRoute(active.companyId, active.branchId));
   }
 
   function handleSubmit(e: React.FormEvent) {

@@ -345,3 +345,33 @@ export const NAV_CONFIG: NavEntry[] = [
     ],
   },
 ];
+
+/**
+ * Where to land a user who just gained an active company context (fresh
+ * login, or picking a company on /select-company) instead of the old
+ * hardcoded "/dashboard" -- a role scoped to a single module (e.g. a
+ * Purchasing-only employee without reporting.dashboard.view) would
+ * otherwise land on a home screen with nothing they're allowed to see and
+ * whose own shortcuts 404/403 the moment they're clicked. Walks NAV_CONFIG
+ * in its declared order (top to bottom, same order the sidebar renders)
+ * and returns the first href the given permissions actually unlock.
+ * /settings/account has no permission requirement and is always reachable
+ * by any authenticated user, so it's the guaranteed final fallback --
+ * every account, however narrowly scoped, lands somewhere real.
+ */
+export function firstAuthorizedRoute(permissionCodes: string[]): string {
+  const codes = new Set(permissionCodes);
+  function allowed(item: NavLink): boolean {
+    if (!item.permission) return true;
+    return Array.isArray(item.permission) ? item.permission.some((c) => codes.has(c)) : codes.has(item.permission);
+  }
+  for (const entry of NAV_CONFIG) {
+    if (entry.type === "link") {
+      if (allowed(entry)) return entry.href;
+    } else {
+      const child = entry.children.find(allowed);
+      if (child) return child.href;
+    }
+  }
+  return "/settings/account";
+}

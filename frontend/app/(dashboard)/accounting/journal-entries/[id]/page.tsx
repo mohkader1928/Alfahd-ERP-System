@@ -13,6 +13,7 @@ import Link from "next/link";
 import { Can } from "@/components/erp/permissions/can";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { accountingApi } from "@/features/accounting/api/client";
@@ -68,6 +69,9 @@ export default function JournalEntryDetailPage({ params }: { params: Promise<{ i
 
   if (isError && error instanceof ApiError && error.status === 404) {
     return <NotFoundState label={t("accounting.je.not_found")} />;
+  }
+  if (isError && error instanceof ApiError && error.status === 403) {
+    return <PermissionDenied />;
   }
   if (isError) {
     return <ErrorState onRetry={() => refetch()} />;

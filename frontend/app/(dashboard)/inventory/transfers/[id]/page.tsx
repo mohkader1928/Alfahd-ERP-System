@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -54,6 +55,9 @@ export default function StockTransferDetailPage({ params }: { params: Promise<{ 
 
   if (isError && error instanceof ApiError && error.status === 404) {
     return <NotFoundState label={t("inventory.transfers.not_found")} />;
+  }
+  if (isError && error instanceof ApiError && error.status === 403) {
+    return <PermissionDenied />;
   }
   if (isError) {
     return <ErrorState onRetry={() => refetch()} />;

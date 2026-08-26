@@ -8,6 +8,7 @@ import { FormView } from "@/components/erp/form-view/form-view";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
+import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
@@ -34,6 +35,13 @@ export default function UserDetailPage({ params }: { params: Promise<{ userId: s
     return (
       <SettingsShell>
         <NotFoundState label={t("settings.users.user_not_found")} />
+      </SettingsShell>
+    );
+  }
+  if (userQuery.isError && userQuery.error instanceof ApiError && userQuery.error.status === 403) {
+    return (
+      <SettingsShell>
+        <PermissionDenied />
       </SettingsShell>
     );
   }
