@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ const SYSTEM_ADMIN_EMAIL = "moh.kader1928@gmail.com";
 export default function LoginPage() {
   const { t } = useI18n();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const setTokens = useAuthStore((s) => s.setTokens);
   const setActiveCompany = useAuthStore((s) => s.setActiveCompany);
 
@@ -50,6 +51,10 @@ export default function LoginPage() {
   });
 
   async function applyTokens(accessToken: string, refreshToken: string) {
+    // Defense-in-depth alongside the logout-time clear (Topbar): a fresh
+    // login is where a leftover cache from whoever used this tab/session
+    // before would otherwise surface first, so it's purged again here too.
+    queryClient.clear();
     setTokens(accessToken, refreshToken);
     const authorizedCompanies = decodeAccessToken(accessToken)?.authorized_companies ?? [];
     // More than one company: no default is assumed — the picker decides,

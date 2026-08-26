@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, Moon, Palette, Sun, Languages, LogOut, Repeat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +35,7 @@ export function Topbar() {
   const { t, toggleLocale } = useI18n();
   const { theme, toggleTheme, colorTheme, setColorTheme } = useTheme();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const logout = useAuthStore((s) => s.logout);
   const accessToken = useAuthStore((s) => s.accessToken);
 
@@ -49,6 +51,16 @@ export function Topbar() {
     : 1;
 
   function handleLogout() {
+    // Owner-reported: a user who logged in right after someone else had
+    // been signed in on the same browser tab (no full page reload in
+    // between -- this is a client-side SPA navigation, not a hard nav) saw
+    // that PREVIOUS user's cached permissions, because React Query's cache
+    // outlives the SPA session and every cache key here is scoped by
+    // companyId, not by user. Clearing the whole cache on logout is the
+    // documented fix for exactly this class of bug, and it's a full clear
+    // (not just permissions) since any other company-scoped list/detail
+    // query could leak the same way.
+    queryClient.clear();
     logout();
     router.push("/login");
   }
