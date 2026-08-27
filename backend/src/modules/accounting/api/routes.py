@@ -1,6 +1,6 @@
 """FastAPI routes for Accounting, per Phase 10 §6.2."""
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -18,6 +18,7 @@ from src.modules.accounting.api.deps import (
     require_permission,
 )
 from src.modules.accounting.api.schemas import (
+    AccountBalanceOut,
     AccountCreateRequest,
     AccountOut,
     AccountUpdateRequest,
@@ -83,6 +84,34 @@ async def list_chart_of_accounts(
     account_repo: AccountRepository = Depends(get_account_repo),
 ):
     return await account_repo.list_by_company(ctx.company_id)
+
+
+@router.get("/accounts/{account_id}/balance", response_model=AccountBalanceOut)
+async def get_account_balance(
+    account_id: UUID,
+    ctx: AuthContext = Depends(require_permission("accounting.journal_entry.view")),
+    account_repo: AccountRepository = Depends(get_account_repo),
+    entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
+):
+    """Journal Entry screen balance hint (Owner request): lets the screen
+    show an account's current balance, and flag it in red/amber when it
+    already contradicts the account's own debit-normal/credit-normal
+    nature (e.g. a credit balance on a bank account) -- advisory only,
+    never blocks saving. Reuses account_balance_by_id exactly as GL/
+    Balance Sheet already do, so this number always agrees with every
+    other balance shown elsewhere for the same account (posted + reversed
+    entries only, per the Owner's explicit instruction to keep this
+    consistent with the rest of the system rather than inventing a
+    separate calculation). `as_of_date` is tomorrow so entries dated today
+    are included -- account_balance_by_id's own convention is a strict '<'
+    upper bound (it's built for opening-balance callers)."""
+    account = await account_repo.get_by_id(account_id)
+    if account is None or account.company_id != ctx.company_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+    balance = await entry_repo.account_balance_by_id(
+        ctx.company_id, account_id, as_of_date=date.today() + timedelta(days=1)
+    )
+    return AccountBalanceOut(account_id=account_id, balance=balance)
 
 
 @router.get("/tax-rates", response_model=list[TaxRateOut])
@@ -235,6 +264,13 @@ async def create_account(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
     await db.commit()
+    # AccountOut now carries account_type_code (Journal Entry balance-hint
+    # feature) -- list_chart_of_accounts gets it via a join in
+    # list_by_company; a freshly created/updated single Account doesn't
+    # have it attached, so it's set here the same way, from the type this
+    # account was just given.
+    account_type = await account_type_repo.get_by_id(account.account_type_id)
+    account.account_type_code = account_type.code
     return account
 
 
@@ -311,6 +347,8 @@ async def update_account(
         )
 
     await db.commit()
+    account_type = await account_type_repo.get_by_id(account.account_type_id)
+    account.account_type_code = account_type.code
     return account
 
 

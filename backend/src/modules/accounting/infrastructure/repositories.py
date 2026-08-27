@@ -29,6 +29,10 @@ class AccountTypeRepository:
         result = await self.session.execute(select(AccountType).where(AccountType.code == code))
         return result.scalar_one_or_none()
 
+    async def get_by_id(self, account_type_id: UUID) -> AccountType | None:
+        result = await self.session.execute(select(AccountType).where(AccountType.id == account_type_id))
+        return result.scalar_one_or_none()
+
 
 class AccountRepository:
     def __init__(self, session: AsyncSession):
@@ -58,12 +62,23 @@ class AccountRepository:
         return result.scalar_one_or_none()
 
     async def list_by_company(self, company_id: UUID) -> list[Account]:
+        # account_type_code is attached as a plain (unmapped) attribute on
+        # each returned Account instance, not persisted -- the same
+        # debit-normal/credit-normal classification the Income Statement
+        # route already derives via account_type_code (routes.py's
+        # `is_debit_normal` check), now available wherever the account list
+        # itself is fetched instead of only inside that one report.
         result = await self.session.execute(
-            select(Account)
+            select(Account, AccountType.code)
+            .join(AccountType, AccountType.id == Account.account_type_id)
             .where(Account.company_id == company_id, Account.deleted_at.is_(None))
             .order_by(Account.code)
         )
-        return list(result.scalars().all())
+        accounts = []
+        for account, type_code in result.all():
+            account.account_type_code = type_code
+            accounts.append(account)
+        return accounts
 
     async def list_children(self, account_id: UUID) -> list[Account]:
         result = await self.session.execute(

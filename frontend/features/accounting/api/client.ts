@@ -1,6 +1,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   Account,
+  AccountBalance,
   AccountUpdateInput,
   BalanceSheetResponse,
   CashFlowResponse,
@@ -21,6 +22,9 @@ const BASE = "/api/v1/accounting";
 
 export const accountingApi = {
   listAccounts: (companyId: string) => apiClient.get<Account[]>(`${BASE}/chart-of-accounts`, { companyId }),
+
+  getAccountBalance: (companyId: string, accountId: string) =>
+    apiClient.get<AccountBalance>(`${BASE}/accounts/${accountId}/balance`, { companyId }),
 
   listTaxRates: (companyId: string) => apiClient.get<TaxRate[]>(`${BASE}/tax-rates`, { companyId }),
 

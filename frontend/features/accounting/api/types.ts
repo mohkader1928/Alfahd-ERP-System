@@ -34,6 +34,12 @@ export interface Account {
   is_group: boolean;
   is_active: boolean;
   is_cash_equivalent: boolean;
+  account_type_code: "asset" | "liability" | "equity" | "revenue" | "expense";
+}
+
+export interface AccountBalance {
+  account_id: string;
+  balance: string;
 }
 
 export interface AccountUpdateInput {

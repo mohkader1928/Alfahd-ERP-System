@@ -18,8 +18,20 @@ class AccountOut(BaseModel):
     is_group: bool
     is_active: bool
     is_cash_equivalent: bool
+    account_type_code: str
 
     model_config = {"from_attributes": True}
+
+
+class AccountBalanceOut(BaseModel):
+    """Journal Entry screen balance hint: the account's current balance
+    (posted + reversed entries only, same convention as every other
+    balance figure in this codebase -- Trial Balance, General Ledger,
+    Balance Sheet) as of today, inclusive. Purely advisory; the caller
+    decides whether it's "abnormal" for the account's own type."""
+
+    account_id: UUID
+    balance: Decimal
 
 
 class CostCenterOut(BaseModel):
