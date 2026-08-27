@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { AccountBalanceHint } from "@/components/erp/account-balance-hint/account-balance-hint";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
 import { EntitySearchSelect } from "@/components/erp/entity-search-select/entity-search-select";
 import { ReportView } from "@/components/erp/report-view/report-view";
@@ -484,45 +486,6 @@ function ChartOfAccountsTab() {
   );
 }
 
-const DEBIT_NORMAL_TYPES = new Set(["asset", "expense"]);
-
-/**
- * Owner request: while building a journal entry, show the selected
- * account's current balance and flag it (color only, never blocking) when
- * it already contradicts the account's own debit-normal/credit-normal
- * nature -- e.g. a credit balance on a bank (asset) account. Same
- * debit-normal classification the Income Statement route already applies
- * server-side (routes.py's `is_debit_normal` check); "current balance"
- * here is posted-only, matching every other balance in this app (Owner's
- * explicit instruction to keep this consistent, not a separate rule).
- */
-function AccountBalanceHint({ companyId, account }: { companyId: string; account: Account | undefined }) {
-  const { t } = useI18n();
-  const balanceQuery = useQuery({
-    queryKey: ["account-balance", companyId, account?.id],
-    queryFn: () => accountingApi.getAccountBalance(companyId, account!.id),
-    enabled: !!account,
-  });
-
-  if (!account) return null;
-  if (balanceQuery.isLoading || !balanceQuery.data) {
-    return <p className="text-xs text-muted-foreground">{t("common.loading")}</p>;
-  }
-
-  const balance = Number(balanceQuery.data.balance);
-  const isDebitNormal = DEBIT_NORMAL_TYPES.has(account.account_type_code);
-  const abnormal = (isDebitNormal && balance < 0) || (!isDebitNormal && balance > 0);
-  const side = balance > 0 ? t("accounting.je.balance_debit") : balance < 0 ? t("accounting.je.balance_credit") : null;
-
-  return (
-    <p className={`text-xs ${abnormal ? "font-medium text-destructive" : "text-muted-foreground"}`}>
-      {t("accounting.je.current_balance")}: {formatCurrency(Math.abs(balance))}
-      {side ? ` (${side})` : ""}
-      {abnormal ? ` — ${t("accounting.je.balance_abnormal_hint")}` : ""}
-    </p>
-  );
-}
-
 function JournalEntriesTab() {
   const { t, locale } = useI18n();
   const companyId = useAuthStore((s) => s.activeCompanyId)!;
@@ -736,11 +699,11 @@ function JournalEntriesTab() {
                   </div>
                   <div className="w-28 space-y-1">
                     <Label className="text-xs">{t("accounting.je.debit")}</Label>
-                    <Input value={line.debit} onChange={(e) => updateLine(index, { debit: e.target.value })} />
+                    <AmountInput value={line.debit} onChange={(v) => updateLine(index, { debit: v })} />
                   </div>
                   <div className="w-28 space-y-1">
                     <Label className="text-xs">{t("accounting.je.credit")}</Label>
-                    <Input value={line.credit} onChange={(e) => updateLine(index, { credit: e.target.value })} />
+                    <AmountInput value={line.credit} onChange={(v) => updateLine(index, { credit: v })} />
                   </div>
                 </div>
                 <div className="space-y-1">

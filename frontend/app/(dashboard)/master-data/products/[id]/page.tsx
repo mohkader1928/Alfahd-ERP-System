@@ -9,6 +9,7 @@ import { EntityImageUpload } from "@/components/erp/entity-image/entity-image-up
 import { Can } from "@/components/erp/permissions/can";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CategorySelect } from "@/components/erp/category-select/category-select";
@@ -224,19 +225,19 @@ function ProductEditForm({
                 </div>
                 <div className="space-y-1">
                   <Label>{t("master_data.products.sales_price")}</Label>
-                  <Input value={salesPrice} onChange={(e) => setSalesPrice(e.target.value)} />
+                  <AmountInput value={salesPrice} onChange={setSalesPrice} />
                 </div>
                 <div className="space-y-1">
                   <Label>{t("master_data.products.cost_price")}</Label>
-                  <Input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
+                  <AmountInput value={costPrice} onChange={setCostPrice} />
                 </div>
                 <div className="space-y-1">
                   <Label>{t("master_data.products.price_high")}</Label>
-                  <Input value={priceHigh} onChange={(e) => setPriceHigh(e.target.value)} placeholder={t("master_data.products.price_optional_placeholder")} />
+                  <AmountInput value={priceHigh} onChange={setPriceHigh} placeholder={t("master_data.products.price_optional_placeholder")} />
                 </div>
                 <div className="space-y-1">
                   <Label>{t("master_data.products.price_low")}</Label>
-                  <Input value={priceLow} onChange={(e) => setPriceLow(e.target.value)} placeholder={t("master_data.products.price_optional_placeholder")} />
+                  <AmountInput value={priceLow} onChange={setPriceLow} placeholder={t("master_data.products.price_optional_placeholder")} />
                 </div>
                 {product.last_purchase_price && (
                   <div className="space-y-1">

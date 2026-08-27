@@ -7,6 +7,7 @@ import { FormView } from "@/components/erp/form-view/form-view";
 import { EntityImageUpload } from "@/components/erp/entity-image/entity-image-upload";
 import { Can } from "@/components/erp/permissions/can";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -173,13 +174,10 @@ function CompanySettingsForm({ company, companyId }: { company: Company; company
           </div>
           <div className="space-y-1 sm:col-span-2">
             <Label>{t("settings.company.po_approval_threshold")}</Label>
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
+            <AmountInput
               placeholder={t("settings.company.po_approval_threshold_placeholder")}
               value={poApprovalThreshold}
-              onChange={(e) => setPoApprovalThreshold(e.target.value)}
+              onChange={setPoApprovalThreshold}
               className="max-w-xs"
             />
             <p className="text-xs text-muted-foreground">{t("settings.company.po_approval_threshold_hint")}</p>

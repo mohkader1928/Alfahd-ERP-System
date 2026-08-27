@@ -7,6 +7,7 @@ import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
@@ -215,7 +216,7 @@ export default function NewPurchaseOrderPage() {
                 </div>
                 <div className="w-24 space-y-1">
                   <Label className="text-xs">{t("purchasing.orders.unit_price")}</Label>
-                  <Input value={line.unit_price} onChange={(e) => updateLine(index, { unit_price: e.target.value })} />
+                  <AmountInput value={line.unit_price} onChange={(v) => updateLine(index, { unit_price: v })} />
                 </div>
                 <Button
                   type="button"

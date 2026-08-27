@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { Can } from "@/components/erp/permissions/can";
 import { ErrorState } from "@/components/erp/states/error-state";
 import { NotFoundState } from "@/components/erp/states/not-found";
@@ -216,10 +217,10 @@ export default function VendorBillDetailPage({ params }: { params: Promise<{ id:
                         />
                       </TableCell>
                       <TableCell className="text-end">
-                        <Input
+                        <AmountInput
                           className="w-28 text-end"
                           value={editLines[index]?.unit_price ?? ""}
-                          onChange={(e) => updateEditLine(index, { unit_price: e.target.value })}
+                          onChange={(v) => updateEditLine(index, { unit_price: v })}
                         />
                       </TableCell>
                     </TableRow>

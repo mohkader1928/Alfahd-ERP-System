@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormView } from "@/components/erp/form-view/form-view";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { Label } from "@/components/ui/label";
 import { CategorySelect } from "@/components/erp/category-select/category-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -119,19 +120,19 @@ export default function NewProductPage() {
         </div>
         <div className="space-y-1">
           <Label>{t("master_data.products.sales_price")}</Label>
-          <Input value={salesPrice} onChange={(e) => setSalesPrice(e.target.value)} />
+          <AmountInput value={salesPrice} onChange={setSalesPrice} />
         </div>
         <div className="space-y-1">
           <Label>{t("master_data.products.cost_price")}</Label>
-          <Input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
+          <AmountInput value={costPrice} onChange={setCostPrice} />
         </div>
         <div className="space-y-1">
           <Label>{t("master_data.products.price_high")}</Label>
-          <Input value={priceHigh} onChange={(e) => setPriceHigh(e.target.value)} placeholder={t("master_data.products.price_optional_placeholder")} />
+          <AmountInput value={priceHigh} onChange={setPriceHigh} placeholder={t("master_data.products.price_optional_placeholder")} />
         </div>
         <div className="space-y-1">
           <Label>{t("master_data.products.price_low")}</Label>
-          <Input value={priceLow} onChange={(e) => setPriceLow(e.target.value)} placeholder={t("master_data.products.price_optional_placeholder")} />
+          <AmountInput value={priceLow} onChange={setPriceLow} placeholder={t("master_data.products.price_optional_placeholder")} />
         </div>
         <div className="space-y-1">
           <Label>{t("master_data.products.reorder_point")}</Label>

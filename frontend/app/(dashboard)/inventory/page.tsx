@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHeader, TableRow } from "@/components/ui/table";
@@ -313,7 +314,7 @@ function StockTab() {
               </div>
               <div className="w-28 space-y-1">
                 <Label className="text-xs">{t("inventory.stock.unit_cost")}</Label>
-                <Input value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
+                <AmountInput value={unitCost} onChange={setUnitCost} />
               </div>
               <Button
                 size="sm"

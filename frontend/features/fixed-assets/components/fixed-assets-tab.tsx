@@ -7,6 +7,7 @@ import { Download, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -360,17 +361,11 @@ export function FixedAssetsTab() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("fixed_assets.cost")}</Label>
-                <Input type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} />
+                <AmountInput value={cost} onChange={setCost} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("fixed_assets.salvage_value")}</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={salvageValue}
-                  onChange={(e) => setSalvageValue(e.target.value)}
-                />
+                <AmountInput value={salvageValue} onChange={setSalvageValue} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("fixed_assets.useful_life_months")}</Label>

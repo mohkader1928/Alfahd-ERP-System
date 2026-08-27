@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AccountBalanceHint } from "@/components/erp/account-balance-hint/account-balance-hint";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { FormView } from "@/components/erp/form-view/form-view";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -221,13 +223,18 @@ export function PaymentFormView({
         </div>
         <div className="space-y-1">
           <Label>{t("payments.amount")}</Label>
-          <Input value={amount} onChange={(e) => setAmountOverride(e.target.value)} />
+          <AmountInput value={amount} onChange={(v) => setAmountOverride(v)} />
         </div>
         <div className="space-y-1">
           <Label>{t("payments.select_account")}</Label>
           <Select value={accountId} onValueChange={(v) => setAccountId(v ?? "")}>
             <SelectTrigger className="w-full">
-              <SelectValue placeholder={t("payments.select_account")} />
+              <SelectValue placeholder={t("payments.select_account")}>
+                {(value: string) => {
+                  const acc = accountsQuery.data?.find((a) => a.id === value);
+                  return acc ? `${acc.code} — ${acc.name}` : value;
+                }}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {accountsQuery.data?.map((a) => (
@@ -237,6 +244,7 @@ export function PaymentFormView({
               ))}
             </SelectContent>
           </Select>
+          <AccountBalanceHint companyId={companyId} account={accountsQuery.data?.find((a) => a.id === accountId)} />
         </div>
         <div className="space-y-1">
           <Label>{t("payments.reference")}</Label>
