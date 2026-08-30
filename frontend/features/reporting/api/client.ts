@@ -4,6 +4,9 @@ import type {
   InventoryReconciliation,
   InventoryValuationRow,
   PurchaseByVendorRow,
+  RepresentativeCustomerRow,
+  RepresentativePerformanceDetail,
+  RepresentativePerformanceRow,
   SalesByCustomerRow,
   SalesByPeriodRow,
   SalesByProductRow,
@@ -39,6 +42,43 @@ export const reportingApi = {
   salesByPeriod: (companyId: string, dateFrom: string, dateTo: string) =>
     apiClient.get<SalesByPeriodRow[]>(
       `${BASE}/sales/by-period?date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  // ── Commercial Performance Reports ────────────────────────────────────────────
+
+  commercialByRepresentative: (
+    companyId: string,
+    dateFrom: string,
+    dateTo: string,
+    representativeId?: string
+  ) =>
+    apiClient.get<RepresentativePerformanceRow[]>(
+      `${BASE}/commercial/by-representative?date_from=${dateFrom}&date_to=${dateTo}${
+        representativeId ? `&representative_id=${representativeId}` : ""
+      }`,
+      { companyId }
+    ),
+
+  commercialRepresentativeCustomers: (
+    companyId: string,
+    representativeId: string,
+    dateFrom: string,
+    dateTo: string
+  ) =>
+    apiClient.get<RepresentativeCustomerRow[]>(
+      `${BASE}/commercial/representatives/${representativeId}/customers?date_from=${dateFrom}&date_to=${dateTo}`,
+      { companyId }
+    ),
+
+  commercialRepresentativePerformance: (
+    companyId: string,
+    representativeId: string,
+    dateFrom: string,
+    dateTo: string
+  ) =>
+    apiClient.get<RepresentativePerformanceDetail>(
+      `${BASE}/commercial/representatives/${representativeId}/performance?date_from=${dateFrom}&date_to=${dateTo}`,
       { companyId }
     ),
 

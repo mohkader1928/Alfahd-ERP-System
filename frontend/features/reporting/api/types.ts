@@ -22,6 +22,84 @@ export interface DashboardSummary {
   sales_trend: SalesTrendPoint[];
   pending_approvals_count: number;
   recent_activity: RecentActivityItem[];
+  // Commercial Performance Stage 3
+  commercial_total_sales: string;
+  commercial_total_returns: string;
+  commercial_net_sales: string;
+  commercial_total_collections: string;
+  commercial_sales_commission: string;
+  commercial_collection_commission: string;
+  commercial_net_commission: string;
+  commercial_unattributed_sales: string;
+  representative_performance: RepresentativePerformanceRow[];
+  collections_trend: SalesTrendPoint[];
+}
+
+// ── Commercial Performance Reports (Stage 3) ─────────────────────────────────
+
+export interface RepresentativePerformanceRow {
+  representative_id: string | null;
+  representative_name: string;
+  is_unattributed: boolean;
+  gross_sales: string;
+  returns: string;
+  net_sales: string;
+  invoice_count: number;
+  customer_count: number;
+  average_invoice_value: string;
+  collections: string;
+  outstanding_balance: string;
+  sales_commission: string;
+  collection_commission: string;
+  net_commission: string;
+}
+
+export interface RepresentativeCustomerRow {
+  partner_id: string;
+  partner_name: string;
+  invoice_count: number;
+  gross_sales: string;
+  returns: string;
+  net_sales: string;
+  average_invoice_value: string;
+}
+
+export interface RepresentativeSalesLineRow {
+  invoice_id: string;
+  invoice_number: string;
+  invoice_date: string;
+  customer_name: string;
+  sales_amount: string;
+  commission_rate: string | null;
+  commission_amount: string;
+}
+
+export interface RepresentativeReturnsLineRow {
+  credit_note_id: string;
+  credit_note_number: string;
+  credit_note_date: string;
+  customer_name: string;
+  original_invoice_number: string | null;
+  return_amount: string;
+  commission_rate: string | null;
+  commission_amount: string;
+}
+
+export interface RepresentativeCollectionsLineRow {
+  payment_id: string;
+  payment_number: string;
+  payment_date: string;
+  customer_name: string;
+  collection_amount: string;
+  commission_rate: string | null;
+  commission_amount: string;
+}
+
+export interface RepresentativePerformanceDetail {
+  summary: RepresentativePerformanceRow | null;
+  sales_lines: RepresentativeSalesLineRow[];
+  returns_lines: RepresentativeReturnsLineRow[];
+  collections_lines: RepresentativeCollectionsLineRow[];
 }
 
 // ── Sales Reports ──────────────────────────────────────────────────────────────

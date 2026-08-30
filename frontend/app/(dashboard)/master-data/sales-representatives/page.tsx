@@ -135,6 +135,7 @@ export default function SalesRepresentativesPage() {
         onRetry={() => salesRepsQuery.refetch()}
         searchText={(r) => `${r.code} ${r.name}`}
         searchPlaceholder={t("list.search_placeholder")}
+        getRowHref={(r) => `/master-data/sales-representatives/${r.id}`}
         rowActions={(r) => (
           <Can permission="sales_rep.update">
             <Button variant="ghost" size="xs" onClick={() => toggleActiveMutation.mutate(r)} disabled={toggleActiveMutation.isPending}>

@@ -218,6 +218,9 @@ export const identityApi = {
       { companyId }
     ),
 
+  getSalesRepresentative: (companyId: string, id: string) =>
+    apiClient.get<SalesRepresentative>(`${BASE}/sales-representatives/${id}`, { companyId }),
+
   createSalesRepresentative: (companyId: string, payload: SalesRepresentativeCreateInput) =>
     apiClient.post<SalesRepresentative>(`${BASE}/sales-representatives`, payload, { companyId }),
 
