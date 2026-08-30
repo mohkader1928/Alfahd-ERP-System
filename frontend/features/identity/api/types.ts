@@ -131,6 +131,9 @@ export interface Partner {
   vat_number: string | null;
   cr_number: string | null;
   payment_terms: string | null;
+  credit_limit: string | null;
+  credit_days: number | null;
+  vendor_credit_days: number | null;
   address: Address | null;
   is_active: boolean;
   image_path: string | null;
@@ -153,6 +156,9 @@ export interface PartnerWriteInput {
   vat_number?: string | null;
   cr_number?: string | null;
   payment_terms?: string | null;
+  credit_limit?: string | null;
+  credit_days?: number | null;
+  vendor_credit_days?: number | null;
   address?: Address | null;
 }
 

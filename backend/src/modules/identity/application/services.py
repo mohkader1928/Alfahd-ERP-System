@@ -701,6 +701,9 @@ class PartnerService:
         vat_number: str | None = None,
         cr_number: str | None = None,
         payment_terms: str | None = None,
+        credit_limit: Decimal | None = None,
+        credit_days: int | None = None,
+        vendor_credit_days: int | None = None,
         address: dict | None = None,
     ) -> Partner:
         await self._validate_parent(company_id=company_id, parent_partner_id=parent_partner_id, self_id=None)
@@ -728,6 +731,9 @@ class PartnerService:
             vat_number=vat_number,
             cr_number=cr_number,
             payment_terms=payment_terms,
+            credit_limit=credit_limit,
+            credit_days=credit_days,
+            vendor_credit_days=vendor_credit_days,
             address=address,
         )
         try:
@@ -755,6 +761,9 @@ class PartnerService:
         vat_number: str | None,
         cr_number: str | None,
         payment_terms: str | None,
+        credit_limit: Decimal | None,
+        credit_days: int | None,
+        vendor_credit_days: int | None,
         address: dict | None,
     ) -> Partner:
         partner = await self.partner_repo.get_by_id(partner_id)
@@ -775,6 +784,9 @@ class PartnerService:
         partner.vat_number = vat_number
         partner.cr_number = cr_number
         partner.payment_terms = payment_terms
+        partner.credit_limit = credit_limit
+        partner.credit_days = credit_days
+        partner.vendor_credit_days = vendor_credit_days
         partner.address = address
         return partner
 

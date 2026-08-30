@@ -92,6 +92,7 @@ export interface SalesInvoice {
   number: string;
   status: string;
   invoice_date: string;
+  due_date: string | null;
   subtotal_amount: string;
   tax_amount: string;
   total_amount: string;

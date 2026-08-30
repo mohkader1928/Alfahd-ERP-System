@@ -8,7 +8,7 @@ module calls those two directly rather than through the event bus.
 
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -613,6 +613,15 @@ class SalesInvoiceService:
             # SO-000020/INV-000015: order dated 2026-01-01, invoice dated
             # today with no way to tell why).
             invoice_date=order.order_date,
+            # Commercial Performance Stage 1: due_date = invoice_date +
+            # partner.credit_days when a credit period is configured, else
+            # falls back to the invoice's own date — no safer fallback
+            # exists anywhere else in this codebase to defer to instead.
+            due_date=(
+                order.order_date + timedelta(days=partner.credit_days)
+                if partner.credit_days
+                else order.order_date
+            ),
             subtotal_amount=subtotal,
             tax_amount=tax_total,
             total_amount=subtotal + tax_total,

@@ -4,6 +4,7 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RecordCard } from "@/components/erp/record-card/record-card";
+import { AmountInput } from "@/components/erp/amount-input/amount-input";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { EntityImageUpload } from "@/components/erp/entity-image/entity-image-upload";
 import { Can } from "@/components/erp/permissions/can";
@@ -69,6 +70,9 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
   const [vatNumber, setVatNumber] = useState(partner.vat_number ?? "");
   const [crNumber, setCrNumber] = useState(partner.cr_number ?? "");
   const [paymentTerms, setPaymentTerms] = useState(partner.payment_terms ?? "");
+  const [creditLimit, setCreditLimit] = useState(partner.credit_limit ?? "");
+  const [creditDays, setCreditDays] = useState(partner.credit_days?.toString() ?? "");
+  const [vendorCreditDays, setVendorCreditDays] = useState(partner.vendor_credit_days?.toString() ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const invalidatePartner = () => {
@@ -94,6 +98,9 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
         vat_number: vatNumber || null,
         cr_number: crNumber || null,
         payment_terms: paymentTerms || null,
+        credit_limit: creditLimit || null,
+        credit_days: creditDays ? Number(creditDays) : null,
+        vendor_credit_days: vendorCreditDays ? Number(vendorCreditDays) : null,
         address: partner.address,
       }),
     onSuccess: () => {
@@ -323,6 +330,36 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
                 />
                 <p className="text-xs text-muted-foreground">{t("master_data.partners.payment_terms_hint")}</p>
               </div>
+              {isCustomer && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label>{t("master_data.partners.credit_limit")}</Label>
+                    <AmountInput value={creditLimit} onChange={setCreditLimit} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{t("master_data.partners.credit_days")}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={creditDays}
+                      onChange={(e) => setCreditDays(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+              {isVendor && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label>{t("master_data.partners.vendor_credit_days")}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={vendorCreditDays}
+                      onChange={(e) => setVendorCreditDays(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 {partner.is_customer && (
                   <Button variant="outline" render={<Link href={`/accounting?tab=customer-subledger&partner=${partner.id}`} />}>

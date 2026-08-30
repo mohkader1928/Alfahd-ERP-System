@@ -5,7 +5,7 @@ module map — same "legitimate direct dependency" pattern Sales uses.
 """
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -694,6 +694,16 @@ class VendorBillService:
         mismatch_reasons = check_three_way_match(match_lines)
         status = "mismatched" if mismatch_reasons else "matched"
 
+        bill_date = date.today()
+        # Commercial Performance Stage 1: due_date = bill_date +
+        # partner.vendor_credit_days when a credit period is configured,
+        # else falls back to the bill's own date.
+        vendor_credit_days = None
+        if self.partner_repo is not None:
+            partner = await self.partner_repo.get_by_id(order.partner_id)
+            vendor_credit_days = partner.vendor_credit_days if partner else None
+        due_date = bill_date + timedelta(days=vendor_credit_days) if vendor_credit_days else bill_date
+
         bill = VendorBill(
             id=uuid.uuid4(),
             company_id=company_id,
@@ -704,7 +714,8 @@ class VendorBillService:
             number=number,
             vendor_reference=vendor_reference,
             status=status,
-            bill_date=date.today(),
+            bill_date=bill_date,
+            due_date=due_date,
             subtotal_amount=subtotal,
             tax_amount=tax_total,
             total_amount=subtotal + tax_total,

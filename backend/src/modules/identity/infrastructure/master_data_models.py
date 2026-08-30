@@ -56,6 +56,16 @@ class Partner(Base):
     """Owner request: default payment terms shown to the customer on a
     Quotation — freeform text (e.g. "Net 30", "50% advance, balance on
     delivery"), editable per-quotation rather than enforced."""
+    # Commercial Performance Stage 1: structured credit fields, distinct
+    # from the freeform `payment_terms` display text above (which stays
+    # exactly as-is — never parsed). credit_limit/credit_days govern the
+    # customer side; vendor_credit_days is kept separate because a Partner
+    # can be both customer and vendor with different terms in each
+    # direction. All nullable — a partner with no credit info configured
+    # keeps working exactly as before this stage.
+    credit_limit: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    credit_days: Mapped[int | None] = mapped_column(nullable=True)
+    vendor_credit_days: Mapped[int | None] = mapped_column(nullable=True)
     address: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     """Deprecated JSONB single-address field, kept post-backfill (not
     dropped) per explicit Owner instruction — superseded by PartnerAddress.

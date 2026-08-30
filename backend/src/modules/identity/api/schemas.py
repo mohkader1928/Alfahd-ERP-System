@@ -290,6 +290,9 @@ class PartnerCreateRequest(BaseModel):
     vat_number: str | None = None
     cr_number: str | None = None
     payment_terms: str | None = None
+    credit_limit: Decimal | None = None
+    credit_days: int | None = None
+    vendor_credit_days: int | None = None
     address: AddressIn | None = None
 
 
@@ -309,6 +312,9 @@ class PartnerUpdateRequest(BaseModel):
     vat_number: str | None = None
     cr_number: str | None = None
     payment_terms: str | None = None
+    credit_limit: Decimal | None = None
+    credit_days: int | None = None
+    vendor_credit_days: int | None = None
     address: AddressIn | None = None
 
 
@@ -332,6 +338,9 @@ class PartnerOut(BaseModel):
     vat_number: str | None
     cr_number: str | None
     payment_terms: str | None = None
+    credit_limit: Decimal | None = None
+    credit_days: int | None = None
+    vendor_credit_days: int | None = None
     address: dict | None
     is_active: bool
     image_path: str | None = None

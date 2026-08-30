@@ -146,6 +146,7 @@ class SalesInvoiceOut(BaseModel):
     number: str
     status: str
     invoice_date: date
+    due_date: date | None = None
     subtotal_amount: Decimal
     tax_amount: Decimal
     total_amount: Decimal

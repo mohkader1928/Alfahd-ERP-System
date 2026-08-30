@@ -1104,6 +1104,9 @@ async def create_partner(
             vat_number=payload.vat_number,
             cr_number=payload.cr_number,
             payment_terms=payload.payment_terms,
+            credit_limit=payload.credit_limit,
+            credit_days=payload.credit_days,
+            vendor_credit_days=payload.vendor_credit_days,
             address=payload.address.model_dump() if payload.address else None,
         )
     except ValueError as e:
@@ -1141,6 +1144,9 @@ async def update_partner(
             vat_number=payload.vat_number,
             cr_number=payload.cr_number,
             payment_terms=payload.payment_terms,
+            credit_limit=payload.credit_limit,
+            credit_days=payload.credit_days,
+            vendor_credit_days=payload.vendor_credit_days,
             address=payload.address.model_dump() if payload.address else None,
         )
     except LookupError as e:
