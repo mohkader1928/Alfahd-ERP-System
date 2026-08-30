@@ -16,6 +16,7 @@ import { NotFoundState } from "@/components/erp/states/not-found";
 import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { identityApi } from "@/features/identity/api/client";
 import { paymentsApi } from "@/features/payments/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import type { PaymentAllocation } from "@/features/payments/api/types";
@@ -70,6 +71,10 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
     queryKey: ["payment", companyId, id],
     queryFn: () => paymentsApi.getPayment(companyId, id),
   });
+  const salesRepsQuery = useQuery({
+    queryKey: ["sales-representatives", companyId, "all"],
+    queryFn: () => identityApi.listSalesRepresentatives(companyId),
+  });
 
   if (isError && error instanceof ApiError && error.status === 404) {
     return <NotFoundState label={t("payments.not_found")} />;
@@ -107,6 +112,19 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
               <>
                 <dt className="text-muted-foreground">{t("payments.reference")}</dt>
                 <dd>{payment.reference}</dd>
+              </>
+            )}
+            {payment.payment_type === "customer" && (
+              <>
+                <dt className="text-muted-foreground">{t("payments.collection_rep")}</dt>
+                <dd>
+                  {payment.collection_rep_id
+                    ? (() => {
+                        const rep = salesRepsQuery.data?.find((r) => r.id === payment.collection_rep_id);
+                        return rep ? `${rep.code} — ${rep.name}` : payment.collection_rep_id;
+                      })()
+                    : t("payments.collection_rep_none")}
+                </dd>
               </>
             )}
           </dl>

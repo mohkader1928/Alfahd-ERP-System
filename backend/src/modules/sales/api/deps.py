@@ -12,6 +12,8 @@ from src.modules.accounting.infrastructure.repositories import (
     JournalRepository,
     TaxRepository,
 )
+from src.modules.commission.application.services import CommissionService
+from src.modules.commission.infrastructure.repositories import CommissionTransactionRepository
 from src.modules.identity.api.deps import require_permission  # noqa: F401 (re-exported for routes)
 from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
@@ -131,6 +133,9 @@ async def get_sales_invoice_service(
     )
     warehouse_repo = WarehouseRepository(db)
     location_repo = LocationRepository(db)
+    commission_service = CommissionService(
+        CommissionTransactionRepository(db), SalesRepresentativeRepository(db)
+    )
 
     return SalesInvoiceService(
         invoice_repo=invoice_repo,
@@ -151,4 +156,5 @@ async def get_sales_invoice_service(
         seller_name_ar=company.legal_name_ar,
         seller_logo_path=company.logo_path,
         company_repo=company_repo,
+        commission_service=commission_service,
     )

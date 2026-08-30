@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository, TaxRepository
+from src.modules.commission.application.services import CommissionService
 from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
     PartnerRepository,
@@ -440,7 +441,9 @@ class SalesInvoiceService:
         seller_name_ar: str | None = None,
         seller_logo_path: str | None = None,
         company_repo: CompanyRepository | None = None,
+        commission_service: CommissionService | None = None,
     ):
+        self.commission_service = commission_service
         self.company_repo = company_repo
         self.invoice_repo = invoice_repo
         self.order_repo = order_repo
@@ -698,8 +701,39 @@ class SalesInvoiceService:
 
         await self._post_journal_entry(invoice, branch_id=branch_id, created_by=created_by)
         await self._deduct_stock_for_lines(invoice, invoice_lines, created_by=created_by)
+        await self._record_sales_commission(invoice, is_credit_note=False, original_invoice_id=None)
 
         return invoice, submission
+
+    async def _record_sales_commission(
+        self, invoice: SalesInvoice, *, is_credit_note: bool, original_invoice_id: UUID | None
+    ) -> None:
+        """Commercial Performance Stage 3: writes a CommissionTransaction
+        row for this invoice/credit note's sales_rep_id, if one is
+        attributed. No-op when commission infrastructure isn't wired
+        (self.commission_service is None) or when sales_rep_id is unset —
+        an unattributed (legacy/no-rep) document simply never gets a
+        commission row, matching the "never guess a representative"
+        rule already established for sales_rep_id itself."""
+        if self.commission_service is None or invoice.sales_rep_id is None:
+            return
+        if not is_credit_note:
+            await self.commission_service.record_sales_commission(
+                company_id=invoice.company_id,
+                representative_id=invoice.sales_rep_id,
+                source_id=invoice.id,
+                base_amount=invoice.subtotal_amount,
+                transaction_date=invoice.invoice_date,
+            )
+        else:
+            await self.commission_service.reverse_sales_commission(
+                company_id=invoice.company_id,
+                representative_id=invoice.sales_rep_id,
+                source_id=invoice.id,
+                base_amount=invoice.subtotal_amount,
+                transaction_date=invoice.invoice_date,
+                original_invoice_id=original_invoice_id,
+            )
 
     async def _deduct_stock_for_lines(self, invoice: SalesInvoice, lines, *, created_by: UUID) -> None:
         """FR-SAL-003 (deduct stock) wired directly at invoice time — M2
@@ -860,6 +894,7 @@ class SalesInvoiceService:
         credit_note.status = submission.status if submission_mode == "clearance" else "pending_submission"
 
         await self._post_journal_entry(credit_note, branch_id=branch_id, created_by=created_by, is_credit_note=True)
+        await self._record_sales_commission(credit_note, is_credit_note=True, original_invoice_id=original.id)
 
         if restock:
             await self._restock_for_credit_note(
@@ -1002,6 +1037,11 @@ class SalesInvoiceService:
         credit_note.status = submission.status if submission_mode == "clearance" else "pending_submission"
 
         await self._post_journal_entry(credit_note, branch_id=branch_id, created_by=created_by, is_credit_note=True)
+        await self._record_sales_commission(
+            credit_note,
+            is_credit_note=True,
+            original_invoice_id=original.id if original is not None else None,
+        )
 
         if restock:
             await self._restock_for_credit_note_lines(

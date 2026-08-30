@@ -141,6 +141,8 @@ PERMISSION_CATALOG = [
     ("reporting.export", "action"),
     ("reporting.sales.view", "screen"),
     ("reporting.purchasing.view", "screen"),
+    # Commercial Performance Stage 3 — commission / by-representative reports
+    ("reporting.commercial.view", "screen"),
     # Phase 17D — Payments
     ("payment.view", "screen"),
     ("payment.create", "action"),

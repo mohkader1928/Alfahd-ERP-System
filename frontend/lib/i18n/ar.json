@@ -235,6 +235,8 @@
   "payments.select_partner": "اختر الطرف",
   "payments.select_partner_first": "اختر الطرف أولاً",
   "payments.select_account": "اختر حساب النقدية / البنك",
+  "payments.collection_rep": "مندوب التحصيل",
+  "payments.collection_rep_none": "بدون مندوب",
   "payments.select_document": "الفاتورة",
   "payments.outstanding_balance": "الرصيد المستحق",
   "payments.status.unpaid": "غير مدفوعة",

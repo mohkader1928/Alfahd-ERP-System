@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -55,6 +56,22 @@ class PaymentRepository:
         count = result.scalar_one()
         prefix = "RCT" if payment_type == "customer" else "PAY"
         return f"{prefix}-{count + 1:06d}"
+
+    async def sum_customer_amount_in_range(
+        self, company_id: UUID, date_from: date, date_to: date
+    ) -> Decimal:
+        """Commercial Performance Stage 3 — customer receipts only, for the
+        Dashboard's Monthly Collections Trend, mirroring
+        SalesInvoiceRepository.sum_total_in_range's shape exactly."""
+        result = await self.session.execute(
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                Payment.company_id == company_id,
+                Payment.payment_type == "customer",
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+        )
+        return Decimal(str(result.scalar_one()))
 
     async def sum_allocated_for_sales_invoice(self, sales_invoice_id: UUID) -> Decimal:
         result = await self.session.execute(

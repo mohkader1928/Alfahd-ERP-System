@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.modules.identity.api.deps import get_company_repo
 from src.modules.identity.infrastructure.repositories import AuditLogRepository, CompanyRepository
 from src.modules.reporting.api.deps import (
+    get_commercial_performance_reporting_service,
     get_dashboard_service,
     get_inventory_valuation_service,
     get_purchase_reporting_service,
@@ -24,6 +25,9 @@ from src.modules.reporting.api.schemas import (
     InventoryReconciliationOut,
     InventoryValuationRowOut,
     PurchaseByVendorRow,
+    RepresentativeCustomerRow,
+    RepresentativePerformanceDetailOut,
+    RepresentativePerformanceRow,
     SalesByCustomerRow,
     SalesByPeriodRow,
     SalesByProductRow,
@@ -33,6 +37,7 @@ from src.modules.reporting.api.schemas import (
     VatSummaryOut,
 )
 from src.modules.reporting.application.services import (
+    CommercialPerformanceReportingService,
     DashboardService,
     InventoryValuationReportService,
     PurchaseReportingService,
@@ -272,6 +277,66 @@ async def sales_by_period(
         rtl=lang == "ar",
     )
     return build_export_response(format, "sales-by-period", table)
+
+
+# ── Commercial Performance Reports (Stage 3) ──────────────────────────────────────
+# JSON-only for this stage — PDF/Excel export wiring (ReportTable, matching every
+# report above) is deferred to when the corresponding frontend report pages are
+# built, to avoid building export plumbing for a response shape the UI doesn't
+# consume yet.
+
+@router.get("/commercial/by-representative", response_model=list[RepresentativePerformanceRow])
+async def commercial_by_representative(
+    date_from: date,
+    date_to: date,
+    representative_id: UUID | None = None,
+    ctx: AuthContext = Depends(require_permission("reporting.commercial.view")),
+    service: CommercialPerformanceReportingService = Depends(get_commercial_performance_reporting_service),
+):
+    """Stage 3 Part D / dashboard rep table: one row per sales/collection
+    representative (+ an explicit "Unattributed / Legacy" row when legacy
+    data exists), never silently dropping or reassigning unattributed
+    transactions."""
+    return await service.by_representative(
+        company_id=ctx.company_id, date_from=date_from, date_to=date_to, representative_id=representative_id
+    )
+
+
+@router.get(
+    "/commercial/representatives/{representative_id}/customers",
+    response_model=list[RepresentativeCustomerRow],
+)
+async def commercial_representative_customers(
+    representative_id: UUID,
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("reporting.commercial.view")),
+    service: CommercialPerformanceReportingService = Depends(get_commercial_performance_reporting_service),
+):
+    """Stage 3 Part D drill-down level 2: customers attributed to one
+    representative's own sales."""
+    return await service.representative_customers(
+        company_id=ctx.company_id, representative_id=representative_id, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get(
+    "/commercial/representatives/{representative_id}/performance",
+    response_model=RepresentativePerformanceDetailOut,
+)
+async def commercial_representative_performance(
+    representative_id: UUID,
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("reporting.commercial.view")),
+    service: CommercialPerformanceReportingService = Depends(get_commercial_performance_reporting_service),
+):
+    """Stage 3 Part C: one representative's Executive Summary + Sales /
+    Returns / Collections Analysis sections, each carrying the historical
+    commission_rate/commission_amount actually recorded at the time."""
+    return await service.representative_performance(
+        company_id=ctx.company_id, representative_id=representative_id, date_from=date_from, date_to=date_to
+    )
 
 
 # ── Purchasing Reports ───────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ class PaymentCreateRequest(BaseModel):
     amount: Decimal
     account_id: UUID
     reference: str | None = None
+    collection_rep_id: UUID | None = None
     allocations: list[PaymentAllocationIn] = []
 
 
@@ -43,6 +44,7 @@ class PaymentOut(BaseModel):
     currency_code: str
     account_id: UUID
     reference: str | None
+    collection_rep_id: UUID | None = None
     journal_entry_id: UUID | None
 
     model_config = {"from_attributes": True}

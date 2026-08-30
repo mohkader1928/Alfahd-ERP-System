@@ -11,6 +11,7 @@ from src.modules.purchasing.infrastructure.repositories import (
     VendorBillRepository,
 )
 from src.modules.reporting.application.services import (
+    CommercialPerformanceReportingService,
     DashboardService,
     InventoryValuationReportService,
     PurchaseReportingService,
@@ -22,6 +23,12 @@ from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
 from src.shared.infrastructure.db.session import get_db
 
 
+def get_commercial_performance_reporting_service(
+    db: AsyncSession = Depends(get_db),
+) -> CommercialPerformanceReportingService:
+    return CommercialPerformanceReportingService(db)
+
+
 def get_dashboard_service(db: AsyncSession = Depends(get_db)) -> DashboardService:
     return DashboardService(
         SalesInvoiceRepository(db),
@@ -29,6 +36,7 @@ def get_dashboard_service(db: AsyncSession = Depends(get_db)) -> DashboardServic
         JournalEntryRepository(db),
         order_repo=PurchaseOrderRepository(db),
         payment_repo=PaymentRepository(db),
+        commercial_service=CommercialPerformanceReportingService(db),
     )
 
 

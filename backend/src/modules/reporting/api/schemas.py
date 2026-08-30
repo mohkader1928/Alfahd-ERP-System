@@ -18,6 +18,23 @@ class RecentActivityItemOut(BaseModel):
     amount: Decimal
 
 
+class RepresentativePerformanceRow(BaseModel):
+    representative_id: UUID | None
+    representative_name: str
+    is_unattributed: bool
+    gross_sales: Decimal
+    returns: Decimal
+    net_sales: Decimal
+    invoice_count: int
+    customer_count: int
+    average_invoice_value: Decimal
+    collections: Decimal
+    outstanding_balance: Decimal
+    sales_commission: Decimal
+    collection_commission: Decimal
+    net_commission: Decimal
+
+
 class DashboardSummaryOut(BaseModel):
     period_start: date
     period_end: date
@@ -29,6 +46,17 @@ class DashboardSummaryOut(BaseModel):
     sales_trend: list[SalesTrendPointOut]
     pending_approvals_count: int
     recent_activity: list[RecentActivityItemOut]
+    # Commercial Performance Stage 3
+    commercial_total_sales: Decimal
+    commercial_total_returns: Decimal
+    commercial_net_sales: Decimal
+    commercial_total_collections: Decimal
+    commercial_sales_commission: Decimal
+    commercial_collection_commission: Decimal
+    commercial_net_commission: Decimal
+    commercial_unattributed_sales: Decimal
+    representative_performance: list[RepresentativePerformanceRow]
+    collections_trend: list[SalesTrendPointOut]
 
 
 # ── Sales Reports ──────────────────────────────────────────────────────────────
@@ -128,6 +156,56 @@ class InventoryValuationRowOut(BaseModel):
     qty_on_hand: Decimal
     unit_cost: Decimal
     total_value: Decimal
+
+
+# ── Commercial Performance Reports (Stage 3) ─────────────────────────────────
+
+class RepresentativeCustomerRow(BaseModel):
+    partner_id: UUID
+    partner_name: str
+    invoice_count: int
+    gross_sales: Decimal
+    returns: Decimal
+    net_sales: Decimal
+    average_invoice_value: Decimal
+
+
+class RepresentativeSalesLineRow(BaseModel):
+    invoice_id: UUID
+    invoice_number: str
+    invoice_date: date
+    customer_name: str
+    sales_amount: Decimal
+    commission_rate: Decimal | None
+    commission_amount: Decimal
+
+
+class RepresentativeReturnsLineRow(BaseModel):
+    credit_note_id: UUID
+    credit_note_number: str
+    credit_note_date: date
+    customer_name: str
+    original_invoice_number: str | None
+    return_amount: Decimal
+    commission_rate: Decimal | None
+    commission_amount: Decimal
+
+
+class RepresentativeCollectionsLineRow(BaseModel):
+    payment_id: UUID
+    payment_number: str
+    payment_date: date
+    customer_name: str
+    collection_amount: Decimal
+    commission_rate: Decimal | None
+    commission_amount: Decimal
+
+
+class RepresentativePerformanceDetailOut(BaseModel):
+    summary: RepresentativePerformanceRow | None
+    sales_lines: list[RepresentativeSalesLineRow]
+    returns_lines: list[RepresentativeReturnsLineRow]
+    collections_lines: list[RepresentativeCollectionsLineRow]
 
 
 class InventoryReconciliationOut(BaseModel):

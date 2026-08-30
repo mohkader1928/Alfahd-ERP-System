@@ -10,8 +10,13 @@ from src.modules.accounting.infrastructure.repositories import (
     JournalEntryRepository,
     JournalRepository,
 )
+from src.modules.commission.application.services import CommissionService
+from src.modules.commission.infrastructure.repositories import CommissionTransactionRepository
 from src.modules.identity.api.deps import require_permission  # noqa: F401 (re-exported for routes)
-from src.modules.identity.infrastructure.repositories import PartnerRepository
+from src.modules.identity.infrastructure.repositories import (
+    PartnerRepository,
+    SalesRepresentativeRepository,
+)
 from src.modules.payments.application.services import PaymentService, SubledgerService
 from src.modules.payments.infrastructure.repositories import PaymentRepository
 from src.modules.purchasing.infrastructure.repositories import VendorBillRepository
@@ -48,10 +53,15 @@ async def get_payment_service(
         AccountRepository(db),
         FiscalPeriodRepository(db),
     )
+    commission_service = CommissionService(
+        CommissionTransactionRepository(db), SalesRepresentativeRepository(db)
+    )
     return PaymentService(
         payment_repo=payment_repo,
         sales_invoice_repo=SalesInvoiceRepository(db),
         vendor_bill_repo=VendorBillRepository(db),
         account_repo=AccountRepository(db),
         journal_entry_service=journal_entry_service,
+        sales_rep_repo=SalesRepresentativeRepository(db),
+        commission_service=commission_service,
     )

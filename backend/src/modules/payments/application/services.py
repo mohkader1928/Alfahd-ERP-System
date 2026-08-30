@@ -18,7 +18,11 @@ from sqlalchemy.exc import IntegrityError
 
 from src.modules.accounting.application.services import JournalEntryService
 from src.modules.accounting.infrastructure.repositories import AccountRepository
-from src.modules.identity.infrastructure.repositories import PartnerRepository
+from src.modules.commission.application.services import CommissionService
+from src.modules.identity.infrastructure.repositories import (
+    PartnerRepository,
+    SalesRepresentativeRepository,
+)
 from src.modules.payments.domain.entities import InvalidAllocationTargetError, OverAllocationError
 from src.modules.payments.infrastructure.models import Payment, PaymentAllocation
 from src.modules.payments.infrastructure.repositories import PaymentRepository
@@ -37,12 +41,27 @@ class PaymentService:
         vendor_bill_repo: VendorBillRepository,
         account_repo: AccountRepository,
         journal_entry_service: JournalEntryService,
+        sales_rep_repo: SalesRepresentativeRepository | None = None,
+        commission_service: CommissionService | None = None,
     ):
         self.payment_repo = payment_repo
         self.sales_invoice_repo = sales_invoice_repo
         self.vendor_bill_repo = vendor_bill_repo
         self.account_repo = account_repo
         self.journal_entry_service = journal_entry_service
+        self.sales_rep_repo = sales_rep_repo
+        self.commission_service = commission_service
+
+    async def _validate_sales_rep(self, *, company_id: UUID, sales_rep_id: UUID | None) -> None:
+        """Commercial Performance Stage 2D — same-company guard, mirroring
+        PartnerService/QuotationService._validate_sales_rep exactly."""
+        if sales_rep_id is None:
+            return
+        if self.sales_rep_repo is None:
+            raise ValueError("Sales representative assignment is not available")
+        sales_rep = await self.sales_rep_repo.get_by_id(company_id, sales_rep_id)
+        if sales_rep is None:
+            raise ValueError("Sales representative not found")
 
     async def record_payment(
         self,
@@ -57,10 +76,12 @@ class PaymentService:
         reference: str | None,
         allocations: list[dict],
         created_by: UUID,
+        collection_rep_id: UUID | None = None,
     ) -> Payment:
         account = await self.account_repo.get_by_id(account_id)
         if account is None or account.company_id != company_id:
             raise ValueError("Cash/bank account not found")
+        await self._validate_sales_rep(company_id=company_id, sales_rep_id=collection_rep_id)
 
         allocated_total = Decimal("0")
         prepared_allocations: list[PaymentAllocation] = []
@@ -140,13 +161,35 @@ class PaymentService:
             account_id=account_id,
             reference=reference,
             created_by=created_by,
+            collection_rep_id=collection_rep_id,
         )
         try:
             await self.payment_repo.add(payment, prepared_allocations)
         except IntegrityError as e:
             raise ValueError("A payment was created concurrently with the same number — please retry") from e
         await self._post_journal_entry(payment, branch_id=branch_id, created_by=created_by)
+        await self._record_collection_commission(payment)
         return payment
+
+    async def _record_collection_commission(self, payment: Payment) -> None:
+        """Commercial Performance Stage 3: collection commission, customer
+        receipts only. No-op when commission infrastructure isn't wired,
+        when this is a vendor payment, or when no collection_rep_id is
+        attributed — mirrors SalesInvoiceService._record_sales_commission's
+        same no-op rules."""
+        if (
+            self.commission_service is None
+            or payment.payment_type != "customer"
+            or payment.collection_rep_id is None
+        ):
+            return
+        await self.commission_service.record_collection_commission(
+            company_id=payment.company_id,
+            representative_id=payment.collection_rep_id,
+            source_id=payment.id,
+            base_amount=payment.amount,
+            transaction_date=payment.payment_date,
+        )
 
     async def get_sales_invoice_balance(self, company_id: UUID, invoice_id: UUID) -> dict | None:
         """Payment status is computed on demand from `payment_allocation`,

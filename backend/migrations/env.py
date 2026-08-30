@@ -13,6 +13,7 @@ from src.shared.infrastructure.db.base import Base
 # Import every module's ORM models so Base.metadata is fully populated for
 # autogenerate. One line per module, per Phase 9's module-registration idea.
 import src.modules.accounting.infrastructure.models  # noqa: F401,E402
+import src.modules.commission.infrastructure.models  # noqa: F401,E402
 import src.modules.identity.infrastructure.master_data_models  # noqa: F401,E402
 import src.modules.identity.infrastructure.models  # noqa: F401,E402
 import src.modules.inventory.infrastructure.models  # noqa: F401,E402

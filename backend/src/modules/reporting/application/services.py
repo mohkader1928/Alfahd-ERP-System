@@ -10,11 +10,17 @@ from uuid import UUID
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.modules.accounting.infrastructure.repositories import JournalEntryRepository
-from src.modules.identity.infrastructure.master_data_models import Partner, Product
+from src.modules.commission.infrastructure.models import CommissionTransaction
+from src.modules.identity.infrastructure.master_data_models import (
+    Partner,
+    Product,
+    SalesRepresentative,
+)
 from src.modules.inventory.infrastructure.models import Location, StockLayer, StockQuant, Warehouse
-from src.modules.payments.infrastructure.models import Payment
+from src.modules.payments.infrastructure.models import Payment, PaymentAllocation
 from src.modules.payments.infrastructure.repositories import PaymentRepository
 from src.modules.purchasing.infrastructure.models import PurchaseOrder, VendorBill
 from src.modules.purchasing.infrastructure.repositories import (
@@ -61,6 +67,19 @@ class DashboardSummary:
     sales_trend: list[SalesTrendPoint]
     pending_approvals_count: int
     recent_activity: list[RecentActivityItem]
+    # Commercial Performance Stage 3 — "COMMERCIAL PERFORMANCE" dashboard
+    # section. All zero/empty when commercial_service isn't wired (keeps
+    # every pre-Stage-3 DashboardService caller/test working unchanged).
+    commercial_total_sales: Decimal
+    commercial_total_returns: Decimal
+    commercial_net_sales: Decimal
+    commercial_total_collections: Decimal
+    commercial_sales_commission: Decimal
+    commercial_collection_commission: Decimal
+    commercial_net_commission: Decimal
+    commercial_unattributed_sales: Decimal
+    representative_performance: list[dict]
+    collections_trend: list[SalesTrendPoint]
 
 
 def _month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -101,12 +120,14 @@ class DashboardService:
         journal_entry_repo: JournalEntryRepository,
         order_repo: PurchaseOrderRepository | None = None,
         payment_repo: PaymentRepository | None = None,
+        commercial_service: "CommercialPerformanceReportingService | None" = None,
     ):
         self.invoice_repo = invoice_repo
         self.bill_repo = bill_repo
         self.journal_entry_repo = journal_entry_repo
         self.order_repo = order_repo
         self.payment_repo = payment_repo
+        self.commercial_service = commercial_service
 
     async def get_summary(self, *, company_id: UUID, period_start: date, period_end: date) -> DashboardSummary:
         sales_total = await self.invoice_repo.sum_total_in_range(company_id, period_start, period_end)
@@ -138,6 +159,8 @@ class DashboardService:
             sales_trend=await self._sales_trend(company_id, period_start, period_end),
             pending_approvals_count=await self._pending_approvals_count(company_id),
             recent_activity=await self._recent_activity(company_id),
+            **await self._commercial_summary(company_id, period_start, period_end),
+            collections_trend=await self._collections_trend(company_id, period_start, period_end),
         )
 
     async def _sales_trend(self, company_id: UUID, period_start: date, period_end: date) -> list[SalesTrendPoint]:
@@ -147,6 +170,49 @@ class DashboardService:
             total = await self.invoice_repo.sum_total_in_range(company_id, start, end)
             points.append(SalesTrendPoint(period_label=f"{year:04d}-{month:02d}", total=total))
         return points
+
+    async def _collections_trend(self, company_id: UUID, period_start: date, period_end: date) -> list[SalesTrendPoint]:
+        if self.payment_repo is None:
+            return []
+        points = []
+        for year, month in _months_in_range(period_start, period_end):
+            start, end = _month_bounds(year, month)
+            total = await self.payment_repo.sum_customer_amount_in_range(company_id, start, end)
+            points.append(SalesTrendPoint(period_label=f"{year:04d}-{month:02d}", total=total))
+        return points
+
+    async def _commercial_summary(self, company_id: UUID, period_start: date, period_end: date) -> dict:
+        """Commercial Performance Stage 3 KPI cards, computed by summing
+        the same `by_representative` rollup the Dashboard's own
+        Representative Performance table uses — one query set, two
+        consumers, never two different figures for the same period."""
+        if self.commercial_service is None:
+            return {
+                "commercial_total_sales": Decimal("0"),
+                "commercial_total_returns": Decimal("0"),
+                "commercial_net_sales": Decimal("0"),
+                "commercial_total_collections": Decimal("0"),
+                "commercial_sales_commission": Decimal("0"),
+                "commercial_collection_commission": Decimal("0"),
+                "commercial_net_commission": Decimal("0"),
+                "commercial_unattributed_sales": Decimal("0"),
+                "representative_performance": [],
+            }
+        rows = await self.commercial_service.by_representative(
+            company_id=company_id, date_from=period_start, date_to=period_end
+        )
+        unattributed = next((r["gross_sales"] for r in rows if r["is_unattributed"]), Decimal("0"))
+        return {
+            "commercial_total_sales": sum((r["gross_sales"] for r in rows), Decimal("0")),
+            "commercial_total_returns": sum((r["returns"] for r in rows), Decimal("0")),
+            "commercial_net_sales": sum((r["net_sales"] for r in rows), Decimal("0")),
+            "commercial_total_collections": sum((r["collections"] for r in rows), Decimal("0")),
+            "commercial_sales_commission": sum((r["sales_commission"] for r in rows), Decimal("0")),
+            "commercial_collection_commission": sum((r["collection_commission"] for r in rows), Decimal("0")),
+            "commercial_net_commission": sum((r["net_commission"] for r in rows), Decimal("0")),
+            "commercial_unattributed_sales": unattributed,
+            "representative_performance": rows,
+        }
 
     async def _pending_approvals_count(self, company_id: UUID) -> int:
         if self.order_repo is None:
@@ -433,6 +499,429 @@ class SalesReportingService:
             }
             for row in result.all()
         ]
+
+
+class CommercialPerformanceReportingService:
+    """Commercial Performance Stage 3 — sales-rep / collection-rep
+    performance and commission reporting (Dashboard section, "By
+    Representative" report, and the Representative Performance drill-down).
+
+    Follows `SalesReportingService`'s exact "group, then batch-fetch
+    related aggregates" pattern: one grouped query per metric, merged in
+    Python by representative_id — never N+1 per row. A `None` group key
+    means "no sales_rep_id / collection_rep_id attributed" (legacy data
+    predating Stage 2B/2D, or a genuinely unattributed transaction) and is
+    surfaced explicitly as "Unattributed / Legacy", never silently dropped
+    or merged into any real representative's figures (Stage 3 Part J)."""
+
+    UNATTRIBUTED_LABEL = "Unattributed / Legacy"
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def by_representative(
+        self,
+        *,
+        company_id: UUID,
+        date_from: date,
+        date_to: date,
+        representative_id: UUID | None = None,
+    ) -> list[dict]:
+        gross = await self._gross_sales_by_rep(company_id, date_from, date_to)
+        returns = await self._returns_by_rep(company_id, date_from, date_to)
+        collections = await self._collections_by_rep(company_id, date_from, date_to)
+        sales_comm = await self._commission_by_rep(company_id, date_from, date_to, "sales")
+        collection_comm = await self._commission_by_rep(company_id, date_from, date_to, "collection")
+        outstanding = await self._outstanding_balance_by_rep(company_id, as_of_date=date_to)
+
+        rep_result = await self.session.execute(
+            select(SalesRepresentative.id, SalesRepresentative.name, SalesRepresentative.is_active).where(
+                SalesRepresentative.company_id == company_id
+            )
+        )
+        rep_info = {row.id: (row.name, row.is_active) for row in rep_result.all()}
+
+        # Every rep still currently active is shown even with zero activity
+        # (management visibility into idle reps); any rep — active or
+        # archived — with real activity in the period is shown by name; the
+        # `None` key (no rep attributed) is surfaced only when there is
+        # genuinely unattributed activity, never fabricated.
+        activity_ids = (
+            set(gross) | set(returns) | set(collections) | set(sales_comm) | set(collection_comm) | set(outstanding)
+        )
+        active_rep_ids = {rid for rid, (_, active) in rep_info.items() if active}
+        ids = activity_ids | active_rep_ids
+        if representative_id is not None:
+            ids = {representative_id} if representative_id in ids or representative_id in rep_info else set()
+
+        rows = []
+        for rid in ids:
+            g = gross.get(rid, {"invoice_count": 0, "gross": Decimal("0"), "customer_count": 0})
+            gross_sales = g["gross"]
+            returns_amt = returns.get(rid, Decimal("0"))
+            invoice_count = g["invoice_count"]
+            avg_invoice = (gross_sales / invoice_count) if invoice_count else Decimal("0")
+            sales_commission = sales_comm.get(rid, Decimal("0"))
+            collection_commission = collection_comm.get(rid, Decimal("0"))
+            rows.append(
+                {
+                    "representative_id": rid,
+                    "representative_name": rep_info[rid][0] if rid in rep_info else self.UNATTRIBUTED_LABEL,
+                    "is_unattributed": rid is None,
+                    "gross_sales": gross_sales,
+                    "returns": returns_amt,
+                    "net_sales": gross_sales - returns_amt,
+                    "invoice_count": invoice_count,
+                    "customer_count": g["customer_count"],
+                    "average_invoice_value": avg_invoice,
+                    "collections": collections.get(rid, Decimal("0")),
+                    "outstanding_balance": outstanding.get(rid, Decimal("0")),
+                    "sales_commission": sales_commission,
+                    "collection_commission": collection_commission,
+                    "net_commission": sales_commission + collection_commission,
+                }
+            )
+        rows.sort(key=lambda r: r["net_sales"], reverse=True)
+        return rows
+
+    async def representative_customers(
+        self, *, company_id: UUID, representative_id: UUID, date_from: date, date_to: date
+    ) -> list[dict]:
+        """Drill-down level 2 (Representative -> Customer): per-customer
+        rollup restricted to this representative's own sales attribution."""
+        stmt = (
+            select(
+                Partner.id.label("partner_id"),
+                Partner.name.label("partner_name"),
+                func.count(SalesInvoice.id).label("invoice_count"),
+                func.coalesce(func.sum(SalesInvoice.subtotal_amount), 0).label("gross"),
+            )
+            .join(Partner, Partner.id == SalesInvoice.partner_id)
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.sales_rep_id == representative_id,
+                SalesInvoice.status.in_(_FINALIZED_STATUSES),
+                SalesInvoice.invoice_type.in_(_FORWARD_INVOICE_TYPES),
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(Partner.id, Partner.name)
+            .order_by(func.sum(SalesInvoice.subtotal_amount).desc())
+        )
+        result = await self.session.execute(stmt)
+        rows = [
+            {
+                "partner_id": row.partner_id,
+                "partner_name": row.partner_name,
+                "invoice_count": row.invoice_count,
+                "gross_sales": Decimal(str(row.gross)),
+            }
+            for row in result.all()
+        ]
+        if not rows:
+            return rows
+
+        partner_ids = [r["partner_id"] for r in rows]
+        returns_stmt = (
+            select(
+                SalesInvoice.partner_id, func.coalesce(func.sum(SalesInvoice.subtotal_amount), 0).label("returns")
+            )
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.sales_rep_id == representative_id,
+                SalesInvoice.invoice_type == "credit_note",
+                SalesInvoice.partner_id.in_(partner_ids),
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(SalesInvoice.partner_id)
+        )
+        returns_result = await self.session.execute(returns_stmt)
+        returns_by_partner = {row.partner_id: Decimal(str(row.returns)) for row in returns_result.all()}
+        for r in rows:
+            returns_amt = returns_by_partner.get(r["partner_id"], Decimal("0"))
+            r["returns"] = returns_amt
+            r["net_sales"] = r["gross_sales"] - returns_amt
+            r["average_invoice_value"] = (
+                (r["gross_sales"] / r["invoice_count"]) if r["invoice_count"] else Decimal("0")
+            )
+        return rows
+
+    async def representative_performance(
+        self, *, company_id: UUID, representative_id: UUID, date_from: date, date_to: date
+    ) -> dict:
+        """Drill-down detail report (Stage 3 Part C): the rep's own summary
+        row plus the three line-item sections, each carrying the historical
+        commission_rate/commission_amount actually recorded at the time
+        (never recomputed from today's rate)."""
+        summary_rows = await self.by_representative(
+            company_id=company_id, date_from=date_from, date_to=date_to, representative_id=representative_id
+        )
+        summary = summary_rows[0] if summary_rows else None
+
+        original_invoice = aliased(SalesInvoice)
+        sales_commission_txn = aliased(CommissionTransaction)
+        returns_commission_txn = aliased(CommissionTransaction)
+        collections_commission_txn = aliased(CommissionTransaction)
+
+        sales_stmt = (
+            select(
+                SalesInvoice.id,
+                SalesInvoice.number,
+                SalesInvoice.invoice_date,
+                Partner.name.label("partner_name"),
+                SalesInvoice.subtotal_amount,
+                sales_commission_txn.commission_rate,
+                sales_commission_txn.commission_amount,
+            )
+            .join(Partner, Partner.id == SalesInvoice.partner_id)
+            .outerjoin(
+                sales_commission_txn,
+                (sales_commission_txn.source_table == "sales_invoice")
+                & (sales_commission_txn.source_id == SalesInvoice.id)
+                & (sales_commission_txn.commission_type == "sales"),
+            )
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.sales_rep_id == representative_id,
+                SalesInvoice.status.in_(_FINALIZED_STATUSES),
+                SalesInvoice.invoice_type.in_(_FORWARD_INVOICE_TYPES),
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .order_by(SalesInvoice.invoice_date)
+        )
+        sales_result = await self.session.execute(sales_stmt)
+        sales_lines = [
+            {
+                "invoice_id": row.id,
+                "invoice_number": row.number,
+                "invoice_date": row.invoice_date,
+                "customer_name": row.partner_name,
+                "sales_amount": Decimal(str(row.subtotal_amount)),
+                "commission_rate": Decimal(str(row.commission_rate)) if row.commission_rate is not None else None,
+                "commission_amount": (
+                    Decimal(str(row.commission_amount)) if row.commission_amount is not None else Decimal("0")
+                ),
+            }
+            for row in sales_result.all()
+        ]
+
+        returns_stmt = (
+            select(
+                SalesInvoice.id,
+                SalesInvoice.number,
+                SalesInvoice.invoice_date,
+                Partner.name.label("partner_name"),
+                original_invoice.number.label("original_invoice_number"),
+                SalesInvoice.subtotal_amount,
+                returns_commission_txn.commission_rate,
+                returns_commission_txn.commission_amount,
+            )
+            .join(Partner, Partner.id == SalesInvoice.partner_id)
+            .outerjoin(original_invoice, original_invoice.id == SalesInvoice.original_invoice_id)
+            .outerjoin(
+                returns_commission_txn,
+                (returns_commission_txn.source_table == "sales_invoice")
+                & (returns_commission_txn.source_id == SalesInvoice.id)
+                & (returns_commission_txn.commission_type == "sales"),
+            )
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.sales_rep_id == representative_id,
+                SalesInvoice.invoice_type == "credit_note",
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .order_by(SalesInvoice.invoice_date)
+        )
+        returns_result = await self.session.execute(returns_stmt)
+        returns_lines = [
+            {
+                "credit_note_id": row.id,
+                "credit_note_number": row.number,
+                "credit_note_date": row.invoice_date,
+                "customer_name": row.partner_name,
+                "original_invoice_number": row.original_invoice_number,
+                "return_amount": Decimal(str(row.subtotal_amount)),
+                "commission_rate": Decimal(str(row.commission_rate)) if row.commission_rate is not None else None,
+                "commission_amount": (
+                    Decimal(str(row.commission_amount)) if row.commission_amount is not None else Decimal("0")
+                ),
+            }
+            for row in returns_result.all()
+        ]
+
+        collections_stmt = (
+            select(
+                Payment.id,
+                Payment.number,
+                Payment.payment_date,
+                Partner.name.label("partner_name"),
+                Payment.amount,
+                collections_commission_txn.commission_rate,
+                collections_commission_txn.commission_amount,
+            )
+            .join(Partner, Partner.id == Payment.partner_id)
+            .outerjoin(
+                collections_commission_txn,
+                (collections_commission_txn.source_table == "payment")
+                & (collections_commission_txn.source_id == Payment.id)
+                & (collections_commission_txn.commission_type == "collection"),
+            )
+            .where(
+                Payment.company_id == company_id,
+                Payment.collection_rep_id == representative_id,
+                Payment.payment_type == "customer",
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+            .order_by(Payment.payment_date)
+        )
+        collections_result = await self.session.execute(collections_stmt)
+        collections_lines = [
+            {
+                "payment_id": row.id,
+                "payment_number": row.number,
+                "payment_date": row.payment_date,
+                "customer_name": row.partner_name,
+                "collection_amount": Decimal(str(row.amount)),
+                "commission_rate": Decimal(str(row.commission_rate)) if row.commission_rate is not None else None,
+                "commission_amount": (
+                    Decimal(str(row.commission_amount)) if row.commission_amount is not None else Decimal("0")
+                ),
+            }
+            for row in collections_result.all()
+        ]
+
+        return {
+            "summary": summary,
+            "sales_lines": sales_lines,
+            "returns_lines": returns_lines,
+            "collections_lines": collections_lines,
+        }
+
+    async def _gross_sales_by_rep(self, company_id: UUID, date_from: date, date_to: date) -> dict:
+        stmt = (
+            select(
+                SalesInvoice.sales_rep_id,
+                func.count(SalesInvoice.id).label("invoice_count"),
+                func.coalesce(func.sum(SalesInvoice.subtotal_amount), 0).label("gross"),
+                func.count(func.distinct(SalesInvoice.partner_id)).label("customer_count"),
+            )
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.status.in_(_FINALIZED_STATUSES),
+                SalesInvoice.invoice_type.in_(_FORWARD_INVOICE_TYPES),
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(SalesInvoice.sales_rep_id)
+        )
+        result = await self.session.execute(stmt)
+        return {
+            row.sales_rep_id: {
+                "invoice_count": row.invoice_count,
+                "gross": Decimal(str(row.gross)),
+                "customer_count": row.customer_count,
+            }
+            for row in result.all()
+        }
+
+    async def _returns_by_rep(self, company_id: UUID, date_from: date, date_to: date) -> dict[UUID | None, Decimal]:
+        stmt = (
+            select(
+                SalesInvoice.sales_rep_id, func.coalesce(func.sum(SalesInvoice.subtotal_amount), 0).label("returns")
+            )
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.status.in_(_FINALIZED_STATUSES),
+                SalesInvoice.invoice_type == "credit_note",
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(SalesInvoice.sales_rep_id)
+        )
+        result = await self.session.execute(stmt)
+        return {row.sales_rep_id: Decimal(str(row.returns)) for row in result.all()}
+
+    async def _collections_by_rep(
+        self, company_id: UUID, date_from: date, date_to: date
+    ) -> dict[UUID | None, Decimal]:
+        stmt = (
+            select(Payment.collection_rep_id, func.coalesce(func.sum(Payment.amount), 0).label("total"))
+            .where(
+                Payment.company_id == company_id,
+                Payment.payment_type == "customer",
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+            .group_by(Payment.collection_rep_id)
+        )
+        result = await self.session.execute(stmt)
+        return {row.collection_rep_id: Decimal(str(row.total)) for row in result.all()}
+
+    async def _commission_by_rep(
+        self, company_id: UUID, date_from: date, date_to: date, commission_type: str
+    ) -> dict[UUID, Decimal]:
+        stmt = (
+            select(
+                CommissionTransaction.representative_id,
+                func.coalesce(func.sum(CommissionTransaction.commission_amount), 0).label("total"),
+            )
+            .where(
+                CommissionTransaction.company_id == company_id,
+                CommissionTransaction.commission_type == commission_type,
+                CommissionTransaction.transaction_date >= date_from,
+                CommissionTransaction.transaction_date <= date_to,
+            )
+            .group_by(CommissionTransaction.representative_id)
+        )
+        result = await self.session.execute(stmt)
+        return {row.representative_id: Decimal(str(row.total)) for row in result.all()}
+
+    async def _outstanding_balance_by_rep(self, company_id: UUID, *, as_of_date: date) -> dict[UUID | None, Decimal]:
+        """Point-in-time (not period-bound) balance attributable to each
+        rep's own sales attribution, as of as_of_date — mirrors
+        SalesReportingService._ar_balance_as_of's net-invoiced-minus-paid
+        approach, grouped by sales_rep_id instead of partner_id."""
+        invoiced_stmt = (
+            select(
+                SalesInvoice.sales_rep_id,
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (SalesInvoice.invoice_type == "credit_note", -SalesInvoice.total_amount),
+                            else_=SalesInvoice.total_amount,
+                        )
+                    ),
+                    0,
+                ).label("net_invoiced"),
+            )
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.journal_entry_id.isnot(None),
+                SalesInvoice.invoice_date <= as_of_date,
+            )
+            .group_by(SalesInvoice.sales_rep_id)
+        )
+        paid_stmt = (
+            select(
+                SalesInvoice.sales_rep_id,
+                func.coalesce(func.sum(PaymentAllocation.amount), 0).label("total"),
+            )
+            .select_from(PaymentAllocation)
+            .join(Payment, Payment.id == PaymentAllocation.payment_id)
+            .join(SalesInvoice, SalesInvoice.id == PaymentAllocation.sales_invoice_id)
+            .where(Payment.company_id == company_id, Payment.payment_date <= as_of_date)
+            .group_by(SalesInvoice.sales_rep_id)
+        )
+        invoiced_result = await self.session.execute(invoiced_stmt)
+        paid_result = await self.session.execute(paid_stmt)
+        net_invoiced = {row.sales_rep_id: Decimal(str(row.net_invoiced)) for row in invoiced_result.all()}
+        paid = {row.sales_rep_id: Decimal(str(row.total)) for row in paid_result.all()}
+        ids = set(net_invoiced) | set(paid)
+        return {rid: net_invoiced.get(rid, Decimal("0")) - paid.get(rid, Decimal("0")) for rid in ids}
 
 
 # The one state where a VendorBill has actually posted a Journal Entry

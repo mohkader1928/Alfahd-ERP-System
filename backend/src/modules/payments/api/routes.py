@@ -286,6 +286,7 @@ async def create_payment(
             reference=payload.reference,
             allocations=[a.model_dump() for a in payload.allocations],
             created_by=ctx.user_id,
+            collection_rep_id=payload.collection_rep_id,
         )
     except (OverAllocationError, InvalidAllocationTargetError, ValueError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e

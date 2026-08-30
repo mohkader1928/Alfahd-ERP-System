@@ -24,6 +24,7 @@ export interface Payment {
   currency_code: string;
   account_id: string;
   reference: string | null;
+  collection_rep_id: string | null;
   journal_entry_id: string | null;
 }
 
@@ -46,6 +47,7 @@ export interface PaymentCreateInput {
   amount: string;
   account_id: string;
   reference?: string;
+  collection_rep_id?: string | null;
   allocations: PaymentAllocationIn[];
 }
 

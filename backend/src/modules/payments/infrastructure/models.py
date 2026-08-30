@@ -35,6 +35,16 @@ class Payment(Base):
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("journal_entry.id"), nullable=True
     )
+    # Commercial Performance Stage 2D: who actually collected this payment
+    # — deliberately independent from any SalesInvoice.sales_rep_id it
+    # settles (the person who sold is not necessarily the person who
+    # collects). Never derived from the allocated invoice(s); a UI
+    # convenience default only, always independently editable/overridable.
+    # Applies to customer receipts; not used for vendor payments (no
+    # business requirement identified for that side).
+    collection_rep_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sales_representative.id"), nullable=True
+    )
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
 

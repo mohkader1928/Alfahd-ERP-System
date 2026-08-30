@@ -56,7 +56,15 @@ export function PaymentFormView({
   const [amountOverride, setAmountOverride] = useState<string | null>(null);
   const [accountId, setAccountId] = useState("");
   const [reference, setReference] = useState("");
+  const [collectionRepId, setCollectionRepId] = useState("");
+  const [collectionRepTouched, setCollectionRepTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const salesRepsQuery = useQuery({
+    queryKey: ["sales-representatives", companyId, "all"],
+    queryFn: () => identityApi.listSalesRepresentatives(companyId),
+    enabled: paymentType === "customer",
+  });
 
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, paymentType],
@@ -103,6 +111,10 @@ export function PaymentFormView({
         amount,
         account_id: accountId,
         reference: reference || undefined,
+        // Commercial Performance Stage 2D: customer-collection attribution
+        // only — never submitted for vendor payments (no requirement
+        // identified there), and never derived from the settled invoice(s).
+        collection_rep_id: paymentType === "customer" ? collectionRepId || null : null,
         allocations: targetId
           ? [
               {
@@ -168,6 +180,13 @@ export function PaymentFormView({
             onValueChange={(v) => {
               setPartnerId(v ?? "");
               setTargetId("");
+              // Commercial Performance Stage 2D: convenience pre-fill from
+              // the customer's default rep only — never clobbers a manual
+              // pick, and only relevant for customer receipts.
+              if (paymentType === "customer" && !collectionRepTouched) {
+                const partner = partnersQuery.data?.find((p) => p.id === v);
+                setCollectionRepId(partner?.default_sales_rep_id ?? "");
+              }
             }}
           >
             <SelectTrigger className="w-full">
@@ -217,6 +236,38 @@ export function PaymentFormView({
             </p>
           )}
         </div>
+        {paymentType === "customer" && (
+          <div className="space-y-1">
+            <Label>{t("payments.collection_rep")}</Label>
+            <Select
+              value={collectionRepId || "none"}
+              onValueChange={(v) => {
+                setCollectionRepTouched(true);
+                setCollectionRepId(v === "none" ? "" : (v ?? ""));
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("payments.collection_rep_none")}>
+                  {(value: string) => {
+                    if (value === "none" || !value) return t("payments.collection_rep_none");
+                    const rep = salesRepsQuery.data?.find((r) => r.id === value);
+                    return rep ? `${rep.code} — ${rep.name}` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("payments.collection_rep_none")}</SelectItem>
+                {(salesRepsQuery.data ?? [])
+                  .filter((r) => r.is_active || r.id === collectionRepId)
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.code} — {r.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="space-y-1">
           <Label>{t("payments.date")}</Label>
           <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />

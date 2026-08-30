@@ -235,6 +235,8 @@
   "payments.select_partner": "Select partner",
   "payments.select_partner_first": "Select a partner first",
   "payments.select_account": "Select cash/bank account",
+  "payments.collection_rep": "Collection Representative",
+  "payments.collection_rep_none": "No representative",
   "payments.select_document": "Invoice / Bill",
   "payments.outstanding_balance": "Outstanding balance",
   "payments.status.unpaid": "Unpaid",
