@@ -134,6 +134,7 @@ export interface Partner {
   credit_limit: string | null;
   credit_days: number | null;
   vendor_credit_days: number | null;
+  default_sales_rep_id: string | null;
   address: Address | null;
   is_active: boolean;
   image_path: string | null;
@@ -159,6 +160,7 @@ export interface PartnerWriteInput {
   credit_limit?: string | null;
   credit_days?: number | null;
   vendor_credit_days?: number | null;
+  default_sales_rep_id?: string | null;
   address?: Address | null;
 }
 
@@ -237,6 +239,28 @@ export interface UnitOfMeasure {
   name_ar: string | null;
   code: string;
   active: boolean;
+}
+
+export interface SalesRepresentative {
+  id: string;
+  company_id: string;
+  name: string;
+  code: string;
+  is_active: boolean;
+  commission_rate: string | null;
+}
+
+export interface SalesRepresentativeCreateInput {
+  name: string;
+  code: string;
+  commission_rate?: string | null;
+}
+
+export interface SalesRepresentativeUpdateInput {
+  name: string;
+  code: string;
+  commission_rate?: string | null;
+  is_active: boolean;
 }
 
 export interface MyPermissions {

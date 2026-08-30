@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, ForeignKey, Index, Numeric, Text, text
+from sqlalchemy import Boolean, ForeignKey, Index, Numeric, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -66,6 +66,13 @@ class Partner(Base):
     credit_limit: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
     credit_days: Mapped[int | None] = mapped_column(nullable=True)
     vendor_credit_days: Mapped[int | None] = mapped_column(nullable=True)
+    # Commercial Performance Stage 2A: master-data default only — the
+    # responsible rep for THIS customer going forward. Deliberately not
+    # propagated to any transaction yet (that snapshot wiring is a later,
+    # separate stage); reassigning this field must never rewrite history.
+    default_sales_rep_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sales_representative.id"), nullable=True
+    )
     address: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     """Deprecated JSONB single-address field, kept post-backfill (not
     dropped) per explicit Owner instruction — superseded by PartnerAddress.
@@ -93,6 +100,29 @@ class Partner(Base):
     @property
     def is_active(self) -> bool:
         return self.deleted_at is None
+
+
+class SalesRepresentative(Base):
+    """Commercial Performance Stage 2A: a minimal, company-scoped master
+    entity for sales attribution — deliberately NOT an HR/employee record
+    (no department/manager/hire_date/salary) and deliberately separate
+    from both Partner (a commercial/legal contact) and AppUser (a login
+    identity), per Owner decision. `commission_rate` is a flat nullable
+    foundation field only — no CommissionPlan/Rule engine in this stage."""
+
+    __tablename__ = "sales_representative"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
+
+    __table_args__ = (UniqueConstraint("company_id", "code", name="ux_sales_representative_code"),)
 
 
 class PartnerAddress(Base):

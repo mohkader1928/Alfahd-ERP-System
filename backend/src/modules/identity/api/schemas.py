@@ -293,6 +293,7 @@ class PartnerCreateRequest(BaseModel):
     credit_limit: Decimal | None = None
     credit_days: int | None = None
     vendor_credit_days: int | None = None
+    default_sales_rep_id: UUID | None = None
     address: AddressIn | None = None
 
 
@@ -315,6 +316,7 @@ class PartnerUpdateRequest(BaseModel):
     credit_limit: Decimal | None = None
     credit_days: int | None = None
     vendor_credit_days: int | None = None
+    default_sales_rep_id: UUID | None = None
     address: AddressIn | None = None
 
 
@@ -341,6 +343,7 @@ class PartnerOut(BaseModel):
     credit_limit: Decimal | None = None
     credit_days: int | None = None
     vendor_credit_days: int | None = None
+    default_sales_rep_id: UUID | None = None
     address: dict | None
     is_active: bool
     image_path: str | None = None
@@ -422,6 +425,30 @@ class UnitOfMeasureOut(BaseModel):
     name_ar: str | None
     code: str
     active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class SalesRepresentativeCreateRequest(BaseModel):
+    name: str
+    code: str
+    commission_rate: Decimal | None = None
+
+
+class SalesRepresentativeUpdateRequest(BaseModel):
+    name: str
+    code: str
+    commission_rate: Decimal | None = None
+    is_active: bool = True
+
+
+class SalesRepresentativeOut(BaseModel):
+    id: UUID
+    company_id: UUID
+    name: str
+    code: str
+    is_active: bool
+    commission_rate: Decimal | None
 
     model_config = {"from_attributes": True}
 

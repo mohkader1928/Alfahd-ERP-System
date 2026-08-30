@@ -15,6 +15,7 @@ from src.modules.identity.infrastructure.repositories import (
     ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
+    SalesRepresentativeRepository,
     UnitOfMeasureRepository,
     UserRepository,
 )
@@ -62,6 +63,10 @@ def get_partner_repo(db: AsyncSession = Depends(get_db)) -> PartnerRepository:
 
 def get_partner_address_repo(db: AsyncSession = Depends(get_db)) -> PartnerAddressRepository:
     return PartnerAddressRepository(db)
+
+
+def get_sales_representative_repo(db: AsyncSession = Depends(get_db)) -> SalesRepresentativeRepository:
+    return SalesRepresentativeRepository(db)
 
 
 def get_product_repo(db: AsyncSession = Depends(get_db)) -> ProductRepository:

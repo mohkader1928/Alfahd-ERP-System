@@ -18,6 +18,7 @@ from src.modules.identity.api.deps import (
     get_product_category_repo,
     get_product_repo,
     get_role_repo,
+    get_sales_representative_repo,
     get_uom_repo,
     get_user_repo,
     require_permission,
@@ -59,6 +60,9 @@ from src.modules.identity.api.schemas import (
     RoleOut,
     RolePermissionsUpdateRequest,
     RoleRenameRequest,
+    SalesRepresentativeCreateRequest,
+    SalesRepresentativeOut,
+    SalesRepresentativeUpdateRequest,
     TokenResponse,
     TwoFactorEnrollVerifyRequest,
     TwoFactorLoginRequest,
@@ -80,6 +84,7 @@ from src.modules.identity.application.services import (
     PasswordResetService,
     ProductCategoryService,
     ProductService,
+    SalesRepresentativeService,
     TenantProvisioningService,
     TwoFactorRequiredError,
     UnitOfMeasureService,
@@ -97,6 +102,7 @@ from src.modules.identity.infrastructure.repositories import (
     ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
+    SalesRepresentativeRepository,
     UnitOfMeasureRepository,
     UserRepository,
 )
@@ -1082,8 +1088,9 @@ async def create_partner(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_permission("partner.create")),
     partner_repo: PartnerRepository = Depends(get_partner_repo),
+    sales_rep_repo: SalesRepresentativeRepository = Depends(get_sales_representative_repo),
 ):
-    service = PartnerService(partner_repo)
+    service = PartnerService(partner_repo, sales_rep_repo=sales_rep_repo)
     try:
         partner = await service.create_partner(
             tenant_id=ctx.tenant_id,
@@ -1107,6 +1114,7 @@ async def create_partner(
             credit_limit=payload.credit_limit,
             credit_days=payload.credit_days,
             vendor_credit_days=payload.vendor_credit_days,
+            default_sales_rep_id=payload.default_sales_rep_id,
             address=payload.address.model_dump() if payload.address else None,
         )
     except ValueError as e:
@@ -1123,8 +1131,9 @@ async def update_partner(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_permission("partner.update")),
     partner_repo: PartnerRepository = Depends(get_partner_repo),
+    sales_rep_repo: SalesRepresentativeRepository = Depends(get_sales_representative_repo),
 ):
-    service = PartnerService(partner_repo)
+    service = PartnerService(partner_repo, sales_rep_repo=sales_rep_repo)
     try:
         partner = await service.update_partner(
             company_id=ctx.company_id,
@@ -1147,6 +1156,7 @@ async def update_partner(
             credit_limit=payload.credit_limit,
             credit_days=payload.credit_days,
             vendor_credit_days=payload.vendor_credit_days,
+            default_sales_rep_id=payload.default_sales_rep_id,
             address=payload.address.model_dump() if payload.address else None,
         )
     except LookupError as e:
@@ -1622,6 +1632,76 @@ async def update_uom(
 
     await db.commit()
     return uom
+
+
+@router.get("/sales-representatives", response_model=list[SalesRepresentativeOut])
+async def list_sales_representatives(
+    active: bool | None = None,
+    ctx: AuthContext = Depends(require_permission("sales_rep.view")),
+    sales_rep_repo: SalesRepresentativeRepository = Depends(get_sales_representative_repo),
+):
+    return await sales_rep_repo.list_by_company(ctx.company_id, active=active)
+
+
+@router.get("/sales-representatives/{sales_rep_id}", response_model=SalesRepresentativeOut)
+async def get_sales_representative(
+    sales_rep_id: UUID,
+    ctx: AuthContext = Depends(require_permission("sales_rep.view")),
+    sales_rep_repo: SalesRepresentativeRepository = Depends(get_sales_representative_repo),
+):
+    sales_rep = await sales_rep_repo.get_by_id(ctx.company_id, sales_rep_id)
+    if sales_rep is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sales representative not found")
+    return sales_rep
+
+
+@router.post("/sales-representatives", response_model=SalesRepresentativeOut, status_code=status.HTTP_201_CREATED)
+async def create_sales_representative(
+    payload: SalesRepresentativeCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("sales_rep.create")),
+    sales_rep_repo: SalesRepresentativeRepository = Depends(get_sales_representative_repo),
+):
+    service = SalesRepresentativeService(sales_rep_repo)
+    try:
+        sales_rep = await service.create_sales_representative(
+            company_id=ctx.company_id, name=payload.name, code=payload.code, commission_rate=payload.commission_rate
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return sales_rep
+
+
+@router.patch("/sales-representatives/{sales_rep_id}", response_model=SalesRepresentativeOut)
+async def update_sales_representative(
+    sales_rep_id: UUID,
+    payload: SalesRepresentativeUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("sales_rep.update")),
+    sales_rep_repo: SalesRepresentativeRepository = Depends(get_sales_representative_repo),
+):
+    """Also the deactivate operation — PATCH with `is_active: false`. No
+    hard DELETE endpoint (mirrors CostCenter/UnitOfMeasure): an existing
+    `partner.default_sales_rep_id` reference must never be able to dangle."""
+    service = SalesRepresentativeService(sales_rep_repo)
+    try:
+        sales_rep = await service.update_sales_representative(
+            company_id=ctx.company_id,
+            sales_rep_id=sales_rep_id,
+            name=payload.name,
+            code=payload.code,
+            commission_rate=payload.commission_rate,
+            is_active=payload.is_active,
+        )
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    await db.commit()
+    return sales_rep
 
 
 @router.get("/audit-log", response_model=list[AuditLogOut])

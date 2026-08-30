@@ -10,6 +10,7 @@ from src.modules.identity.infrastructure.master_data_models import (
     PartnerAddress,
     Product,
     ProductCategory,
+    SalesRepresentative,
     UnitOfMeasure,
 )
 from src.modules.identity.infrastructure.models import (
@@ -648,4 +649,37 @@ class UnitOfMeasureRepository:
                 | UnitOfMeasure.code.ilike(needle)
             )
         result = await self.session.execute(stmt.order_by(UnitOfMeasure.name))
+        return list(result.scalars().all())
+
+
+class SalesRepresentativeRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def add(self, sales_rep: SalesRepresentative) -> SalesRepresentative:
+        self.session.add(sales_rep)
+        await self.session.flush()
+        return sales_rep
+
+    async def get_by_id(self, company_id: UUID, sales_rep_id: UUID) -> SalesRepresentative | None:
+        result = await self.session.execute(
+            select(SalesRepresentative).where(
+                SalesRepresentative.id == sales_rep_id, SalesRepresentative.company_id == company_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_code(self, company_id: UUID, code: str) -> SalesRepresentative | None:
+        result = await self.session.execute(
+            select(SalesRepresentative).where(
+                SalesRepresentative.company_id == company_id, func.lower(SalesRepresentative.code) == code.lower()
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_company(self, company_id: UUID, *, active: bool | None = None) -> list[SalesRepresentative]:
+        stmt = select(SalesRepresentative).where(SalesRepresentative.company_id == company_id)
+        if active is not None:
+            stmt = stmt.where(SalesRepresentative.is_active.is_(active))
+        result = await self.session.execute(stmt.order_by(SalesRepresentative.name))
         return list(result.scalars().all())

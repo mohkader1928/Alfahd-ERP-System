@@ -22,6 +22,9 @@ import type {
   ProductWriteInput,
   Role,
   RoleDetail,
+  SalesRepresentative,
+  SalesRepresentativeCreateInput,
+  SalesRepresentativeUpdateInput,
   TokenResponse,
   TwoFactorRequiredResponse,
   TwoFactorSetupResponse,
@@ -208,6 +211,18 @@ export const identityApi = {
     id: string,
     payload: { name: string; name_ar?: string | null; code: string; active: boolean }
   ) => apiClient.patch<UnitOfMeasure>(`${BASE}/uom/${id}`, payload, { companyId }),
+
+  listSalesRepresentatives: (companyId: string, opts?: { active?: boolean }) =>
+    apiClient.get<SalesRepresentative[]>(
+      `${BASE}/sales-representatives${qs({ active: opts?.active === undefined ? undefined : String(opts.active) })}`,
+      { companyId }
+    ),
+
+  createSalesRepresentative: (companyId: string, payload: SalesRepresentativeCreateInput) =>
+    apiClient.post<SalesRepresentative>(`${BASE}/sales-representatives`, payload, { companyId }),
+
+  updateSalesRepresentative: (companyId: string, id: string, payload: SalesRepresentativeUpdateInput) =>
+    apiClient.patch<SalesRepresentative>(`${BASE}/sales-representatives/${id}`, payload, { companyId }),
 
   listPermissions: (companyId: string) => apiClient.get<Permission[]>(`${BASE}/permissions`, { companyId }),
 

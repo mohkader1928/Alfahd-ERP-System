@@ -21,6 +21,7 @@ from src.modules.identity.infrastructure.master_data_models import (
     PartnerAddress,
     Product,
     ProductCategory,
+    SalesRepresentative,
     UnitOfMeasure,
 )
 from src.modules.identity.infrastructure.models import (
@@ -42,6 +43,7 @@ from src.modules.identity.infrastructure.repositories import (
     ProductCategoryRepository,
     ProductRepository,
     RoleRepository,
+    SalesRepresentativeRepository,
     UnitOfMeasureRepository,
     UserRepository,
 )
@@ -667,8 +669,14 @@ class PartnerService:
     that Employee and Contact are first-class alongside Customer/Vendor.
     """
 
-    def __init__(self, partner_repo: PartnerRepository, address_repo: PartnerAddressRepository | None = None):
+    def __init__(
+        self,
+        partner_repo: PartnerRepository,
+        address_repo: PartnerAddressRepository | None = None,
+        sales_rep_repo: SalesRepresentativeRepository | None = None,
+    ):
         self.partner_repo = partner_repo
+        self.sales_rep_repo = sales_rep_repo
         self.address_repo = address_repo
 
     async def _validate_parent(self, *, company_id: UUID, parent_partner_id: UUID | None, self_id: UUID | None) -> None:
@@ -679,6 +687,15 @@ class PartnerService:
         parent = await self.partner_repo.get_by_id(parent_partner_id)
         if parent is None or parent.company_id != company_id:
             raise ValueError("Parent partner not found")
+
+    async def _validate_sales_rep(self, *, company_id: UUID, sales_rep_id: UUID | None) -> None:
+        if sales_rep_id is None:
+            return
+        if self.sales_rep_repo is None:
+            raise ValueError("Sales representative assignment is not available")
+        sales_rep = await self.sales_rep_repo.get_by_id(company_id, sales_rep_id)
+        if sales_rep is None:
+            raise ValueError("Sales representative not found")
 
     async def create_partner(
         self,
@@ -704,9 +721,11 @@ class PartnerService:
         credit_limit: Decimal | None = None,
         credit_days: int | None = None,
         vendor_credit_days: int | None = None,
+        default_sales_rep_id: UUID | None = None,
         address: dict | None = None,
     ) -> Partner:
         await self._validate_parent(company_id=company_id, parent_partner_id=parent_partner_id, self_id=None)
+        await self._validate_sales_rep(company_id=company_id, sales_rep_id=default_sales_rep_id)
         # Owner directive: partner_code is always system-assigned, never
         # user-typed — same discipline as FixedAsset.asset_code/Product.sku.
         partner_code = await self.partner_repo.next_number(company_id)
@@ -734,6 +753,7 @@ class PartnerService:
             credit_limit=credit_limit,
             credit_days=credit_days,
             vendor_credit_days=vendor_credit_days,
+            default_sales_rep_id=default_sales_rep_id,
             address=address,
         )
         try:
@@ -764,11 +784,13 @@ class PartnerService:
         credit_limit: Decimal | None,
         credit_days: int | None,
         vendor_credit_days: int | None,
+        default_sales_rep_id: UUID | None,
         address: dict | None,
     ) -> Partner:
         partner = await self.partner_repo.get_by_id(partner_id)
         if partner is None or partner.company_id != company_id:
             raise LookupError("Partner not found")
+        await self._validate_sales_rep(company_id=company_id, sales_rep_id=default_sales_rep_id)
         partner.name = name
         partner.name_ar = name_ar
         partner.is_company = is_company
@@ -787,6 +809,7 @@ class PartnerService:
         partner.credit_limit = credit_limit
         partner.credit_days = credit_days
         partner.vendor_credit_days = vendor_credit_days
+        partner.default_sales_rep_id = default_sales_rep_id
         partner.address = address
         return partner
 
@@ -1123,3 +1146,62 @@ class UnitOfMeasureService:
         uom.code = code
         uom.active = active
         return uom
+
+
+class SalesRepresentativeService:
+    """Commercial Performance Stage 2A. Archive, never delete (mirrors
+    CostCenterService/UnitOfMeasureService exactly): once a Partner
+    references a SalesRepresentative via default_sales_rep_id, the row
+    must never disappear — deactivate instead, matching the rest of this
+    codebase's master-data convention."""
+
+    def __init__(self, sales_rep_repo: SalesRepresentativeRepository):
+        self.sales_rep_repo = sales_rep_repo
+
+    async def create_sales_representative(
+        self, *, company_id: UUID, name: str, code: str, commission_rate: Decimal | None = None
+    ) -> SalesRepresentative:
+        name = name.strip()
+        code = code.strip()
+        if not name:
+            raise ValueError("Sales representative name is required")
+        if not code:
+            raise ValueError("Sales representative code is required")
+        existing = await self.sales_rep_repo.get_by_code(company_id, code)
+        if existing is not None:
+            raise ValueError(f"Sales representative code already exists: {code}")
+        sales_rep = SalesRepresentative(
+            id=uuid.uuid4(), company_id=company_id, name=name, code=code, commission_rate=commission_rate
+        )
+        try:
+            return await self.sales_rep_repo.add(sales_rep)
+        except IntegrityError as e:
+            raise ValueError(f"Sales representative code already exists: {code}") from e
+
+    async def update_sales_representative(
+        self,
+        *,
+        company_id: UUID,
+        sales_rep_id: UUID,
+        name: str,
+        code: str,
+        commission_rate: Decimal | None,
+        is_active: bool,
+    ) -> SalesRepresentative:
+        sales_rep = await self.sales_rep_repo.get_by_id(company_id, sales_rep_id)
+        if sales_rep is None:
+            raise LookupError("Sales representative not found")
+        name = name.strip()
+        code = code.strip()
+        if not name:
+            raise ValueError("Sales representative name is required")
+        if not code:
+            raise ValueError("Sales representative code is required")
+        existing = await self.sales_rep_repo.get_by_code(company_id, code)
+        if existing is not None and existing.id != sales_rep_id:
+            raise ValueError(f"Sales representative code already exists: {code}")
+        sales_rep.name = name
+        sales_rep.code = code
+        sales_rep.commission_rate = commission_rate
+        sales_rep.is_active = is_active
+        return sales_rep

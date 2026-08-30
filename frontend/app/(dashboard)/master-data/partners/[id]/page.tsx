@@ -73,7 +73,13 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
   const [creditLimit, setCreditLimit] = useState(partner.credit_limit ?? "");
   const [creditDays, setCreditDays] = useState(partner.credit_days?.toString() ?? "");
   const [vendorCreditDays, setVendorCreditDays] = useState(partner.vendor_credit_days?.toString() ?? "");
+  const [defaultSalesRepId, setDefaultSalesRepId] = useState(partner.default_sales_rep_id ?? "");
   const [error, setError] = useState<string | null>(null);
+
+  const salesRepsQuery = useQuery({
+    queryKey: ["sales-representatives", companyId, "all"],
+    queryFn: () => identityApi.listSalesRepresentatives(companyId),
+  });
 
   const invalidatePartner = () => {
     queryClient.invalidateQueries({ queryKey: ["partner", companyId, partner.id] });
@@ -101,6 +107,7 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
         credit_limit: creditLimit || null,
         credit_days: creditDays ? Number(creditDays) : null,
         vendor_credit_days: vendorCreditDays ? Number(vendorCreditDays) : null,
+        default_sales_rep_id: defaultSalesRepId || null,
         address: partner.address,
       }),
     onSuccess: () => {
@@ -344,6 +351,27 @@ function PartnerProfile({ partner, companyId }: { partner: Partner; companyId: s
                       value={creditDays}
                       onChange={(e) => setCreditDays(e.target.value)}
                     />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{t("master_data.partners.default_sales_rep")}</Label>
+                    <Select
+                      value={defaultSalesRepId || "none"}
+                      onValueChange={(v) => setDefaultSalesRepId(v === "none" ? "" : (v ?? ""))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">{t("master_data.partners.default_sales_rep_none")}</SelectItem>
+                        {(salesRepsQuery.data ?? [])
+                          .filter((rep) => rep.is_active || rep.id === partner.default_sales_rep_id)
+                          .map((rep) => (
+                            <SelectItem key={rep.id} value={rep.id}>
+                              {rep.code} — {rep.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               )}

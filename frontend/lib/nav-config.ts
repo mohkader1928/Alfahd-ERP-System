@@ -31,6 +31,7 @@ import {
   TrendingUp,
   Truck,
   Undo2,
+  UserCheck,
   UserCog,
   Users,
   Warehouse,
@@ -331,6 +332,7 @@ export const NAV_CONFIG: NavEntry[] = [
       { type: "link", href: "/master-data/customers", labelKey: "nav.master_data.customers", icon: Users, permission: "partner.view" },
       { type: "link", href: "/master-data/vendors", labelKey: "nav.master_data.vendors", icon: Building2, permission: "partner.view" },
       { type: "link", href: "/master-data/employees", labelKey: "nav.master_data.employees", icon: IdCard, permission: "partner.view" },
+      { type: "link", href: "/master-data/sales-representatives", labelKey: "nav.master_data.sales_representatives", icon: UserCheck, permission: "sales_rep.view" },
     ],
   },
   {
