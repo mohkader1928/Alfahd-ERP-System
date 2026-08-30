@@ -50,7 +50,14 @@ export default function NewQuotationPage() {
   const [lines, setLines] = useState<Line[]>([{ product_id: "", qty: "1", unit_price: "0" }]);
   const [paymentTerms, setPaymentTerms] = useState("");
   const [paymentTermsTouched, setPaymentTermsTouched] = useState(false);
+  const [salesRepId, setSalesRepId] = useState("");
+  const [salesRepTouched, setSalesRepTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const salesRepsQuery = useQuery({
+    queryKey: ["sales-representatives", companyId, "all"],
+    queryFn: () => identityApi.listSalesRepresentatives(companyId),
+  });
 
   const partnersQuery = useQuery({
     queryKey: ["partners", companyId, "customers"],
@@ -91,6 +98,7 @@ export default function NewQuotationPage() {
         warehouse_id: effectiveWarehouseId || null,
         cost_center_id: costCenterId || null,
         payment_terms: paymentTerms || null,
+        sales_rep_id: salesRepId || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: (quotation) => {
@@ -136,6 +144,13 @@ export default function NewQuotationPage() {
                 if (!paymentTermsTouched) {
                   const partner = partnersQuery.data?.find((p) => p.id === v);
                   setPaymentTerms(partner?.payment_terms ?? "");
+                }
+                // Commercial Performance Stage 2B: same defer-to-manual-edit
+                // pattern as payment_terms above — pre-fill from the
+                // customer's default rep, but never clobber a manual pick.
+                if (!salesRepTouched) {
+                  const partner = partnersQuery.data?.find((p) => p.id === v);
+                  setSalesRepId(partner?.default_sales_rep_id ?? "");
                 }
               }}
             >
@@ -209,6 +224,36 @@ export default function NewQuotationPage() {
                     {c.name}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("sales.sales_rep")}</Label>
+            <Select
+              value={salesRepId || "none"}
+              onValueChange={(v) => {
+                setSalesRepTouched(true);
+                setSalesRepId(v === "none" ? "" : (v ?? ""));
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("sales.sales_rep_none")}>
+                  {(value: string) => {
+                    if (value === "none" || !value) return t("sales.sales_rep_none");
+                    const rep = salesRepsQuery.data?.find((r) => r.id === value);
+                    return rep ? `${rep.code} — ${rep.name}` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("sales.sales_rep_none")}</SelectItem>
+                {(salesRepsQuery.data ?? [])
+                  .filter((r) => r.is_active)
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.code} — {r.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

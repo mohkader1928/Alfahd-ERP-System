@@ -16,6 +16,7 @@ export interface Quotation {
   warehouse_id: string | null;
   cost_center_id: string | null;
   payment_terms: string | null;
+  sales_rep_id: string | null;
   last_emailed_at: string | null;
   last_emailed_to: string | null;
 }
@@ -44,6 +45,7 @@ export interface SalesOrder {
   total_amount: string;
   warehouse_id: string | null;
   cost_center_id: string | null;
+  sales_rep_id: string | null;
   cancellation_reason: string | null;
 }
 
@@ -98,6 +100,7 @@ export interface SalesInvoice {
   total_amount: string;
   warehouse_id: string | null;
   cost_center_id: string | null;
+  sales_rep_id: string | null;
   journal_entry_id: string | null;
   last_emailed_at: string | null;
   last_emailed_to: string | null;

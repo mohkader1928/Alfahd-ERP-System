@@ -49,6 +49,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
   const [costCenterId, setCostCenterId] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [paymentTerms, setPaymentTerms] = useState("");
+  const [salesRepId, setSalesRepId] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Not a useEffect: React's own guidance for "adjust state when data
   // arrives" is to compare against the previous render's id during render
@@ -81,6 +82,10 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
     queryKey: ["cost-centers", companyId],
     queryFn: () => accountingApi.listCostCenters(companyId),
   });
+  const salesRepsQuery = useQuery({
+    queryKey: ["sales-representatives", companyId, "all"],
+    queryFn: () => identityApi.listSalesRepresentatives(companyId),
+  });
   const effectiveTaxRateId =
     taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
 
@@ -91,6 +96,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
     setWarehouseId(data.quotation.warehouse_id ?? "");
     setCostCenterId(data.quotation.cost_center_id ?? "");
     setPaymentTerms(data.quotation.payment_terms ?? "");
+    setSalesRepId(data.quotation.sales_rep_id ?? "");
     setLines(
       data.lines.length > 0
         ? data.lines.map((l) => ({ product_id: l.product_id, qty: l.qty, unit_price: l.unit_price }))
@@ -108,6 +114,7 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
         warehouse_id: warehouseId || null,
         cost_center_id: costCenterId || null,
         payment_terms: paymentTerms || null,
+        sales_rep_id: salesRepId || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: () => {
@@ -224,6 +231,30 @@ export default function EditQuotationPage({ params }: { params: Promise<{ id: st
                     {c.name}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("sales.sales_rep")}</Label>
+            <Select value={salesRepId || "none"} onValueChange={(v) => setSalesRepId(v === "none" ? "" : (v ?? ""))}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("sales.sales_rep_none")}>
+                  {(value: string) => {
+                    if (value === "none" || !value) return t("sales.sales_rep_none");
+                    const rep = salesRepsQuery.data?.find((r) => r.id === value);
+                    return rep ? `${rep.code} — ${rep.name}` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("sales.sales_rep_none")}</SelectItem>
+                {(salesRepsQuery.data ?? [])
+                  .filter((r) => r.is_active || r.id === quotation.sales_rep_id)
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.code} — {r.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

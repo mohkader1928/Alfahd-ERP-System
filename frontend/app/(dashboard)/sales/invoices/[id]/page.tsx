@@ -20,6 +20,7 @@ import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { AttachmentsPanel } from "@/components/erp/attachments/attachments-panel";
 import { useI18n } from "@/lib/i18n/config";
 import { useAuthStore } from "@/stores/auth-store";
+import { identityApi } from "@/features/identity/api/client";
 import { inventoryApi } from "@/features/inventory/api/client";
 import { salesApi } from "@/features/sales/api/client";
 import { ApiError, friendlyApiErrorMessage } from "@/lib/api-client";
@@ -55,6 +56,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const warehousesQuery = useQuery({
     queryKey: ["warehouses", companyId],
     queryFn: () => inventoryApi.listWarehouses(companyId),
+  });
+  const salesRepsQuery = useQuery({
+    queryKey: ["sales-representatives", companyId, "all"],
+    queryFn: () => identityApi.listSalesRepresentatives(companyId),
   });
 
   const creditNoteMutation = useMutation({
@@ -163,6 +168,15 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
             <dt className="text-muted-foreground">{t("inventory.stock.warehouse")}</dt>
             <dd>
               {warehousesQuery.data?.find((w) => w.id === invoice.warehouse_id)?.name ?? invoice.warehouse_id ?? "—"}
+            </dd>
+            <dt className="text-muted-foreground">{t("sales.sales_rep")}</dt>
+            <dd>
+              {invoice.sales_rep_id
+                ? (() => {
+                    const rep = salesRepsQuery.data?.find((r) => r.id === invoice.sales_rep_id);
+                    return rep ? `${rep.code} — ${rep.name}` : invoice.sales_rep_id;
+                  })()
+                : t("sales.sales_rep_unattributed")}
             </dd>
             {invoice.sales_order_id && (
               <>

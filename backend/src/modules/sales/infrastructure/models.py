@@ -54,6 +54,13 @@ class Quotation(Base):
     # Partner.payment_terms at creation time but is a free edit from there
     # — the customer's own record is just the starting value, not enforced.
     payment_terms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Commercial Performance Stage 2B: same copy-forward/editable-until-locked
+    # treatment as warehouse_id/cost_center_id — defaults from
+    # Partner.default_sales_rep_id at creation (frontend pre-fill only, never
+    # silently re-derived server-side), then an independent snapshot from
+    # there on. Nullable: existing quotations stay NULL (Unattributed/Legacy),
+    # no backfill.
+    sales_rep_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     last_emailed_at: Mapped[datetime | None] = mapped_column(nullable=True)
     last_emailed_to: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
@@ -100,6 +107,10 @@ class SalesOrder(Base):
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     # Same copy-forward/editable-until-invoiced treatment as warehouse_id.
     cost_center_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # Commercial Performance Stage 2B: copied verbatim from Quotation at
+    # confirm_to_sales_order time — never re-read from Partner. Same
+    # copy-forward/editable-until-invoiced treatment as warehouse_id.
+    sales_rep_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -160,6 +171,12 @@ class SalesInvoice(Base):
     # Copied from the SalesOrder at issue_invoice_from_order time — set on
     # the revenue line of the journal entry _post_journal_entry posts.
     cost_center_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # Commercial Performance Stage 2B: copied verbatim from SalesOrder at
+    # issue_invoice_from_order time — never re-read from Partner. There is
+    # no update/edit path for SalesInvoice at all, so once set this is
+    # permanently fixed by construction (the commercially authoritative
+    # attribution for future sales-by-rep reporting/commission).
+    sales_rep_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     version: Mapped[int] = mapped_column(nullable=False, server_default=text("1"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)

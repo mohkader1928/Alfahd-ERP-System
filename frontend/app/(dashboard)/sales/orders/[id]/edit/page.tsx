@@ -49,6 +49,7 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
   const [taxRateId, setTaxRateId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [costCenterId, setCostCenterId] = useState("");
+  const [salesRepId, setSalesRepId] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Not a useEffect: React's own guidance for "adjust state when data
@@ -80,6 +81,10 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
     queryKey: ["cost-centers", companyId],
     queryFn: () => accountingApi.listCostCenters(companyId),
   });
+  const salesRepsQuery = useQuery({
+    queryKey: ["sales-representatives", companyId, "all"],
+    queryFn: () => identityApi.listSalesRepresentatives(companyId),
+  });
   const effectiveTaxRateId =
     taxRateId || taxRatesQuery.data?.find((r) => r.kind === "standard")?.id || "";
 
@@ -88,6 +93,7 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
     setOrderDate(data.order.order_date);
     setWarehouseId(data.order.warehouse_id ?? "");
     setCostCenterId(data.order.cost_center_id ?? "");
+    setSalesRepId(data.order.sales_rep_id ?? "");
     setLines(
       data.lines.length > 0
         ? data.lines.map((l) => ({ product_id: l.product_id, qty: l.qty, unit_price: l.unit_price }))
@@ -104,6 +110,7 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
         order_date: orderDate,
         warehouse_id: warehouseId || null,
         cost_center_id: costCenterId || null,
+        sales_rep_id: salesRepId || null,
         lines: lines.map((l) => ({ ...l, tax_rate_id: effectiveTaxRateId })),
       }),
     onSuccess: () => {
@@ -230,6 +237,30 @@ export default function EditSalesOrderPage({ params }: { params: Promise<{ id: s
                     {c.name}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t("sales.sales_rep")}</Label>
+            <Select value={salesRepId || "none"} onValueChange={(v) => setSalesRepId(v === "none" ? "" : (v ?? ""))}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("sales.sales_rep_none")}>
+                  {(value: string) => {
+                    if (value === "none" || !value) return t("sales.sales_rep_none");
+                    const rep = salesRepsQuery.data?.find((r) => r.id === value);
+                    return rep ? `${rep.code} — ${rep.name}` : value;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("sales.sales_rep_none")}</SelectItem>
+                {(salesRepsQuery.data ?? [])
+                  .filter((r) => r.is_active || r.id === order.sales_rep_id)
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.code} — {r.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

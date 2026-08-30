@@ -20,6 +20,7 @@ class QuotationCreateRequest(BaseModel):
     warehouse_id: UUID | None = None
     cost_center_id: UUID | None = None
     payment_terms: str | None = None
+    sales_rep_id: UUID | None = None
     lines: list[QuotationLineIn]
 
 
@@ -34,6 +35,7 @@ class QuotationOut(BaseModel):
     warehouse_id: UUID | None = None
     cost_center_id: UUID | None = None
     payment_terms: str | None = None
+    sales_rep_id: UUID | None = None
     last_emailed_at: datetime | None = None
     last_emailed_to: str | None = None
 
@@ -70,6 +72,7 @@ class SalesOrderOut(BaseModel):
     total_amount: Decimal
     warehouse_id: UUID | None = None
     cost_center_id: UUID | None = None
+    sales_rep_id: UUID | None = None
     cancellation_reason: str | None
 
     model_config = {"from_attributes": True}
@@ -102,6 +105,7 @@ class UpdateSalesOrderRequest(BaseModel):
     order_date: date
     warehouse_id: UUID | None = None
     cost_center_id: UUID | None = None
+    sales_rep_id: UUID | None = None
     lines: list[SalesOrderLineIn]
 
 
@@ -152,6 +156,7 @@ class SalesInvoiceOut(BaseModel):
     total_amount: Decimal
     warehouse_id: UUID | None = None
     cost_center_id: UUID | None = None
+    sales_rep_id: UUID | None = None
     journal_entry_id: UUID | None
     last_emailed_at: datetime | None = None
     last_emailed_to: str | None = None

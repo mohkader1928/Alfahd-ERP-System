@@ -18,6 +18,7 @@ from src.modules.identity.infrastructure.repositories import (
     PartnerRepository,
     ProductRepository,
     RoleRepository,
+    SalesRepresentativeRepository,
 )
 from src.modules.inventory.application.services import InventoryValuationService
 from src.modules.inventory.infrastructure.repositories import (
@@ -91,6 +92,7 @@ async def get_quotation_service(
         seller_name_ar=company.legal_name_ar,
         seller_logo_path=company.logo_path,
         warehouse_repo=WarehouseRepository(db),
+        sales_rep_repo=SalesRepresentativeRepository(db),
     )
 
 

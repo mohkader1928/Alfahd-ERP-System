@@ -51,6 +51,10 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
     queryKey: ["warehouses", companyId],
     queryFn: () => inventoryApi.listWarehouses(companyId),
   });
+  const salesRepsQuery = useQuery({
+    queryKey: ["sales-representatives", companyId, "all"],
+    queryFn: () => identityApi.listSalesRepresentatives(companyId),
+  });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["sales-order", companyId, id] });
@@ -146,6 +150,15 @@ export default function SalesOrderDetailPage({ params }: { params: Promise<{ id:
             </dd>
             <dt className="text-muted-foreground">{t("sales.orders.total")}</dt>
             <dd>{formatCurrency(order.total_amount)}</dd>
+            <dt className="text-muted-foreground">{t("sales.sales_rep")}</dt>
+            <dd>
+              {order.sales_rep_id
+                ? (() => {
+                    const rep = salesRepsQuery.data?.find((r) => r.id === order.sales_rep_id);
+                    return rep ? `${rep.code} — ${rep.name}` : order.sales_rep_id;
+                  })()
+                : t("sales.sales_rep_unattributed")}
+            </dd>
           </dl>
           {order.status === "cancelled" && order.cancellation_reason && (
             <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">

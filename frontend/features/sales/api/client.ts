@@ -36,6 +36,7 @@ export const salesApi = {
       warehouse_id?: string | null;
       cost_center_id?: string | null;
       payment_terms?: string | null;
+      sales_rep_id?: string | null;
       lines: QuotationLineIn[];
     }
   ) => apiClient.post<Quotation>(`${BASE}/quotations`, payload, { companyId, branchId }),
@@ -53,6 +54,7 @@ export const salesApi = {
       warehouse_id?: string | null;
       cost_center_id?: string | null;
       payment_terms?: string | null;
+      sales_rep_id?: string | null;
       lines: QuotationLineIn[];
     }
   ) => apiClient.put<Quotation>(`${BASE}/quotations/${id}`, payload, { companyId, branchId }),
@@ -80,6 +82,7 @@ export const salesApi = {
       order_date: string;
       warehouse_id?: string | null;
       cost_center_id?: string | null;
+      sales_rep_id?: string | null;
       lines: SalesOrderLineIn[];
     }
   ) => apiClient.put<SalesOrder>(`${BASE}/orders/${id}`, payload, { companyId, branchId }),

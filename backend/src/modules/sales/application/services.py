@@ -20,6 +20,7 @@ from src.modules.identity.infrastructure.repositories import (
     CompanyRepository,
     PartnerRepository,
     ProductRepository,
+    SalesRepresentativeRepository,
 )
 from src.modules.inventory.application.services import InventoryValuationService
 from src.modules.inventory.infrastructure.repositories import (
@@ -77,6 +78,7 @@ class QuotationService:
         seller_name_ar: str | None = None,
         seller_logo_path: str | None = None,
         warehouse_repo: WarehouseRepository | None = None,
+        sales_rep_repo: SalesRepresentativeRepository | None = None,
     ):
         self.quotation_repo = quotation_repo
         self.order_repo = order_repo
@@ -86,6 +88,18 @@ class QuotationService:
         self.seller_name_ar = seller_name_ar
         self.seller_logo_path = seller_logo_path
         self.warehouse_repo = warehouse_repo
+        self.sales_rep_repo = sales_rep_repo
+
+    async def _validate_sales_rep(self, *, company_id: UUID, sales_rep_id: UUID | None) -> None:
+        """Commercial Performance Stage 2B — same-company guard, mirroring
+        PartnerService._validate_sales_rep exactly."""
+        if sales_rep_id is None:
+            return
+        if self.sales_rep_repo is None:
+            raise ValueError("Sales representative assignment is not available")
+        sales_rep = await self.sales_rep_repo.get_by_id(company_id, sales_rep_id)
+        if sales_rep is None:
+            raise ValueError("Sales representative not found")
 
     async def create_quotation(
         self,
@@ -98,9 +112,11 @@ class QuotationService:
         warehouse_id: UUID | None = None,
         cost_center_id: UUID | None = None,
         payment_terms: str | None = None,
+        sales_rep_id: UUID | None = None,
     ) -> Quotation:
         if not lines:
             raise ValueError("A quotation needs at least one line")
+        await self._validate_sales_rep(company_id=company_id, sales_rep_id=sales_rep_id)
         number = await self.quotation_repo.next_number(company_id)
         total = sum((Decimal(str(line["qty"])) * Decimal(str(line["unit_price"])) for line in lines), Decimal("0"))
 
@@ -116,6 +132,7 @@ class QuotationService:
             warehouse_id=warehouse_id,
             cost_center_id=cost_center_id,
             payment_terms=payment_terms,
+            sales_rep_id=sales_rep_id,
         )
         orm_lines = [
             QuotationLine(
@@ -144,6 +161,7 @@ class QuotationService:
         warehouse_id: UUID | None = None,
         cost_center_id: UUID | None = None,
         payment_terms: str | None = None,
+        sales_rep_id: UUID | None = None,
     ) -> Quotation:
         """Product Owner request: allow editing a transaction before it's
         posted/confirmed. A Quotation is the one genuinely pre-commitment
@@ -160,6 +178,7 @@ class QuotationService:
             raise ValueError("Quotation not found")
         if quotation.status != "draft":
             raise ValueError("Only a draft quotation can be edited")
+        await self._validate_sales_rep(company_id=company_id, sales_rep_id=sales_rep_id)
 
         total = sum((Decimal(str(line["qty"])) * Decimal(str(line["unit_price"])) for line in lines), Decimal("0"))
         orm_lines = [
@@ -180,6 +199,7 @@ class QuotationService:
         quotation.warehouse_id = warehouse_id
         quotation.cost_center_id = cost_center_id
         quotation.payment_terms = payment_terms
+        quotation.sales_rep_id = sales_rep_id
         return quotation
 
     async def confirm_to_sales_order(self, *, quotation_id: UUID, company_id: UUID) -> SalesOrder:
@@ -209,6 +229,9 @@ class QuotationService:
             total_amount=quotation.total_amount,
             warehouse_id=quotation.warehouse_id,
             cost_center_id=quotation.cost_center_id,
+            # Commercial Performance Stage 2B: copied verbatim, never
+            # re-read from Partner.default_sales_rep_id.
+            sales_rep_id=quotation.sales_rep_id,
         )
         order_lines = [
             SalesOrderLine(
@@ -240,6 +263,7 @@ class QuotationService:
         lines: list[dict],
         warehouse_id: UUID | None = None,
         cost_center_id: UUID | None = None,
+        sales_rep_id: UUID | None = None,
     ) -> SalesOrder:
         """Product Owner-reported blocker (SO-000035): a confirmed order
         for more than what's currently in stock had no way to be
@@ -262,6 +286,7 @@ class QuotationService:
         existing_lines = await self.order_repo.get_lines(order_id)
         if any(line.qty_invoiced > 0 for line in existing_lines):
             raise ValueError("This order has already been partially invoiced and can no longer be edited")
+        await self._validate_sales_rep(company_id=company_id, sales_rep_id=sales_rep_id)
 
         total = sum((Decimal(str(line["qty"])) * Decimal(str(line["unit_price"])) for line in lines), Decimal("0"))
         orm_lines = [
@@ -282,6 +307,7 @@ class QuotationService:
         order.total_amount = total
         order.warehouse_id = warehouse_id
         order.cost_center_id = cost_center_id
+        order.sales_rep_id = sales_rep_id
         return order
 
     async def cancel_order(self, *, order_id: UUID, company_id: UUID, reason: str) -> SalesOrder:
@@ -627,6 +653,11 @@ class SalesInvoiceService:
             total_amount=subtotal + tax_total,
             warehouse_id=order.warehouse_id,
             cost_center_id=order.cost_center_id,
+            # Commercial Performance Stage 2B: copied verbatim from the
+            # order, never re-read from Partner.default_sales_rep_id.
+            # SalesInvoice has no update path, so this is permanently
+            # fixed by construction from this point on.
+            sales_rep_id=order.sales_rep_id,
         )
         try:
             await self.invoice_repo.add(invoice, invoice_lines)
@@ -809,6 +840,10 @@ class SalesInvoiceService:
             subtotal_amount=original.subtotal_amount,
             tax_amount=original.tax_amount,
             total_amount=original.total_amount,
+            # Commercial Performance Stage 2C: inherited directly from the
+            # original invoice, never re-read from Partner.default_sales_rep_id
+            # — historical attribution must stay accurate.
+            sales_rep_id=original.sales_rep_id,
         )
         await self.invoice_repo.add(credit_note, credit_lines)
 
@@ -939,6 +974,15 @@ class SalesInvoiceService:
             subtotal_amount=subtotal,
             tax_amount=tax_total,
             total_amount=subtotal + tax_total,
+            # Commercial Performance Stage 2C: inherited from the original
+            # invoice when one is referenced (never re-derived from the
+            # partner). For a genuinely freeform return with no original,
+            # this is a live read of Partner.default_sales_rep_id at the
+            # moment of creation — there is nothing else to inherit from —
+            # documented per the approved design as the one intentional
+            # exception to "never re-read the partner default"; once set,
+            # it becomes an independent snapshot like every other case.
+            sales_rep_id=original.sales_rep_id if original is not None else partner.default_sales_rep_id,
         )
         try:
             await self.invoice_repo.add(credit_note, credit_lines)
