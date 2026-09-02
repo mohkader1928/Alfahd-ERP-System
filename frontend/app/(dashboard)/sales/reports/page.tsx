@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import { formatCurrency } from "@/lib/format-currency";
 import { reportExportHandlers } from "@/lib/report-export";
 import { useSortedRows } from "@/lib/use-sorted-rows";
 import type {
+  RepresentativePerformanceRow,
   SalesByCustomerRow,
   SalesByPeriodRow,
   SalesByProductRow,
@@ -475,6 +477,138 @@ function ByPeriodTab() {
   );
 }
 
+// ── Tab: By Representative (Commercial Performance Stage 3 Part D) ────────────
+
+function ByRepresentativeTab() {
+  const { t } = useI18n();
+  const companyId = useAuthStore((s) => s.activeCompanyId)!;
+  const { dateFrom, setDateFrom, dateTo, setDateTo } = useDateRange();
+  const [ranAt, setRanAt] = useState<{ from: string; to: string } | null>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["commercial-by-representative", companyId, ranAt?.from, ranAt?.to],
+    queryFn: () => reportingApi.commercialByRepresentative(companyId, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+
+  const rows: RepresentativePerformanceRow[] = reportQuery.data ?? [];
+  const totals = rows.reduce(
+    (acc, r) => ({
+      gross_sales: acc.gross_sales + Number(r.gross_sales),
+      returns: acc.returns + Number(r.returns),
+      net_sales: acc.net_sales + Number(r.net_sales),
+      invoice_count: acc.invoice_count + r.invoice_count,
+      customer_count: acc.customer_count + r.customer_count,
+    }),
+    { gross_sales: 0, returns: 0, net_sales: 0, invoice_count: 0, customer_count: 0 }
+  );
+  const { sort, toggleSort, sortedRows } = useSortedRows(rows, {
+    representative_name: (r) => r.representative_name,
+    gross_sales: (r) => Number(r.gross_sales),
+    returns: (r) => Number(r.returns),
+    net_sales: (r) => Number(r.net_sales),
+    invoice_count: (r) => r.invoice_count,
+    customer_count: (r) => r.customer_count,
+    average_invoice_value: (r) => Number(r.average_invoice_value),
+  });
+  const displayRows = sortedRows ?? rows;
+
+  return (
+    <ReportView
+      title={t("sales.reports.tab.by_representative")}
+      filterArea={<DateRangeFilter dateFrom={dateFrom} setDateFrom={setDateFrom} dateTo={dateTo} setDateTo={setDateTo} />}
+      onApply={() => setRanAt({ from: dateFrom, to: dateTo })}
+      onReset={() => setRanAt(null)}
+      onPrint={ranAt && rows.length > 0 ? () => window.print() : undefined}
+      isLoading={reportQuery.isFetching}
+      isError={reportQuery.isError}
+      errorMessage={String(reportQuery.error ?? "")}
+      onRetry={() => reportQuery.refetch()}
+      isEmpty={!!ranAt && !reportQuery.isFetching && rows.length === 0}
+      kpis={
+        ranAt && rows.length > 0
+          ? [
+              { label: t("sales.reports.representative.representative_count"), value: String(rows.length) },
+              { label: t("sales.reports.grand_total"), value: formatCurrency(totals.net_sales) },
+            ]
+          : undefined
+      }
+    >
+      {!ranAt && <p className="text-sm text-muted-foreground">{t("sales.reports.run_hint")}</p>}
+      {ranAt && rows.length > 0 && (
+        <>
+          <ReportPrintHeader
+            reportTitle={t("sales.reports.tab.by_representative")}
+            dateRangeLabel={`${ranAt.from} – ${ranAt.to}`}
+          />
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortableTableHead sortKey="representative_name" sort={sort} onSort={toggleSort}>
+                  {t("sales.reports.representative.representative")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="gross_sales" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.representative.gross_sales")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="returns" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.representative.returns")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="net_sales" sort={sort} onSort={toggleSort} align="end" className="font-semibold">
+                  {t("sales.reports.representative.net_sales")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="invoice_count" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.representative.invoice_count")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="customer_count" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.representative.customer_count")}
+                </SortableTableHead>
+                <SortableTableHead sortKey="average_invoice_value" sort={sort} onSort={toggleSort} align="end">
+                  {t("sales.reports.representative.average_invoice")}
+                </SortableTableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {displayRows.map((row) => (
+                <TableRow key={row.representative_id ?? "unattributed"}>
+                  <TableCell className="font-medium">
+                    {row.is_unattributed || !row.representative_id ? (
+                      <span className="text-muted-foreground italic">{row.representative_name}</span>
+                    ) : (
+                      <Link
+                        href={`/master-data/sales-representatives/${row.representative_id}`}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {row.representative_name}
+                      </Link>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-end tabular-nums">{formatCurrency(row.gross_sales)}</TableCell>
+                  <TableCell className="text-end tabular-nums">{formatCurrency(row.returns)}</TableCell>
+                  <TableCell className="text-end tabular-nums font-semibold">{formatCurrency(row.net_sales)}</TableCell>
+                  <TableCell className="text-end tabular-nums">{row.invoice_count}</TableCell>
+                  <TableCell className="text-end tabular-nums">{row.customer_count}</TableCell>
+                  <TableCell className="text-end tabular-nums">{formatCurrency(row.average_invoice_value)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow>
+                <TableCell className="font-bold">{t("sales.reports.totals")}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.gross_sales)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.returns)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{formatCurrency(totals.net_sales)}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{totals.invoice_count}</TableCell>
+                <TableCell className="text-end font-bold tabular-nums">{totals.customer_count}</TableCell>
+                <TableCell />
+              </TableRow>
+            </TableFooter>
+          </Table>
+        </>
+      )}
+    </ReportView>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SalesReportsPage() {
@@ -492,6 +626,7 @@ export default function SalesReportsPage() {
           <TabsTrigger value="by_customer">{t("sales.reports.tab.by_customer")}</TabsTrigger>
           <TabsTrigger value="by_product">{t("sales.reports.tab.by_product")}</TabsTrigger>
           <TabsTrigger value="by_period">{t("sales.reports.tab.by_period")}</TabsTrigger>
+          <TabsTrigger value="by_representative">{t("sales.reports.tab.by_representative")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="by_customer" className="mt-4">
@@ -504,6 +639,10 @@ export default function SalesReportsPage() {
 
         <TabsContent value="by_period" className="mt-4">
           <ByPeriodTab />
+        </TabsContent>
+
+        <TabsContent value="by_representative" className="mt-4">
+          <ByRepresentativeTab />
         </TabsContent>
       </Tabs>
     </div>

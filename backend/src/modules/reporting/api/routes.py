@@ -24,6 +24,7 @@ from src.modules.reporting.api.schemas import (
     DashboardSummaryOut,
     InventoryReconciliationOut,
     InventoryValuationRowOut,
+    NetSalesTrendPointOut,
     PurchaseByVendorRow,
     RepresentativeCustomerRow,
     RepresentativePerformanceDetailOut,
@@ -300,6 +301,19 @@ async def commercial_by_representative(
     return await service.by_representative(
         company_id=ctx.company_id, date_from=date_from, date_to=date_to, representative_id=representative_id
     )
+
+
+@router.get("/commercial/net-sales-trend", response_model=list[NetSalesTrendPointOut])
+async def commercial_net_sales_trend(
+    date_from: date,
+    date_to: date,
+    ctx: AuthContext = Depends(require_permission("reporting.commercial.view")),
+    service: CommercialPerformanceReportingService = Depends(get_commercial_performance_reporting_service),
+):
+    """Executive Dashboard redesign: monthly points using the exact same
+    authoritative pre-tax Net Sales formula as `/commercial/by-representative`
+    — see `net_sales_trend`'s own docstring."""
+    return await service.net_sales_trend(company_id=ctx.company_id, date_from=date_from, date_to=date_to)
 
 
 @router.get(

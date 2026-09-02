@@ -435,6 +435,26 @@ async def test_dashboard_commercial_kpis_reconcile_with_by_representative_report
         },
     )
 
+    # Executive Dashboard redesign: the Dashboard's Commercial Performance
+    # section no longer carries its own bundled commercial_* fields — it
+    # calls /commercial/by-representative directly (same architecture as
+    # Sales Reports and the Representative Performance page), so there is
+    # structurally only one Net Sales calculation to reconcile against.
+    # /commercial/net-sales-trend must sum to the exact same Net Sales
+    # total as /commercial/by-representative for the same range.
+    trend = (
+        await client.get(
+            "/api/v1/reporting/commercial/net-sales-trend",
+            headers=headers,
+            params={"date_from": "2026-01-01", "date_to": "2026-12-31"},
+        )
+    ).json()
+    rows = await _by_representative(client, headers)
+
+    trend_net_sales_total = sum((Decimal(p["net_sales"]) for p in trend), Decimal("0"))
+    by_rep_net_sales_total = sum((Decimal(r["net_sales"]) for r in rows), Decimal("0"))
+    assert trend_net_sales_total == by_rep_net_sales_total
+
     dashboard = (
         await client.get(
             "/api/v1/reporting/dashboard",
@@ -442,10 +462,5 @@ async def test_dashboard_commercial_kpis_reconcile_with_by_representative_report
             params={"period_start": "2026-01-01", "period_end": "2026-12-31"},
         )
     ).json()
-    rows = await _by_representative(client, headers)
-
-    assert Decimal(dashboard["commercial_total_sales"]) == sum((Decimal(r["gross_sales"]) for r in rows), Decimal("0"))
-    assert Decimal(dashboard["commercial_net_commission"]) == sum((Decimal(r["net_commission"]) for r in rows), Decimal("0"))
-    assert len(dashboard["representative_performance"]) == len(rows)
-    rep_ids_in_dashboard = {r["representative_id"] for r in dashboard["representative_performance"]}
-    assert rep["id"] in rep_ids_in_dashboard
+    assert "commercial_total_sales" not in dashboard
+    assert "representative_performance" not in dashboard

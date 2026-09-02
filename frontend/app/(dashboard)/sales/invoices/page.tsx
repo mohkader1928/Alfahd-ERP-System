@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { ERPListView, type ERPColumn } from "@/components/erp/list-view/erp-list-view";
@@ -38,14 +39,31 @@ export default function SalesInvoicesPage() {
   const queryClient = useQueryClient();
   const customer = useCustomerLabel();
   const [filters, setFilters] = useState<Record<string, string>>({});
+  // Commercial Performance Stage 3 Phase 4: Representative -> Customer ->
+  // Invoice drill-down lands here with these two query params pre-filtering
+  // the list server-side, mirroring the Trial Balance -> General Ledger
+  // `?account=` deep-link pattern already used in accounting/page.tsx.
+  const searchParams = useSearchParams();
+  const drillDownPartnerId = searchParams.get("partner_id") ?? undefined;
+  const drillDownSalesRepId = searchParams.get("sales_rep_id") ?? undefined;
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["sales-invoices", companyId, filters.status, filters.date_from, filters.date_to],
+    queryKey: [
+      "sales-invoices",
+      companyId,
+      filters.status,
+      filters.date_from,
+      filters.date_to,
+      drillDownPartnerId,
+      drillDownSalesRepId,
+    ],
     queryFn: () =>
       salesApi.listInvoices(companyId, {
         status: filters.status || undefined,
         dateFrom: filters.date_from || undefined,
         dateTo: filters.date_to || undefined,
+        partnerId: drillDownPartnerId,
+        salesRepId: drillDownSalesRepId,
         pageSize: 200,
       }),
   });
@@ -129,31 +147,56 @@ export default function SalesInvoicesPage() {
     },
   ];
 
+  const drillDownRepQuery = useQuery({
+    queryKey: ["sales-representative", companyId, drillDownSalesRepId],
+    queryFn: () => identityApi.getSalesRepresentative(companyId, drillDownSalesRepId!),
+    enabled: !!drillDownSalesRepId,
+  });
+
   return (
-    <ERPListView
-      title={t("sales.invoices.title")}
-      breadcrumbs={[{ label: t("nav.sales") }, { label: t("sales.invoices.title") }]}
-      columns={columns}
-      rows={invoices}
-      rowKey={(row) => row.id}
-      getRowHref={(row) => `/sales/invoices/${row.id}`}
-      isLoading={isLoading}
-      isError={isError}
-      errorMessage={error instanceof ApiError ? error.detail : undefined}
-      onRetry={() => refetch()}
-      onRefresh={() => queryClient.invalidateQueries({ queryKey: ["sales-invoices", companyId] })}
-      searchPlaceholder={t("list.search_placeholder")}
-      searchText={(row) => `${row.number} ${customer.label(row.partner_id)}`}
-      emptyDescription={t("sales.invoices.empty_description")}
-      exportAction={{ label: t("common.export"), onClick: handleExportCsv }}
-      filters={
-        <FilterBar
-          fields={filterFields}
-          values={filters}
-          onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
-          onClear={() => setFilters({})}
-        />
-      }
-    />
+    <div className="space-y-3">
+      {(drillDownPartnerId || drillDownSalesRepId) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+          <span>
+            {t("sales.invoices.drill_down_filtered_by")}{" "}
+            {drillDownPartnerId && (
+              <span className="font-medium">{customer.label(drillDownPartnerId)}</span>
+            )}
+            {drillDownPartnerId && drillDownSalesRepId && " · "}
+            {drillDownSalesRepId && (
+              <span className="font-medium">{drillDownRepQuery.data?.name ?? drillDownSalesRepId}</span>
+            )}
+          </span>
+          <Link href="/sales/invoices" className="text-muted-foreground underline-offset-4 hover:underline">
+            {t("sales.invoices.drill_down_clear")}
+          </Link>
+        </div>
+      )}
+      <ERPListView
+        title={t("sales.invoices.title")}
+        breadcrumbs={[{ label: t("nav.sales") }, { label: t("sales.invoices.title") }]}
+        columns={columns}
+        rows={invoices}
+        rowKey={(row) => row.id}
+        getRowHref={(row) => `/sales/invoices/${row.id}`}
+        isLoading={isLoading}
+        isError={isError}
+        errorMessage={error instanceof ApiError ? error.detail : undefined}
+        onRetry={() => refetch()}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["sales-invoices", companyId] })}
+        searchPlaceholder={t("list.search_placeholder")}
+        searchText={(row) => `${row.number} ${customer.label(row.partner_id)}`}
+        emptyDescription={t("sales.invoices.empty_description")}
+        exportAction={{ label: t("common.export"), onClick: handleExportCsv }}
+        filters={
+          <FilterBar
+            fields={filterFields}
+            values={filters}
+            onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
+            onClear={() => setFilters({})}
+          />
+        }
+      />
+    </div>
   );
 }

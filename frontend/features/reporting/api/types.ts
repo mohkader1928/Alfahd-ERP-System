@@ -22,20 +22,14 @@ export interface DashboardSummary {
   sales_trend: SalesTrendPoint[];
   pending_approvals_count: number;
   recent_activity: RecentActivityItem[];
-  // Commercial Performance Stage 3
-  commercial_total_sales: string;
-  commercial_total_returns: string;
-  commercial_net_sales: string;
-  commercial_total_collections: string;
-  commercial_sales_commission: string;
-  commercial_collection_commission: string;
-  commercial_net_commission: string;
-  commercial_unattributed_sales: string;
-  representative_performance: RepresentativePerformanceRow[];
-  collections_trend: SalesTrendPoint[];
 }
 
 // ── Commercial Performance Reports (Stage 3) ─────────────────────────────────
+
+export interface NetSalesTrendPoint {
+  period_label: string;
+  net_sales: string;
+}
 
 export interface RepresentativePerformanceRow {
   representative_id: string | null;

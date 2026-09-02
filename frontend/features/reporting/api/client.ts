@@ -3,6 +3,7 @@ import type {
   DashboardSummary,
   InventoryReconciliation,
   InventoryValuationRow,
+  NetSalesTrendPoint,
   PurchaseByVendorRow,
   RepresentativeCustomerRow,
   RepresentativePerformanceDetail,
@@ -57,6 +58,12 @@ export const reportingApi = {
       `${BASE}/commercial/by-representative?date_from=${dateFrom}&date_to=${dateTo}${
         representativeId ? `&representative_id=${representativeId}` : ""
       }`,
+      { companyId }
+    ),
+
+  commercialNetSalesTrend: (companyId: string, dateFrom: string, dateTo: string) =>
+    apiClient.get<NetSalesTrendPoint[]>(
+      `${BASE}/commercial/net-sales-trend?date_from=${dateFrom}&date_to=${dateTo}`,
       { companyId }
     ),
 

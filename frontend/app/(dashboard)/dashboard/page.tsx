@@ -2,24 +2,13 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  Banknote,
-  FileText,
-  HandCoins,
-  Landmark,
-  Percent,
-  ShoppingCart,
-  TrendingDown,
-  TrendingUp,
-  Wallet,
-} from "lucide-react";
+import { AlertTriangle, FileText, Landmark, ShoppingCart, TrendingUp, Wallet } from "lucide-react";
 import { DashboardGrid } from "@/components/erp/dashboard/dashboard-grid";
 import { KpiCard } from "@/components/erp/dashboard/kpi-card";
 import { SalesTrendChart } from "@/components/erp/dashboard/sales-trend-chart";
 import { QuarterlySalesChart } from "@/components/erp/dashboard/quarterly-sales-chart";
 import { RecentActivityFeed } from "@/components/erp/dashboard/recent-activity-feed";
-import { RepresentativePerformanceTable } from "@/components/erp/dashboard/representative-performance-table";
+import { CommercialPerformanceSection } from "@/components/erp/dashboard/commercial-performance-section";
 import { EntityImage } from "@/components/erp/entity-image/entity-image";
 import { PermissionDenied } from "@/components/erp/states/permission-denied";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,6 +68,14 @@ export default function DashboardPage() {
   // (or its href's destination) belongs to -- a role scoped to one module
   // sees only that module's tiles, instead of a tile whose value it can't
   // see or whose click 403s.
+  //
+  // NOTE (Executive Dashboard redesign): "dashboard.period_sales" is
+  // VAT-inclusive (SalesInvoiceRepository.sum_total_in_range, total_amount
+  // net of credit notes) and labelled "Total invoiced (incl. VAT) this
+  // period" precisely so it is never confused with the Commercial
+  // Performance section's pre-tax "Net Sales" below — the two used to
+  // both read "Net Sales" with different numbers; only one is now called
+  // Net Sales anywhere in this app.
   const allCards = [
     {
       key: "dashboard.period_sales",
@@ -121,58 +118,10 @@ export default function DashboardPage() {
   ];
   const cards = allCards.filter((card) => can(card.permission));
 
-  // Commercial Performance Stage 3: a separate KPI row, same fixed-accent
-  // KpiCard pattern as above — gated by one permission since these all
-  // come from the same reportingApi.getDashboard() call already fetched
-  // above (no second request).
-  const commercialCards = [
-    {
-      key: "dashboard.commercial.total_sales",
-      value: data?.commercial_total_sales,
-      icon: TrendingUp,
-      accent: "bg-[#2a78d6]/15 text-[#2a78d6] dark:bg-[#3987e5]/20 dark:text-[#3987e5]",
-    },
-    {
-      key: "dashboard.commercial.total_returns",
-      value: data?.commercial_total_returns,
-      icon: TrendingDown,
-      accent: "bg-[#eb6834]/15 text-[#eb6834] dark:bg-[#d95926]/20 dark:text-[#d95926]",
-    },
-    {
-      key: "dashboard.commercial.net_sales",
-      value: data?.commercial_net_sales,
-      icon: TrendingUp,
-      accent: "bg-[#1baf7a]/15 text-[#1baf7a] dark:bg-[#199e70]/20 dark:text-[#199e70]",
-    },
-    {
-      key: "dashboard.commercial.total_collections",
-      value: data?.commercial_total_collections,
-      icon: Banknote,
-      accent: "bg-[#e87ba4]/15 text-[#e87ba4] dark:bg-[#d55181]/20 dark:text-[#d55181]",
-    },
-    {
-      key: "dashboard.commercial.sales_commission",
-      value: data?.commercial_sales_commission,
-      icon: Percent,
-      accent: "bg-[#eda100]/15 text-[#eda100] dark:bg-[#c98500]/20 dark:text-[#c98500]",
-    },
-    {
-      key: "dashboard.commercial.collection_commission",
-      value: data?.commercial_collection_commission,
-      icon: HandCoins,
-      accent: "bg-[#2a78d6]/15 text-[#2a78d6] dark:bg-[#3987e5]/20 dark:text-[#3987e5]",
-    },
-    {
-      key: "dashboard.commercial.net_commission",
-      value: data?.commercial_net_commission,
-      icon: Percent,
-      accent: "bg-[#eb6834]/15 text-[#eb6834] dark:bg-[#d95926]/20 dark:text-[#d95926]",
-    },
-  ];
-  const canViewCommercial = can("reporting.commercial.view");
-
   const pendingApprovals = data?.pending_approvals_count ?? 0;
   const canViewPurchasing = can("purchasing.order.view");
+  const canViewCommercial = can("reporting.commercial.view");
+  const canViewAr = can("payment.aging.view");
 
   return (
     <div className="space-y-6">
@@ -286,58 +235,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {canViewCommercial && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">{t("dashboard.commercial.title")}</h2>
-
-          <DashboardGrid>
-            {commercialCards.map((card) => (
-              <KpiCard
-                key={card.key}
-                label={t(card.key)}
-                value={formatCurrency(card.value ?? "0")}
-                isLoading={isLoading}
-                isError={isError}
-                icon={card.icon}
-                accentClassName={card.accent}
-              />
-            ))}
-          </DashboardGrid>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle className="text-base">{t("dashboard.commercial.representative_table.title")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {isLoading ? (
-                  <div className="h-40 animate-pulse rounded-md bg-muted" />
-                ) : (
-                  <RepresentativePerformanceTable rows={data?.representative_performance ?? []} />
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">{t("dashboard.collections_trend.title")}</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  {formatDate(start, locale)} – {formatDate(end, locale)}
-                </p>
-              </CardHeader>
-              <CardContent>
-                {isLoading ? (
-                  <div className="h-40 animate-pulse rounded-md bg-muted" />
-                ) : data && data.collections_trend.length > 0 ? (
-                  <SalesTrendChart points={data.collections_trend} />
-                ) : (
-                  <p className="py-12 text-center text-sm text-muted-foreground">{t("common.empty")}</p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
+      <CommercialPerformanceSection companyId={companyId} canView={canViewCommercial} canViewAr={canViewAr} />
 
       <Card>
         <CardHeader>

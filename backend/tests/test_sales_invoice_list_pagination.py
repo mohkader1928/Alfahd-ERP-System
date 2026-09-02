@@ -38,24 +38,25 @@ async def _bootstrap_and_login(client):
     return company_id, headers
 
 
-async def _issue_invoice(client, headers, *, invoice_date: str):
-    partner = await client.post(
-        "/api/v1/identity/partners", headers=headers, json={"name": "Pagination Customer", "is_customer": True}
-    )
+async def _issue_invoice(client, headers, *, invoice_date: str, partner_id: str | None = None, sales_rep_id: str | None = None):
+    if partner_id is None:
+        partner = await client.post(
+            "/api/v1/identity/partners", headers=headers, json={"name": "Pagination Customer", "is_customer": True}
+        )
+        partner_id = partner.json()["id"]
     product = await client.post(
         "/api/v1/identity/products",
         headers=headers,
         json={"sku": f"PAGE-{unique_vat()[:8]}", "name": "Pagination Product", "sales_price": "10.00"},
     )
-    quote = await client.post(
-        "/api/v1/sales/quotations",
-        headers=headers,
-        json={
-            "partner_id": partner.json()["id"],
-            "quote_date": invoice_date,
-            "lines": [{"product_id": product.json()["id"], "qty": "1", "unit_price": "10.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
-        },
-    )
+    quote_payload = {
+        "partner_id": partner_id,
+        "quote_date": invoice_date,
+        "lines": [{"product_id": product.json()["id"], "qty": "1", "unit_price": "10.00", "tax_rate_id": TAX_RATE_PLACEHOLDER}],
+    }
+    if sales_rep_id is not None:
+        quote_payload["sales_rep_id"] = sales_rep_id
+    quote = await client.post("/api/v1/sales/quotations", headers=headers, json=quote_payload)
     order_id = (await client.post(f"/api/v1/sales/quotations/{quote.json()['id']}:confirm", headers=headers)).json()["id"]
     invoice_resp = await client.post(f"/api/v1/sales/orders/{order_id}:invoice", headers=headers)
     assert invoice_resp.status_code == 201
@@ -123,3 +124,38 @@ async def test_date_range_filter_narrows_results(client):
         )
     ).json()
     assert out_of_range["total"] == 0
+
+
+async def test_sales_rep_id_filter_narrows_results(client):
+    """Commercial Performance Stage 3 Phase 4: backs the Representative ->
+    Customer -> Invoice drill-down — a customer with invoices from two
+    different reps must only see the one rep's invoices when both
+    partner_id and sales_rep_id are passed."""
+    _, headers = await _bootstrap_and_login(client)
+    rep_a = (
+        await client.post(
+            "/api/v1/identity/sales-representatives", headers=headers, json={"name": "Rep A", "code": "PGREPA"}
+        )
+    ).json()
+    rep_b = (
+        await client.post(
+            "/api/v1/identity/sales-representatives", headers=headers, json={"name": "Rep B", "code": "PGREPB"}
+        )
+    ).json()
+    partner = await client.post(
+        "/api/v1/identity/partners", headers=headers, json={"name": "Shared Customer", "is_customer": True}
+    )
+    partner_id = partner.json()["id"]
+    invoice_a = await _issue_invoice(client, headers, invoice_date="2026-06-01", partner_id=partner_id, sales_rep_id=rep_a["id"])
+    invoice_b = await _issue_invoice(client, headers, invoice_date="2026-06-01", partner_id=partner_id, sales_rep_id=rep_b["id"])
+
+    rep_a_only = (
+        await client.get(
+            "/api/v1/sales/invoices",
+            headers=headers,
+            params={"partner_id": partner_id, "sales_rep_id": rep_a["id"]},
+        )
+    ).json()
+    ids = {inv["id"] for inv in rep_a_only["items"]}
+    assert invoice_a["id"] in ids
+    assert invoice_b["id"] not in ids

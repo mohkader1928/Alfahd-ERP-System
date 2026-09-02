@@ -275,6 +275,7 @@ class SalesInvoiceRepository:
         company_id: UUID,
         *,
         partner_id: UUID | None = None,
+        sales_rep_id: UUID | None = None,
         status: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
@@ -295,6 +296,8 @@ class SalesInvoiceRepository:
         conditions = [SalesInvoice.company_id == company_id]
         if partner_id is not None:
             conditions.append(SalesInvoice.partner_id == partner_id)
+        if sales_rep_id is not None:
+            conditions.append(SalesInvoice.sales_rep_id == sales_rep_id)
         if status is not None:
             conditions.append(SalesInvoice.status == status)
         if date_from is not None:

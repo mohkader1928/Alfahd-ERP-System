@@ -36,7 +36,6 @@ def get_dashboard_service(db: AsyncSession = Depends(get_db)) -> DashboardServic
         JournalEntryRepository(db),
         order_repo=PurchaseOrderRepository(db),
         payment_repo=PaymentRepository(db),
-        commercial_service=CommercialPerformanceReportingService(db),
     )
 
 

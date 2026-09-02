@@ -17,6 +17,10 @@ interface KpiCardProps {
    * skill slots 1-5, validated colorblind-safe) — never cycled/random,
    * so the same KPI always reads the same color. */
   accentClassName: string;
+  /** Executive Dashboard redesign: an optional small line under the
+   * value — e.g. "↑ 12% vs previous period" — for period-over-period
+   * comparison. Plain ReactNode so callers control color (green/red/muted). */
+  subtext?: React.ReactNode;
 }
 
 /**
@@ -24,7 +28,16 @@ interface KpiCardProps {
  * color replaces the old flat gray card — the same numbers, but scannable
  * at a glance instead of five identical gray rectangles.
  */
-export function KpiCard({ label, value, isLoading, isError, href, icon: Icon, accentClassName }: KpiCardProps) {
+export function KpiCard({
+  label,
+  value,
+  isLoading,
+  isError,
+  href,
+  icon: Icon,
+  accentClassName,
+  subtext,
+}: KpiCardProps) {
   const { t } = useI18n();
   const body = (
     <Card className={href ? "h-full transition-colors hover:bg-muted/40" : "h-full"}>
@@ -39,7 +52,10 @@ export function KpiCard({ label, value, isLoading, isError, href, icon: Icon, ac
           ) : isError ? (
             <p className="text-xs text-destructive">{t("common.error")}</p>
           ) : (
-            <p className="truncate text-base font-semibold tabular-nums">{value}</p>
+            <>
+              <p className="truncate text-base font-semibold tabular-nums">{value}</p>
+              {subtext && <p className="truncate text-xs">{subtext}</p>}
+            </>
           )}
         </div>
       </CardContent>

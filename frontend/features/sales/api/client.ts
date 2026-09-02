@@ -14,6 +14,7 @@ import type {
 
 export interface SalesInvoiceListFilters {
   partnerId?: string;
+  salesRepId?: string;
   status?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -108,6 +109,7 @@ export const salesApi = {
   listInvoices: (companyId: string, filters: SalesInvoiceListFilters = {}) => {
     const qs = new URLSearchParams();
     if (filters.partnerId) qs.set("partner_id", filters.partnerId);
+    if (filters.salesRepId) qs.set("sales_rep_id", filters.salesRepId);
     if (filters.status) qs.set("status", filters.status);
     if (filters.dateFrom) qs.set("date_from", filters.dateFrom);
     if (filters.dateTo) qs.set("date_to", filters.dateTo);

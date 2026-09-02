@@ -67,19 +67,6 @@ class DashboardSummary:
     sales_trend: list[SalesTrendPoint]
     pending_approvals_count: int
     recent_activity: list[RecentActivityItem]
-    # Commercial Performance Stage 3 — "COMMERCIAL PERFORMANCE" dashboard
-    # section. All zero/empty when commercial_service isn't wired (keeps
-    # every pre-Stage-3 DashboardService caller/test working unchanged).
-    commercial_total_sales: Decimal
-    commercial_total_returns: Decimal
-    commercial_net_sales: Decimal
-    commercial_total_collections: Decimal
-    commercial_sales_commission: Decimal
-    commercial_collection_commission: Decimal
-    commercial_net_commission: Decimal
-    commercial_unattributed_sales: Decimal
-    representative_performance: list[dict]
-    collections_trend: list[SalesTrendPoint]
 
 
 def _month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -120,14 +107,12 @@ class DashboardService:
         journal_entry_repo: JournalEntryRepository,
         order_repo: PurchaseOrderRepository | None = None,
         payment_repo: PaymentRepository | None = None,
-        commercial_service: "CommercialPerformanceReportingService | None" = None,
     ):
         self.invoice_repo = invoice_repo
         self.bill_repo = bill_repo
         self.journal_entry_repo = journal_entry_repo
         self.order_repo = order_repo
         self.payment_repo = payment_repo
-        self.commercial_service = commercial_service
 
     async def get_summary(self, *, company_id: UUID, period_start: date, period_end: date) -> DashboardSummary:
         sales_total = await self.invoice_repo.sum_total_in_range(company_id, period_start, period_end)
@@ -159,8 +144,6 @@ class DashboardService:
             sales_trend=await self._sales_trend(company_id, period_start, period_end),
             pending_approvals_count=await self._pending_approvals_count(company_id),
             recent_activity=await self._recent_activity(company_id),
-            **await self._commercial_summary(company_id, period_start, period_end),
-            collections_trend=await self._collections_trend(company_id, period_start, period_end),
         )
 
     async def _sales_trend(self, company_id: UUID, period_start: date, period_end: date) -> list[SalesTrendPoint]:
@@ -170,49 +153,6 @@ class DashboardService:
             total = await self.invoice_repo.sum_total_in_range(company_id, start, end)
             points.append(SalesTrendPoint(period_label=f"{year:04d}-{month:02d}", total=total))
         return points
-
-    async def _collections_trend(self, company_id: UUID, period_start: date, period_end: date) -> list[SalesTrendPoint]:
-        if self.payment_repo is None:
-            return []
-        points = []
-        for year, month in _months_in_range(period_start, period_end):
-            start, end = _month_bounds(year, month)
-            total = await self.payment_repo.sum_customer_amount_in_range(company_id, start, end)
-            points.append(SalesTrendPoint(period_label=f"{year:04d}-{month:02d}", total=total))
-        return points
-
-    async def _commercial_summary(self, company_id: UUID, period_start: date, period_end: date) -> dict:
-        """Commercial Performance Stage 3 KPI cards, computed by summing
-        the same `by_representative` rollup the Dashboard's own
-        Representative Performance table uses — one query set, two
-        consumers, never two different figures for the same period."""
-        if self.commercial_service is None:
-            return {
-                "commercial_total_sales": Decimal("0"),
-                "commercial_total_returns": Decimal("0"),
-                "commercial_net_sales": Decimal("0"),
-                "commercial_total_collections": Decimal("0"),
-                "commercial_sales_commission": Decimal("0"),
-                "commercial_collection_commission": Decimal("0"),
-                "commercial_net_commission": Decimal("0"),
-                "commercial_unattributed_sales": Decimal("0"),
-                "representative_performance": [],
-            }
-        rows = await self.commercial_service.by_representative(
-            company_id=company_id, date_from=period_start, date_to=period_end
-        )
-        unattributed = next((r["gross_sales"] for r in rows if r["is_unattributed"]), Decimal("0"))
-        return {
-            "commercial_total_sales": sum((r["gross_sales"] for r in rows), Decimal("0")),
-            "commercial_total_returns": sum((r["returns"] for r in rows), Decimal("0")),
-            "commercial_net_sales": sum((r["net_sales"] for r in rows), Decimal("0")),
-            "commercial_total_collections": sum((r["collections"] for r in rows), Decimal("0")),
-            "commercial_sales_commission": sum((r["sales_commission"] for r in rows), Decimal("0")),
-            "commercial_collection_commission": sum((r["collection_commission"] for r in rows), Decimal("0")),
-            "commercial_net_commission": sum((r["net_commission"] for r in rows), Decimal("0")),
-            "commercial_unattributed_sales": unattributed,
-            "representative_performance": rows,
-        }
 
     async def _pending_approvals_count(self, company_id: UUID) -> int:
         if self.order_repo is None:
@@ -583,6 +523,43 @@ class CommercialPerformanceReportingService:
             )
         rows.sort(key=lambda r: r["net_sales"], reverse=True)
         return rows
+
+    async def net_sales_trend(self, *, company_id: UUID, date_from: date, date_to: date) -> list[dict]:
+        """Executive Dashboard redesign: monthly Net Sales points for the
+        Dashboard's trend chart. NOT a second Net Sales formula — the exact
+        same WHERE clause as `_gross_sales_by_rep`/`_returns_by_rep` above
+        (subtotal_amount, `_FORWARD_INVOICE_TYPES` minus `credit_note`,
+        `_FINALIZED_STATUSES`), just grouped by calendar month instead of
+        by representative, so a monthly series doesn't require looping
+        `by_representative` once per month."""
+        month_expr = func.to_char(SalesInvoice.invoice_date, "YYYY-MM")
+        stmt = (
+            select(
+                month_expr.label("period_label"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (SalesInvoice.invoice_type == "credit_note", -SalesInvoice.subtotal_amount),
+                            else_=SalesInvoice.subtotal_amount,
+                        )
+                    ),
+                    0,
+                ).label("net_sales"),
+            )
+            .where(
+                SalesInvoice.company_id == company_id,
+                SalesInvoice.status.in_(_FINALIZED_STATUSES),
+                SalesInvoice.invoice_type.in_((*_FORWARD_INVOICE_TYPES, "credit_note")),
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(month_expr)
+            .order_by(month_expr)
+        )
+        result = await self.session.execute(stmt)
+        return [
+            {"period_label": row.period_label, "net_sales": Decimal(str(row.net_sales))} for row in result.all()
+        ]
 
     async def representative_customers(
         self, *, company_id: UUID, representative_id: UUID, date_from: date, date_to: date

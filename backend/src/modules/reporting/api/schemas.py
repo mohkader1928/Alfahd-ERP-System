@@ -46,17 +46,14 @@ class DashboardSummaryOut(BaseModel):
     sales_trend: list[SalesTrendPointOut]
     pending_approvals_count: int
     recent_activity: list[RecentActivityItemOut]
-    # Commercial Performance Stage 3
-    commercial_total_sales: Decimal
-    commercial_total_returns: Decimal
-    commercial_net_sales: Decimal
-    commercial_total_collections: Decimal
-    commercial_sales_commission: Decimal
-    commercial_collection_commission: Decimal
-    commercial_net_commission: Decimal
-    commercial_unattributed_sales: Decimal
-    representative_performance: list[RepresentativePerformanceRow]
-    collections_trend: list[SalesTrendPointOut]
+
+
+# ── Commercial Performance (Stage 3) ─────────────────────────────────────────
+
+
+class NetSalesTrendPointOut(BaseModel):
+    period_label: str
+    net_sales: Decimal
 
 
 # ── Sales Reports ──────────────────────────────────────────────────────────────

@@ -64,6 +64,24 @@ function RepresentativePerformance({ rep, companyId }: { rep: SalesRepresentativ
     enabled: !!ranAt,
   });
 
+  // Stage 3 Phase 4: Representative -> Customer -> Invoice drill-down —
+  // each customer row links into the Sales Invoices list, pre-filtered to
+  // this customer AND this representative.
+  const customersQuery = useQuery({
+    queryKey: ["representative-customers", companyId, rep.id, ranAt?.from, ranAt?.to],
+    queryFn: () => reportingApi.commercialRepresentativeCustomers(companyId, rep.id, ranAt!.from, ranAt!.to),
+    enabled: !!ranAt,
+  });
+  const customerRows = customersQuery.data ?? [];
+  const customersSort = useSortedRows(customerRows, {
+    partner_name: (r) => r.partner_name,
+    invoice_count: (r) => r.invoice_count,
+    gross_sales: (r) => Number(r.gross_sales),
+    returns: (r) => Number(r.returns),
+    net_sales: (r) => Number(r.net_sales),
+  });
+  const displayCustomerRows = customersSort.sortedRows ?? customerRows;
+
   const summary = perfQuery.data?.summary;
   const salesLines = perfQuery.data?.sales_lines ?? [];
   const returnsLines = perfQuery.data?.returns_lines ?? [];
@@ -103,7 +121,8 @@ function RepresentativePerformance({ rep, companyId }: { rep: SalesRepresentativ
   const collectionsTotal = collectionsLines.reduce((acc, r) => acc + Number(r.collection_amount), 0);
   const collectionsCommissionTotal = collectionsLines.reduce((acc, r) => acc + Number(r.commission_amount), 0);
 
-  const hasAnyRows = salesLines.length > 0 || returnsLines.length > 0 || collectionsLines.length > 0;
+  const hasAnyRows =
+    salesLines.length > 0 || returnsLines.length > 0 || collectionsLines.length > 0 || customerRows.length > 0;
 
   return (
     <ReportView
@@ -154,6 +173,59 @@ function RepresentativePerformance({ rep, companyId }: { rep: SalesRepresentativ
             reportTitle={`${rep.name} — ${t("master_data.sales_representatives.performance_title")}`}
             dateRangeLabel={`${ranAt.from} – ${ranAt.to}`}
           />
+
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold">{t("master_data.sales_representatives.perf.customers")}</h2>
+            {customerRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("common.empty")}</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableTableHead sortKey="partner_name" sort={customersSort.sort} onSort={customersSort.toggleSort}>
+                      {t("master_data.sales_representatives.perf.customer")}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="invoice_count" sort={customersSort.sort} onSort={customersSort.toggleSort} align="end">
+                      {t("master_data.sales_representatives.perf.invoice_count")}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="gross_sales" sort={customersSort.sort} onSort={customersSort.toggleSort} align="end">
+                      {t("master_data.sales_representatives.perf.gross_sales")}
+                    </SortableTableHead>
+                    <SortableTableHead sortKey="returns" sort={customersSort.sort} onSort={customersSort.toggleSort} align="end">
+                      {t("master_data.sales_representatives.perf.returns")}
+                    </SortableTableHead>
+                    <SortableTableHead
+                      sortKey="net_sales"
+                      sort={customersSort.sort}
+                      onSort={customersSort.toggleSort}
+                      align="end"
+                      className="font-semibold"
+                    >
+                      {t("master_data.sales_representatives.perf.net_sales")}
+                    </SortableTableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {displayCustomerRows.map((row) => (
+                    <TableRow key={row.partner_id}>
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/sales/invoices?partner_id=${row.partner_id}&sales_rep_id=${rep.id}`}
+                          className="underline-offset-4 hover:underline"
+                        >
+                          {row.partner_name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-end tabular-nums">{row.invoice_count}</TableCell>
+                      <TableCell className="text-end tabular-nums">{formatCurrency(row.gross_sales)}</TableCell>
+                      <TableCell className="text-end tabular-nums">{formatCurrency(row.returns)}</TableCell>
+                      <TableCell className="text-end tabular-nums font-semibold">{formatCurrency(row.net_sales)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </section>
 
           <section className="space-y-2">
             <h2 className="text-sm font-semibold">{t("master_data.sales_representatives.perf.sales_analysis")}</h2>
