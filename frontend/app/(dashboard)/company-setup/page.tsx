@@ -15,6 +15,7 @@ import { Stepper } from "@/components/ui/stepper";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/lib/i18n/config";
 import { ApiError } from "@/lib/api-client";
+import { decodeAccessToken } from "@/lib/jwt";
 import { toastSuccess } from "@/lib/toast";
 import { useAuthStore } from "@/stores/auth-store";
 import { identityApi } from "@/features/identity/api/client";
@@ -130,7 +131,14 @@ export default function CompanySetupWizardPage() {
       if (!currentRefreshToken) throw new Error("No refresh token available");
       const tokens = await identityApi.refreshToken(currentRefreshToken);
       setTokens(tokens.access_token, tokens.refresh_token);
-      setActiveCompany(company.id, null);
+      // The fresh token's authorized_companies claim now carries this
+      // company's real main-branch id (assigned server-side at creation) --
+      // read it back from there instead of guessing, same technique
+      // select-company/page.tsx already uses.
+      const decoded = decodeAccessToken(tokens.access_token);
+      const entry = decoded?.authorized_companies.find((e) => e.startsWith(`${company.id}:`));
+      const branchId = entry?.split(":")[1] ?? null;
+      setActiveCompany(company.id, branchId);
       return company;
     },
     onSuccess: (company) => {

@@ -265,6 +265,35 @@ async def test_create_company_adds_second_company_to_same_tenant(client):
     assert get_resp.status_code == 200
     assert get_resp.json()["id"] == company_b["id"]
 
+    # Regression: POST /companies used to grant the creator's own
+    # user_company_access row with branch_id=None (discarding the main
+    # branch register_company had just created), so every branch-scoped
+    # action (e.g. creating a warehouse) 400'd with "X-Branch-Id header is
+    # required" for any company created via this endpoint — live on
+    # production against 10 real tester companies. A fresh login's
+    # authorized_companies entry for the new company must carry that
+    # branch id, and it must actually work as X-Branch-Id.
+    import base64
+    import json as jsonlib
+
+    payload_b64 = new_token.split(".")[1]
+    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+    claims = jsonlib.loads(base64.urlsafe_b64decode(padded))
+    entry = next(e for e in claims["authorized_companies"] if e.startswith(f"{company_b['id']}:"))
+    company_b_branch_id = entry.split(":")[1]
+    assert company_b_branch_id
+
+    warehouse_resp = await client.post(
+        "/api/v1/inventory/warehouses",
+        headers={
+            "Authorization": f"Bearer {new_token}",
+            "X-Company-Id": company_b["id"],
+            "X-Branch-Id": company_b_branch_id,
+        },
+        json={"name": "Main Warehouse", "is_default": True},
+    )
+    assert warehouse_resp.status_code == 201
+
 
 async def test_full_two_company_flow_grants_access_and_isolates_data(client):
     """The real acceptance scenario end to end, via pure API calls: one

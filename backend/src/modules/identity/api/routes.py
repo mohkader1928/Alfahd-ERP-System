@@ -437,7 +437,7 @@ async def create_company(
     since access and permissions are separate)."""
     company_service = CompanyRegistrationService(company_repo, branch_repo, currency_repo)
     try:
-        company, _branch = await company_service.register_company(
+        company, branch = await company_service.register_company(
             tenant_id=ctx.tenant_id,
             legal_name=payload.legal_name,
             legal_name_ar=payload.legal_name_ar,
@@ -466,7 +466,7 @@ async def create_company(
         )
         await user_service.assign_role(user_id=ctx.user_id, role_id=admin_role.id)
         await user_service.grant_company_access(
-            tenant_id=ctx.tenant_id, user_id=ctx.user_id, company_id=company.id, branch_id=None
+            tenant_id=ctx.tenant_id, user_id=ctx.user_id, company_id=company.id, branch_id=branch.id
         )
         await user_service.seed_default_role_templates(company_id=company.id)
     except ValueError as e:
