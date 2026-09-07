@@ -1,8 +1,14 @@
 """Commercial Performance Stage 1 — customer/vendor credit management fields
 
 Revision ID: 625530a27ae2
-Revises: 744d11736e39
+Revises: f5a9cfddac82
 Create Date: 2026-08-30 00:00:00.000000
+
+Retargeted down_revision: originally chained after ZATCA Stage 2A's
+744d11736e39, which is not part of this deploy (ZATCA work is held back
+separately). This migration only ever touched `partner` columns and has
+no dependency on anything ZATCA added, so it now chains directly onto
+the actual current head instead.
 
 Purely additive: three new nullable columns on `partner`.
 
@@ -22,7 +28,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = '625530a27ae2'
-down_revision: Union[str, None] = '744d11736e39'
+down_revision: Union[str, None] = 'f5a9cfddac82'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
