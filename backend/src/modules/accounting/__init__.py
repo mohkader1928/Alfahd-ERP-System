@@ -32,6 +32,18 @@ async def _on_company_registered(event: CompanyRegistered) -> None:
         await service.seed_default_journals(event.company_id, accounts_by_code)
         await service.seed_default_tax_rates(event.company_id)
 
+        # INV-002 (Owner design correction): no automatic default here,
+        # for either new or existing companies. Every company's Cycle
+        # Count inventory adjustment account (AccountingSettings.
+        # inventory_adjustment_account_id, accounting/api/routes.py's
+        # /settings endpoints) starts unconfigured/NULL and must be
+        # explicitly selected by an admin -- Option 2 was chosen
+        # specifically so each company makes its own choice, not so a
+        # hardcoded "5200" dependency gets replaced by an implicit one.
+        # Cycle Count approval already handles "not configured" as a
+        # controlled 422 (AccountingSettingsService.
+        # resolve_inventory_adjustment_account), never a crash.
+
         await session.commit()
 
 

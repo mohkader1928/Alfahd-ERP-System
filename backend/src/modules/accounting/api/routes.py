@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.modules.accounting.api.deps import (
     get_account_repo,
     get_account_type_repo,
+    get_accounting_settings_repo,
     get_cost_center_repo,
     get_fiscal_period_repo,
     get_journal_entry_repo,
@@ -20,6 +21,8 @@ from src.modules.accounting.api.deps import (
 from src.modules.accounting.api.schemas import (
     AccountBalanceOut,
     AccountCreateRequest,
+    AccountingSettingsOut,
+    AccountingSettingsUpdateRequest,
     AccountOut,
     AccountUpdateRequest,
     BalanceSheetResponse,
@@ -41,6 +44,7 @@ from src.modules.accounting.api.schemas import (
 )
 from src.modules.accounting.application.services import (
     _UNSET,
+    AccountingSettingsService,
     ChartOfAccountsService,
     CostCenterService,
     FiscalPeriodService,
@@ -54,6 +58,7 @@ from src.modules.accounting.domain.entities import (
     UnbalancedEntryError,
 )
 from src.modules.accounting.infrastructure.repositories import (
+    AccountingSettingsRepository,
     AccountRepository,
     AccountTypeRepository,
     CostCenterRepository,
@@ -112,6 +117,58 @@ async def get_account_balance(
         ctx.company_id, account_id, as_of_date=date.today() + timedelta(days=1)
     )
     return AccountBalanceOut(account_id=account_id, balance=balance)
+
+
+@router.get("/settings", response_model=AccountingSettingsOut)
+async def get_accounting_settings(
+    ctx: AuthContext = Depends(require_permission("accounting.settings.manage")),
+    settings_repo: AccountingSettingsRepository = Depends(get_accounting_settings_repo),
+):
+    """INV-002. No row yet means "not configured" -- return a null
+    inventory_adjustment_account_id rather than 404, since an unconfigured
+    company is a normal, expected state, not an error."""
+    settings = await settings_repo.get_by_company(ctx.company_id)
+    if settings is None:
+        return AccountingSettingsOut(company_id=ctx.company_id, inventory_adjustment_account_id=None)
+    return settings
+
+
+@router.patch("/settings", response_model=AccountingSettingsOut)
+async def update_accounting_settings(
+    payload: AccountingSettingsUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_permission("accounting.settings.manage")),
+    settings_repo: AccountingSettingsRepository = Depends(get_accounting_settings_repo),
+    account_repo: AccountRepository = Depends(get_account_repo),
+    account_type_repo: AccountTypeRepository = Depends(get_account_type_repo),
+):
+    before = await settings_repo.get_by_company(ctx.company_id)
+    before_value = before.inventory_adjustment_account_id if before else None
+
+    service = AccountingSettingsService(settings_repo, account_repo, account_type_repo)
+    try:
+        settings = await service.update_settings(
+            company_id=ctx.company_id,
+            inventory_adjustment_account_id=payload.inventory_adjustment_account_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    if settings.inventory_adjustment_account_id != before_value:
+        await AuditLogRepository(db).record(
+            tenant_id=ctx.tenant_id,
+            company_id=ctx.company_id,
+            user_id=ctx.user_id,
+            target_table="accounting_settings",
+            target_id=settings.id,
+            field_name="inventory_adjustment_account_id",
+            old_value=str(before_value) if before_value else None,
+            new_value=str(settings.inventory_adjustment_account_id)
+            if settings.inventory_adjustment_account_id
+            else None,
+        )
+    await db.commit()
+    return settings
 
 
 @router.get("/tax-rates", response_model=list[TaxRateOut])

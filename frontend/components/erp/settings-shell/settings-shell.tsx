@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { Building2, ShieldCheck, UserCog, Users } from "lucide-react";
+import { Building2, Calculator, ShieldCheck, UserCog, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Breadcrumbs } from "@/components/erp/breadcrumbs/breadcrumbs";
 import { useI18n } from "@/lib/i18n/config";
@@ -26,6 +26,7 @@ interface SettingsSection {
  */
 const SETTINGS_SECTIONS: SettingsSection[] = [
   { href: "/settings/company", labelKey: "settings.section.company", icon: Building2 },
+  { href: "/settings/accounting", labelKey: "settings.section.accounting", icon: Calculator },
   { href: "/settings/users", labelKey: "settings.section.users", icon: Users },
   { href: "/settings/security", labelKey: "settings.section.security", icon: ShieldCheck },
   { href: "/settings/account", labelKey: "settings.section.account", icon: UserCog },

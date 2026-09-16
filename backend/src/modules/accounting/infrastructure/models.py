@@ -228,3 +228,34 @@ class JournalEntryLine(Base):
         CheckConstraint("debit >= 0 AND credit >= 0", name="ck_jel_nonnegative"),
         CheckConstraint("NOT (debit > 0 AND credit > 0)", name="ck_jel_debit_xor_credit"),
     )
+
+
+class AccountingSettings(Base):
+    """One row per company (INV-002). Created lazily on first save rather
+    than seeded at bootstrap -- there is no dedicated account in
+    DEFAULT_SAUDI_COA safe to default to (see the migration's docstring),
+    so "no row" and "row with inventory_adjustment_account_id=NULL" both
+    mean "not yet configured" and are treated identically by callers."""
+
+    __tablename__ = "accounting_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    # Cycle Count approval's shortage/credit vs. surplus/debit adjustment
+    # account (INV-002) -- replaces the previously hardcoded ACCOUNT_CODE_
+    # ADJUSTMENT="5200" lookup, which broke the moment any company added a
+    # sub-account under "5200 Operating Expenses" (an ordinary bookkeeping
+    # action) and turned it into a group account. One account for both
+    # directions, per Owner's accounting-policy decision -- debit/credit
+    # polarity alone distinguishes shortage from surplus.
+    inventory_adjustment_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("account.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=text("now()"), onupdate=text("now()"), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("company_id", name="ux_accounting_settings_company"),)

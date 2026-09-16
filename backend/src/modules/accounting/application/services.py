@@ -19,6 +19,7 @@ from src.modules.accounting.domain.entities import (
 )
 from src.modules.accounting.infrastructure.models import (
     Account,
+    AccountingSettings,
     CostCenter,
     FiscalPeriod,
     Journal,
@@ -28,6 +29,7 @@ from src.modules.accounting.infrastructure.models import (
     TaxRate,
 )
 from src.modules.accounting.infrastructure.repositories import (
+    AccountingSettingsRepository,
     AccountRepository,
     AccountTypeRepository,
     CostCenterRepository,
@@ -416,6 +418,89 @@ class CostCenterService:
             cost_center.is_active = is_active
 
         return await self.cost_center_repo.update(cost_center)
+
+
+class AccountingSettingsService:
+    """INV-002 — company-scoped accounting configuration. Scoped
+    deliberately narrow (one field) per Owner directive: replaces Cycle
+    Count approval's hardcoded 5200 lookup with a configurable, validated
+    account, WITHOUT generalizing into a settings framework or touching
+    Sales/Purchasing/Payments' own hardcoded account codes (tracked
+    separately as follow-up debt, ACC-CONFIG-001).
+
+    One account for both shortage and surplus, per Owner's accounting
+    policy -- debit/credit polarity alone distinguishes the two; see
+    inventory/api/routes.py's approve_cycle_count for the posting.
+    """
+
+    def __init__(
+        self,
+        settings_repo: AccountingSettingsRepository,
+        account_repo: AccountRepository,
+        account_type_repo: AccountTypeRepository,
+    ):
+        self.settings_repo = settings_repo
+        self.account_repo = account_repo
+        self.account_type_repo = account_type_repo
+
+    async def get_settings(self, company_id: UUID) -> AccountingSettings | None:
+        return await self.settings_repo.get_by_company(company_id)
+
+    async def update_settings(
+        self, *, company_id: UUID, inventory_adjustment_account_id: UUID | None
+    ) -> AccountingSettings:
+        # Single-field resource: PATCH always carries the full desired
+        # state, so None here means "explicitly clear the configuration",
+        # never "leave unchanged" -- no _UNSET sentinel needed, unlike
+        # ChartOfAccountsService.update_account's multi-field payload.
+        if inventory_adjustment_account_id is not None:
+            await self._validate_inventory_adjustment_account(inventory_adjustment_account_id, company_id)
+
+        settings = await self.settings_repo.get_by_company(company_id)
+        if settings is None:
+            settings = AccountingSettings(
+                id=uuid.uuid4(),
+                company_id=company_id,
+                inventory_adjustment_account_id=inventory_adjustment_account_id,
+            )
+            return await self.settings_repo.add(settings)
+
+        settings.inventory_adjustment_account_id = inventory_adjustment_account_id
+        return await self.settings_repo.update(settings)
+
+    async def resolve_inventory_adjustment_account(self, company_id: UUID) -> Account:
+        """Cycle Count approval's entry point (INV-002): re-validates
+        defensively even though update_settings already validated at save
+        time -- a valid leaf account can legitimately become a group
+        account later (e.g. a user adds a sub-account under it), exactly
+        the failure mode that made the original hardcoded 5200 lookup
+        crash in production. Never weakens JournalEntryService.
+        create_draft_entry's own group-account guard; this just fails
+        earlier, with a clearer, company-scoped message."""
+        settings = await self.settings_repo.get_by_company(company_id)
+        if settings is None or settings.inventory_adjustment_account_id is None:
+            raise ValueError("Inventory adjustment account is not configured")
+        return await self._validate_inventory_adjustment_account(
+            settings.inventory_adjustment_account_id, company_id
+        )
+
+    async def _validate_inventory_adjustment_account(self, account_id: UUID, company_id: UUID) -> Account:
+        account = await self.account_repo.get_by_id(account_id)
+        if account is None or account.company_id != company_id:
+            raise ValueError("Inventory adjustment account not found in this company")
+        if account.is_group:
+            raise ValueError(
+                f"Cannot use {account.code} — {account.name} as the inventory adjustment account: "
+                "it is a group account (has sub-accounts); select a detailed posting account instead"
+            )
+        if not account.is_active:
+            raise ValueError(f"Inventory adjustment account {account.code} is not active")
+        account_type = await self.account_type_repo.get_by_id(account.account_type_id)
+        if account_type is None or account_type.code != "expense":
+            raise ValueError(
+                f"Inventory adjustment account {account.code} must be an expense-type account"
+            )
+        return account
 
 
 class JournalEntryService:

@@ -42,6 +42,13 @@ export interface AccountBalance {
   balance: string;
 }
 
+// INV-002: replaces Cycle Count approval's previously hardcoded "5200"
+// adjustment account. One account for both shortage and surplus.
+export interface AccountingSettings {
+  company_id: string;
+  inventory_adjustment_account_id: string | null;
+}
+
 export interface AccountUpdateInput {
   code?: string;
   name?: string;

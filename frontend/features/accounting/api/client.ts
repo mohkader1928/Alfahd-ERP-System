@@ -2,6 +2,7 @@ import { apiClient } from "@/lib/api-client";
 import type {
   Account,
   AccountBalance,
+  AccountingSettings,
   AccountUpdateInput,
   BalanceSheetResponse,
   CashFlowResponse,
@@ -25,6 +26,11 @@ export const accountingApi = {
 
   getAccountBalance: (companyId: string, accountId: string) =>
     apiClient.get<AccountBalance>(`${BASE}/accounts/${accountId}/balance`, { companyId }),
+
+  getSettings: (companyId: string) => apiClient.get<AccountingSettings>(`${BASE}/settings`, { companyId }),
+
+  updateSettings: (companyId: string, payload: { inventory_adjustment_account_id: string | null }) =>
+    apiClient.patch<AccountingSettings>(`${BASE}/settings`, payload, { companyId }),
 
   listTaxRates: (companyId: string) => apiClient.get<TaxRate[]>(`${BASE}/tax-rates`, { companyId }),
 

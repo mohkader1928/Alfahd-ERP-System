@@ -34,6 +34,19 @@ class AccountBalanceOut(BaseModel):
     balance: Decimal
 
 
+class AccountingSettingsOut(BaseModel):
+    company_id: UUID
+    inventory_adjustment_account_id: UUID | None
+
+    model_config = {"from_attributes": True}
+
+
+class AccountingSettingsUpdateRequest(BaseModel):
+    # Full-replacement PATCH (the resource has one field): None explicitly
+    # clears the configured account, it never means "leave unchanged".
+    inventory_adjustment_account_id: UUID | None = None
+
+
 class CostCenterOut(BaseModel):
     id: UUID
     company_id: UUID

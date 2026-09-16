@@ -10,6 +10,7 @@ from sqlalchemy.orm import aliased
 
 from src.modules.accounting.infrastructure.models import (
     Account,
+    AccountingSettings,
     AccountType,
     CostCenter,
     FiscalPeriod,
@@ -97,6 +98,26 @@ class AccountRepository:
             select(JournalEntryLine.id).where(JournalEntryLine.account_id == account_id).limit(1)
         )
         return result.scalar_one_or_none() is not None
+
+
+class AccountingSettingsRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_company(self, company_id: UUID) -> AccountingSettings | None:
+        result = await self.session.execute(
+            select(AccountingSettings).where(AccountingSettings.company_id == company_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def add(self, settings: AccountingSettings) -> AccountingSettings:
+        self.session.add(settings)
+        await self.session.flush()
+        return settings
+
+    async def update(self, settings: AccountingSettings) -> AccountingSettings:
+        await self.session.flush()
+        return settings
 
 
 class CostCenterRepository:

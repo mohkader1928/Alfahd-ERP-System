@@ -86,6 +86,11 @@ PERMISSION_CATALOG = [
     ("accounting.cost_centers.create", "action"),
     ("accounting.cost_centers.update", "action"),
     ("accounting.reports.cost_center.view", "screen"),
+    # INV-002: company-scoped accounting configuration (currently just the
+    # Cycle Count inventory adjustment account). Single permission for the
+    # whole small surface -- same reasoning as role.manage above, and
+    # there's no read-only audience distinct from whoever can change it.
+    ("accounting.settings.manage", "action"),
     # Phase 17E — Accounting Standardization (Milestone 1a)
     ("accounting.reports.general_ledger.view", "screen"),
     ("accounting.reports.income_statement.view", "screen"),

@@ -55,6 +55,22 @@ async def _create_warehouse(client, headers) -> dict:
     return resp.json()
 
 
+async def _configure_inventory_adjustment_account(client, headers) -> None:
+    """INV-002: Cycle Count approval no longer implicitly assumes account
+    "5200" -- every company (new or existing) starts unconfigured and an
+    admin must explicitly select one (see test_inv002_accounting_settings.py
+    for the dedicated regression coverage). Tests in this file that post a
+    real shortage/surplus need this called once after bootstrap."""
+    accounts = (await client.get("/api/v1/accounting/chart-of-accounts", headers=headers)).json()
+    operating_expenses = next(a for a in accounts if a["code"] == "5200")
+    resp = await client.patch(
+        "/api/v1/accounting/settings",
+        headers=headers,
+        json={"inventory_adjustment_account_id": operating_expenses["id"]},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_receive_stock_and_query_quant(client):
     _, headers = await _bootstrap_and_login(client)
     product_id = await _create_product(client, headers)
@@ -252,6 +268,7 @@ async def test_transfer_blocks_when_insufficient_stock(client):
 
 async def test_cycle_count_posts_adjustment_and_journal_entry(client):
     _, headers = await _bootstrap_and_login(client)
+    await _configure_inventory_adjustment_account(client, headers)
     product_id = await _create_product(client, headers)
     wh = await _create_warehouse(client, headers)
     location_id = wh["default_location"]["id"]
@@ -327,6 +344,7 @@ async def test_cycle_count_positive_find_with_no_prior_quant_uses_cost_price(cli
     values the found quantity at the product's cost_price when no prior
     valuation history exists."""
     _, headers = await _bootstrap_and_login(client)
+    await _configure_inventory_adjustment_account(client, headers)
     product_resp = await client.post(
         "/api/v1/identity/products",
         headers=headers,
@@ -375,6 +393,7 @@ async def test_cycle_count_posts_one_net_journal_entry_across_lines(client):
     products), tagged move_type="adjustment" so it reads as a distinct
     document type from ordinary receipts/transfers."""
     _, headers = await _bootstrap_and_login(client)
+    await _configure_inventory_adjustment_account(client, headers)
     product_a = await _create_product(client, headers)
     product_b = await _create_product(client, headers)
     wh = await _create_warehouse(client, headers)
@@ -908,6 +927,7 @@ async def test_cardex_warehouse_filter_scopes_transfer_legs(client):
 
 async def test_cardex_source_table_filter(client):
     _, headers = await _bootstrap_and_login(client)
+    await _configure_inventory_adjustment_account(client, headers)
     product_id = await _create_product(client, headers)
     wh = await _create_warehouse(client, headers)
     location_id = wh["default_location"]["id"]

@@ -14,13 +14,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.api.deps import (
     get_account_repo,
+    get_account_type_repo,
+    get_accounting_settings_repo,
     get_fiscal_period_repo,
     get_journal_entry_repo,
     get_journal_repo,
 )
-from src.modules.accounting.application.services import JournalEntryService
+from src.modules.accounting.application.services import (
+    AccountingSettingsService,
+    JournalEntryService,
+)
 from src.modules.accounting.infrastructure.repositories import (
+    AccountingSettingsRepository,
     AccountRepository,
+    AccountTypeRepository,
     FiscalPeriodRepository,
     JournalEntryRepository,
     JournalRepository,
@@ -38,8 +45,6 @@ from src.modules.inventory.api.deps import (
     get_warehouse_repo,
     require_permission,
 )
-from src.modules.purchasing.infrastructure.repositories import GoodsReceiptRepository, VendorBillRepository
-from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
 from src.modules.inventory.api.schemas import (
     CardexLineOut,
     CycleCountCreateRequest,
@@ -76,7 +81,16 @@ from src.modules.inventory.infrastructure.repositories import (
     StockTransferRepository,
     WarehouseRepository,
 )
-from src.shared.documents.cycle_count_pdf import CycleCountDocument, CycleCountLineRow, render_cycle_count_pdf
+from src.modules.purchasing.infrastructure.repositories import (
+    GoodsReceiptRepository,
+    VendorBillRepository,
+)
+from src.modules.sales.infrastructure.repositories import SalesInvoiceRepository
+from src.shared.documents.cycle_count_pdf import (
+    CycleCountDocument,
+    CycleCountLineRow,
+    render_cycle_count_pdf,
+)
 from src.shared.infrastructure.db.session import get_db, set_company_context
 from src.shared.reporting.company_name import resolve_company_name
 from src.shared.reporting.export_render import ReportColumn, ReportTable
@@ -90,8 +104,18 @@ ExportFormatParam = Literal["json", "pdf", "xlsx"]
 router = APIRouter()
 
 ACCOUNT_CODE_INVENTORY = "1300"
-ACCOUNT_CODE_ADJUSTMENT = "5200"
 ACCOUNT_CODE_INVENTORY_VARIANCE = "5150"
+# INV-002: the Cycle Count shortage/surplus adjustment account is no longer
+# a hardcoded code (it used to be "5200", which broke the moment any
+# company added a sub-account under "5200 Operating Expenses" -- an
+# ordinary bookkeeping action that silently turns it into a group account,
+# confirmed live in production). It is now a per-company configured
+# account resolved via AccountingSettingsService -- see approve_cycle_count.
+# ACCOUNT_CODE_INVENTORY and ACCOUNT_CODE_INVENTORY_VARIANCE above are
+# deliberately left as-is: out of INV-002's approved scope (tracked as
+# follow-up debt, ACC-CONFIG-001), and 1300/5150 don't share 5200's
+# specific hazard (neither is a bucket users are naturally inclined to
+# subdivide the way "Operating Expenses" is).
 
 
 @router.post("/warehouses", response_model=WarehouseCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -622,6 +646,8 @@ async def approve_cycle_count(
     layer_repo: StockLayerRepository = Depends(get_stock_layer_repo),
     move_repo: StockMoveRepository = Depends(get_stock_move_repo),
     account_repo: AccountRepository = Depends(get_account_repo),
+    account_type_repo: AccountTypeRepository = Depends(get_account_type_repo),
+    accounting_settings_repo: AccountingSettingsRepository = Depends(get_accounting_settings_repo),
     journal_repo: JournalRepository = Depends(get_journal_repo),
     entry_repo: JournalEntryRepository = Depends(get_journal_entry_repo),
     period_repo: FiscalPeriodRepository = Depends(get_fiscal_period_repo),
@@ -641,8 +667,7 @@ async def approve_cycle_count(
     journal_service = JournalEntryService(entry_repo, journal_repo, account_repo, period_repo)
 
     inventory_account = await account_repo.get_by_code(ctx.company_id, ACCOUNT_CODE_INVENTORY)
-    adjustment_account = await account_repo.get_by_code(ctx.company_id, ACCOUNT_CODE_ADJUSTMENT)
-    if not (inventory_account and adjustment_account):
+    if inventory_account is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Default Chart of Accounts is not seeded")
 
     # Each line still gets its own Stock Move (a physical quantity movement
@@ -716,6 +741,33 @@ async def approve_cycle_count(
 
         line.stock_move_id = move.id
 
+    if net_value != 0:
+        # INV-002: resolved from company-scoped configuration, re-validated
+        # here even though AccountingSettingsService.update_settings already
+        # validated at save time -- a valid leaf account can legitimately
+        # become a group account later (exactly how the old hardcoded "5200"
+        # lookup crashed in production). Resolved lazily, only once a
+        # posting is actually needed -- a net-zero cycle count (no real
+        # discrepancy) must remain approvable even if this has never been
+        # configured, since it would never be used. Message is deliberately
+        # generic: the approver isn't the one who (mis)configured it, so
+        # pointing at Accounting Settings is the right next step regardless
+        # of which specific validation failed -- see the chained exception
+        # for the specific reason in the server log.
+        accounting_settings_service = AccountingSettingsService(
+            accounting_settings_repo, account_repo, account_type_repo
+        )
+        try:
+            adjustment_account = await accounting_settings_service.resolve_inventory_adjustment_account(
+                ctx.company_id
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Inventory adjustment account is not configured or is not a valid posting account. "
+                "Please select an active detailed account in Accounting Settings.",
+            ) from e
+
     if net_value > 0:
         entry_lines = [
             {"account_id": inventory_account.id, "debit": net_value, "credit": 0},
@@ -730,17 +782,29 @@ async def approve_cycle_count(
         entry_lines = None
 
     if entry_lines is not None:
-        entry = await journal_service.create_draft_entry(
-            company_id=ctx.company_id,
-            branch_id=ctx.branch_id,
-            journal_code="GEN",
-            entry_date=cycle_count.scheduled_date,
-            reference=cycle_count.number,
-            lines=entry_lines,
-            created_by=ctx.user_id,
-            source_table="cycle_count",
-            source_id=cycle_count.id,
-        )
+        # Defense-in-depth: JournalEntryService.create_draft_entry runs its
+        # own group-account guard on every line's account (never weakened
+        # here) -- this catches it if the resolved adjustment_account (or
+        # inventory_account) became invalid between the check above and
+        # this call, rather than letting it escape to a 500.
+        try:
+            entry = await journal_service.create_draft_entry(
+                company_id=ctx.company_id,
+                branch_id=ctx.branch_id,
+                journal_code="GEN",
+                entry_date=cycle_count.scheduled_date,
+                reference=cycle_count.number,
+                lines=entry_lines,
+                created_by=ctx.user_id,
+                source_table="cycle_count",
+                source_id=cycle_count.id,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Inventory adjustment account is not configured or is not a valid posting account. "
+                "Please select an active detailed account in Accounting Settings.",
+            ) from e
         await journal_service.post_entry(entry_id=entry.id, company_id=ctx.company_id)
 
     if net_valuation_variance != 0:
@@ -765,17 +829,24 @@ async def approve_cycle_count(
                 {"account_id": variance_account.id, "debit": 0, "credit": amount},
             ]
         )
-        variance_entry = await journal_service.create_draft_entry(
-            company_id=ctx.company_id,
-            branch_id=ctx.branch_id,
-            journal_code="GEN",
-            entry_date=cycle_count.scheduled_date,
-            reference=f"Inventory valuation variance for {cycle_count.number}",
-            lines=variance_lines,
-            created_by=ctx.user_id,
-            source_table="cycle_count",
-            source_id=cycle_count.id,
-        )
+        try:
+            variance_entry = await journal_service.create_draft_entry(
+                company_id=ctx.company_id,
+                branch_id=ctx.branch_id,
+                journal_code="GEN",
+                entry_date=cycle_count.scheduled_date,
+                reference=f"Inventory valuation variance for {cycle_count.number}",
+                lines=variance_lines,
+                created_by=ctx.user_id,
+                source_table="cycle_count",
+                source_id=cycle_count.id,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Inventory valuation variance posting failed because a required account is not a "
+                "valid posting account. Please review the Chart of Accounts configuration.",
+            ) from e
         await journal_service.post_entry(entry_id=variance_entry.id, company_id=ctx.company_id)
 
     cycle_count.status = "approved"

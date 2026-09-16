@@ -7,6 +7,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.accounting.infrastructure.repositories import (
+    AccountingSettingsRepository,
     AccountRepository,
     AccountTypeRepository,
     CostCenterRepository,
@@ -45,3 +46,7 @@ def get_journal_entry_repo(db: AsyncSession = Depends(get_db)) -> JournalEntryRe
 
 def get_cost_center_repo(db: AsyncSession = Depends(get_db)) -> CostCenterRepository:
     return CostCenterRepository(db)
+
+
+def get_accounting_settings_repo(db: AsyncSession = Depends(get_db)) -> AccountingSettingsRepository:
+    return AccountingSettingsRepository(db)

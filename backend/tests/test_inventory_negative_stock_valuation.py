@@ -64,6 +64,18 @@ async def _setup_oversold_position(client, headers) -> dict:
     to receive more stock afterward and to independently compute the
     expected conserved value (old_avg stays 20.00 throughout: issues
     never touch moving_avg_cost, only receipts do)."""
+    # INV-002: the cycle count below posts a real shortage (100 -> 0), so
+    # the company's Inventory Adjustment account must be explicitly
+    # configured first -- no automatic default exists any more.
+    accounts = (await client.get("/api/v1/accounting/chart-of-accounts", headers=headers)).json()
+    operating_expenses = next(a for a in accounts if a["code"] == "5200")
+    settings_resp = await client.patch(
+        "/api/v1/accounting/settings",
+        headers=headers,
+        json={"inventory_adjustment_account_id": operating_expenses["id"]},
+    )
+    assert settings_resp.status_code == 200, settings_resp.text
+
     vendor_resp = await client.post(
         "/api/v1/identity/partners", headers=headers, json={"name": "Negative Stock Vendor", "is_vendor": True}
     )
