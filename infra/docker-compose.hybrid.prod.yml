@@ -1,0 +1,20 @@
+# Hybrid Production override.
+#
+# Keeps the existing erp-nucleus PostgreSQL/Redis infrastructure while
+# converting API and Worker to immutable production-stage containers.
+#
+# IMPORTANT:
+# Use together with infra/docker-compose.yml.
+# Do not use this file alone.
+# Do not deploy without the release runbook and Owner approval.
+
+services:
+  api:
+    build:
+      target: production
+    volumes: !reset []
+
+  worker:
+    build:
+      target: production
+    volumes: !reset []

@@ -2,14 +2,17 @@ name: erp-nucleus
 
 services:
   postgres:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: erp
-      POSTGRES_PASSWORD: erp_dev_password
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
       POSTGRES_DB: erp_nucleus
-    ports:
-      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,10 +22,13 @@ services:
       retries: 10
 
   redis:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "16379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -50,6 +56,11 @@ services:
     profiles: ["tools"]
 
   api:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     build:
       context: ../backend
       dockerfile: Dockerfile
@@ -57,7 +68,7 @@ services:
     env_file:
       - ../backend/.env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ../backend:/app
     depends_on:
@@ -67,6 +78,11 @@ services:
         condition: service_healthy
 
   worker:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     build:
       context: ../backend
       dockerfile: Dockerfile

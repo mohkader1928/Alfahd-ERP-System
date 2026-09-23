@@ -3,6 +3,11 @@ __pycache__
 *.pyc
 .pytest_cache
 .ruff_cache
-.env
 .git
 tests
+
+# Never copy runtime/migration secrets into Docker images.
+.env
+.env.*
+!.env.example
+!.env.*.example
