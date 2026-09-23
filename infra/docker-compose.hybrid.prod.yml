@@ -1,20 +1,20 @@
 # Hybrid Production override.
 #
 # Keeps the existing erp-nucleus PostgreSQL/Redis infrastructure while
-# converting API and Worker to immutable production-stage containers.
+# converting API and Worker to immutable release containers.
 #
 # IMPORTANT:
 # Use together with infra/docker-compose.yml.
-# Do not use this file alone.
+# ALFAHD_BACKEND_IMAGE must identify the exact approved release artifact.
 # Do not deploy without the release runbook and Owner approval.
 
 services:
   api:
-    build:
-      target: production
+    image: "${ALFAHD_BACKEND_IMAGE:?ALFAHD_BACKEND_IMAGE is required}"
+    build: !reset null
     volumes: !reset []
 
   worker:
-    build:
-      target: production
+    image: "${ALFAHD_BACKEND_IMAGE:?ALFAHD_BACKEND_IMAGE is required}"
+    build: !reset null
     volumes: !reset []
