@@ -110,32 +110,49 @@ If migration safety or rollback compatibility is uncertain, STOP the release.
 
 ## 6. Application Release Procedure
 
-### 6.1 Backend — CURRENT Mode
+### 6.1 Backend — CURRENT Immutable Mode
 
-Current Production API and Worker are source-mounted from `../backend:/app`.
+Production API and Worker now run from an approved immutable backend image.
 
-Until the immutable deployment transition is separately tested and approved:
+Last verified runtime state:
 
-- Do not assume Docker image rollback restores backend source code.
-- Record the exact Git state before changing backend source.
-- Preserve unrelated Production working-tree changes.
-- Apply only the approved release changes.
-- Run required migrations only after Section 5 passes.
-- Recreate/restart only the services required by the approved release.
-- Verify API health and Worker operation immediately afterward.
+- API image: `alfahd-erp-backend:6dac48f`
+- Worker image: `alfahd-erp-backend:6dac48f`
+- API and Worker use the same verified image artifact.
+- Backend source is not bind-mounted into either application container.
+- The immutable cutover has been completed and validated.
+- Previous pre-immutable API and Worker images were preserved as rollback artifacts.
+- An actual Production rollback drill after this cutover has NOT been performed.
 
-### 6.2 Backend — TARGET Mode
+For an approved backend release:
 
-The approved target is immutable Production deployment:
+1. Select and record the exact approved Git commit.
+2. Build from the Dockerfile `production` stage.
+3. Tag the release artifact with a unique immutable release identifier.
+4. Verify that secrets or environment files are not embedded in the image.
+5. Complete the backup and migration gate in Section 5.
+6. Preserve the previous known-good application artifact.
+7. Deploy API and Worker from the exact approved image.
+8. Do not bind-mount backend source into Production API or Worker containers.
+9. Run the validation and acceptance checks in Section 7.
+10. Keep the previous known-good artifact until the release is accepted.
 
-- Build from the Dockerfile `production` stage.
-- Tag API and Worker artifacts with a unique release identifier.
-- Do not bind-mount backend source into application containers.
-- Retain the previous known-good release artifacts.
-- Deploy the exact approved release artifacts.
+The Production repository working tree is not the deployed backend artifact.
+Do not assume that changing files in the repository changes the running API or Worker.
 
-Do not transition CURRENT Production to TARGET mode without a separate tested
-infrastructure change and explicit Owner approval.
+### 6.2 Legacy Source-Mounted Mode
+
+The previous Production model used `../backend:/app` source bind mounts.
+
+That model is no longer the verified current backend deployment and must not be
+silently reintroduced.
+
+The preserved pre-immutable images and historical Git state exist for recovery
+analysis, but rollback must follow Section 8 and must account for the deployment
+mode, database compatibility, and customer data created after release.
+
+Do not treat a Docker image tag alone as sufficient to reproduce the old
+source-mounted runtime behavior.
 
 ### 6.3 Frontend — CURRENT Mode
 
