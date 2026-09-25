@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
@@ -93,6 +93,8 @@ export default function CompanySetupWizardPage() {
   const [companyForm, setCompanyForm] = useState({ legal_name: "", legal_name_ar: "", vat_number: "" });
   const [profileForm, setProfileForm] = useState<CompanyProfileWriteInput>(initialProfile);
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
+  const [profileExists, setProfileExists] = useState(false);
+  const [profileLookupComplete, setProfileLookupComplete] = useState(!isFirstCompanyOnboarding);
   const [sizing, setSizing] = useState<SizingResult | null>(null);
   const [blueprint, setBlueprint] = useState<ErpBlueprint | null>(null);
   const [plan, setPlan] = useState<ConfigurationPlan | null>(null);
@@ -115,6 +117,60 @@ export default function CompanySetupWizardPage() {
   function fail(err: unknown) {
     setError(err instanceof ApiError ? err.detail : t("common.error"));
   }
+
+  // Resume first-company onboarding safely. A missing profile (404) is the
+  // normal new-company case; every other error remains visible to the user.
+  useEffect(() => {
+    if (!isFirstCompanyOnboarding || !newCompanyId) return;
+
+    let cancelled = false;
+
+    async function loadExistingProfile() {
+      setProfileLookupComplete(false);
+      try {
+        const existing = await companySetupApi.getProfile(newCompanyId!);
+        if (cancelled) return;
+
+        setProfile(existing);
+        setProfileExists(true);
+        setProfileForm({
+          industry: existing.industry,
+          employee_count: existing.employee_count,
+          branch_count: existing.branch_count,
+          warehouse_count: existing.warehouse_count,
+          cost_center_tracking_needed: existing.cost_center_tracking_needed,
+          is_service_business: existing.is_service_business,
+          monthly_sales_order_volume: existing.monthly_sales_order_volume,
+          monthly_purchase_order_volume: existing.monthly_purchase_order_volume,
+          desired_user_count: existing.desired_user_count,
+          approval_rigor_preference: existing.approval_rigor_preference as ApprovalRigor,
+          owns_fixed_assets: existing.owns_fixed_assets,
+          multi_currency_requested: existing.multi_currency_requested,
+          growth_notes: existing.growth_notes,
+        });
+        setError(null);
+        setProfileLookupComplete(true);
+      } catch (err) {
+        if (cancelled) return;
+
+        if (err instanceof ApiError && err.status === 404) {
+          setProfile(null);
+          setProfileExists(false);
+          setProfileForm(initialProfile);
+          setError(null);
+          setProfileLookupComplete(true);
+        } else {
+          fail(err);
+        }
+      }
+    }
+
+    void loadExistingProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isFirstCompanyOnboarding, newCompanyId]);
 
   // --- Step 0: Create Company ---
   const createCompanyMutation = useMutation({
@@ -150,10 +206,14 @@ export default function CompanySetupWizardPage() {
   });
 
   // --- Step 1: Define Profile ---
-  const createProfileMutation = useMutation({
-    mutationFn: () => companySetupApi.createProfile(newCompanyId!, profileForm),
+  const saveProfileMutation = useMutation({
+    mutationFn: () =>
+      profileExists
+        ? companySetupApi.updateProfile(newCompanyId!, profileForm)
+        : companySetupApi.createProfile(newCompanyId!, profileForm),
     onSuccess: (result) => {
       setProfile(result);
+      setProfileExists(true);
       setError(null);
       setStep(2);
     },
@@ -269,9 +329,9 @@ export default function CompanySetupWizardPage() {
           setForm={setProfileForm}
           onSubmit={() => {
             setError(null);
-            createProfileMutation.mutate();
+            saveProfileMutation.mutate();
           }}
-          isPending={createProfileMutation.isPending}
+          isPending={!profileLookupComplete || saveProfileMutation.isPending}
         />
       )}
 
